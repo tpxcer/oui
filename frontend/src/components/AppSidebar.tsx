@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Drawer, Layout, Menu, message } from 'antd';
 import type { MenuProps } from 'antd';
+import axios from 'axios';
 import {
   ApiOutlined,
   CloudDownloadOutlined,
@@ -23,7 +24,7 @@ import {
   ToolOutlined,
 } from '@ant-design/icons';
 
-import { HttpUtil } from '@/utils';
+import { HttpUtil, PromiseUtil } from '@/utils';
 import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
 import './AppSidebar.css';
 
@@ -95,8 +96,8 @@ function SidebarUpdateButton({
 }) {
   const updateAvailable = !!info?.updateAvailable;
   const nextVersion = info?.latestVersion || '';
-  const title = updateAvailable && nextVersion ? `一键更新到 ${nextVersion}` : updateAvailable ? '一键更新' : '检测版本';
-  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测';
+  const title = updateAvailable && nextVersion ? `一键更新到 ${nextVersion}` : updateAvailable ? '一键更新' : '检测并自动更新';
+  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测更新';
   const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
   const safeProgress = Math.max(0, Math.min(100, progress));
   return (
@@ -155,6 +156,48 @@ export default function AppSidebar() {
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
   const panelVersion = window.X_UI_CUR_VER || '';
 
+  const pollUntilBack = useCallback(async (): Promise<boolean> => {
+    await PromiseUtil.sleep(5000);
+    const deadline = Date.now() + 120_000;
+    while (Date.now() < deadline) {
+      try {
+        const r = await axios.get('/panel/api/server/status', { timeout: 2000 });
+        if (r?.data?.success) return true;
+      } catch {
+        /* panel is still restarting */
+      }
+      await PromiseUtil.sleep(2000);
+    }
+    return false;
+  }, []);
+
+  const updatePanel = useCallback(async (info?: PanelUpdateInfo | null) => {
+    if (info) setUpdateInfo(info);
+    setUpdatingPanel(true);
+    setUpdateProgress(8);
+    try {
+      const result = await HttpUtil.post('/panel/api/server/updatePanel');
+      if (result?.success) {
+        message.success(info?.latestVersion ? `已开始后台更新到 ${info.latestVersion}` : '已开始后台更新');
+        const back = await pollUntilBack();
+        setUpdateProgress(100);
+        if (back) {
+          await PromiseUtil.sleep(800);
+          window.location.reload();
+          return;
+        }
+        message.info('后台更新仍在执行，请稍后手动刷新页面');
+        setUpdatingPanel(false);
+      } else {
+        message.error(result?.msg || '启动后台更新失败');
+        setUpdatingPanel(false);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '启动后台更新失败');
+      setUpdatingPanel(false);
+    }
+  }, [pollUntilBack]);
+
   const checkPanelUpdate = useCallback(async () => {
     setCheckingUpdate(true);
     try {
@@ -162,32 +205,18 @@ export default function AppSidebar() {
       if (msg?.success && msg.obj) {
         setUpdateInfo(msg.obj);
         if (msg.obj.updateAvailable) {
-          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
+          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}，开始自动更新` : '发现新版本，开始自动更新');
+          await updatePanel(msg.obj);
         } else {
           message.success('当前已是最新版');
         }
+      } else {
+        message.error(msg?.msg || '版本检测失败，请检查服务器是否可以访问 GitHub');
       }
     } finally {
       setCheckingUpdate(false);
     }
-  }, []);
-
-  const updatePanel = useCallback(async () => {
-    setUpdatingPanel(true);
-    setUpdateProgress(8);
-    try {
-      const result = await HttpUtil.post('/panel/api/server/updatePanel');
-      if (result?.success) {
-        setUpdateProgress(100);
-        message.success('已开始后台更新，请稍后刷新页面');
-        window.setTimeout(() => setUpdatingPanel(false), 3000);
-      } else {
-        setUpdatingPanel(false);
-      }
-    } catch {
-      setUpdatingPanel(false);
-    }
-  }, []);
+  }, [updatePanel]);
 
   useEffect(() => {
     if (!updatingPanel) return undefined;

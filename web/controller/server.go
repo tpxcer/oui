@@ -185,7 +185,10 @@ func (a *ServerController) getPanelUpdateInfo(c *gin.Context) {
 	info, err := a.panelService.GetUpdateInfo()
 	if err != nil {
 		logger.Debug("panel update check failed:", err)
-		c.JSON(http.StatusOK, entity.Msg{Success: false})
+		c.JSON(http.StatusOK, entity.Msg{
+			Success: false,
+			Msg:     fmt.Sprintf("%s: %v", I18nWeb(c, "pages.index.panelUpdateCheckPopover"), err),
+		})
 		return
 	}
 	jsonObj(c, info, nil)
