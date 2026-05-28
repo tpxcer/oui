@@ -1,4 +1,4 @@
-// Package logger provides logging functionality for the 3x-ui panel with
+// Package logger provides logging functionality for the OUI panel with
 // dual-backend logging (console/syslog and file) and buffered log storage for web UI.
 package logger
 

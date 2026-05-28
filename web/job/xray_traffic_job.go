@@ -217,7 +217,7 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 		session.idleWindowStart = now
 		onlineNotifySessions[email] = session
 		j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
-			"💎 <b>3x-ui 用户通知</b>\n"+
+			"💎 <b>OUI 用户通知</b>\n"+
 				"🚀 <b>客户端上线</b>\n"+
 				"📧 用户/节点：<code>%s</code>\n"+
 				"🧩 节点名称：<code>%s</code>\n"+
@@ -278,7 +278,7 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 func (j *XrayTrafficJob) sendInboundActiveNotify(email string, session onlineNotifySession, windowTraffic int64, st *xray.ClientTraffic, now time.Time) {
 	up, down := sessionDelta(session, st)
 	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
-		"💎 <b>3x-ui 用户通知</b>\n"+
+		"💎 <b>OUI 用户通知</b>\n"+
 			"🔵 <b>节点已恢复使用中</b>\n"+
 			"📧 用户/节点：<code>%s</code>\n"+
 			"🧩 节点名称：<code>%s</code>\n"+
@@ -301,7 +301,7 @@ func (j *XrayTrafficJob) sendInboundActiveNotify(email string, session onlineNot
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
 	up, down := sessionDelta(session, st)
 	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
-		"💎 <b>3x-ui 用户通知</b>\n"+
+		"💎 <b>OUI 用户通知</b>\n"+
 			"📴 <b>客户端下线</b>\n"+
 			"📧 用户/节点：<code>%s</code>\n"+
 			"🧩 节点名称：<code>%s</code>\n"+
@@ -325,7 +325,7 @@ func (j *XrayTrafficJob) sendInboundKeepAliveNotify(email string, session online
 		windowTraffic = 0
 	}
 	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
-		"💎 <b>3x-ui 用户通知</b>\n"+
+		"💎 <b>OUI 用户通知</b>\n"+
 			"🟢 <b>保持连接中</b>\n"+
 			"📧 用户/节点：<code>%s</code>\n"+
 			"🧩 节点名称：<code>%s</code>\n"+

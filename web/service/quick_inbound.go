@@ -24,6 +24,7 @@ type QuickInboundService struct {
 	settingService SettingService
 	serverService  ServerService
 	xrayService    XrayService
+	userService    UserService
 }
 
 func (s *QuickInboundService) Presets() []QuickInboundPresetInfo {
@@ -42,6 +43,13 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	preset, ok := tgQuickPresets[key]
 	if !ok {
 		return nil, common.NewError("未知的一键节点类型:", key)
+	}
+	if userID <= 0 {
+		user, err := s.userService.GetFirstUser()
+		if err != nil {
+			return nil, err
+		}
+		userID = user.Id
 	}
 
 	helper := &Tgbot{

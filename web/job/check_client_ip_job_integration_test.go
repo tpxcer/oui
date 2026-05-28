@@ -15,7 +15,7 @@ import (
 	"github.com/op/go-logging"
 )
 
-// 3x-ui logger must be initialised once before any code path that can
+// OUI logger must be initialised once before any code path that can
 // log a warning. otherwise log.Warningf panics on a nil logger.
 var loggerInitOnce sync.Once
 

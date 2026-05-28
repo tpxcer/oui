@@ -73,7 +73,7 @@ jobs:
           npm run build
         working-directory: frontend
 
-      - name: Build 3X-UI
+      - name: Build OUI
         run: |
           export CGO_ENABLED=1
           export GOOS=linux

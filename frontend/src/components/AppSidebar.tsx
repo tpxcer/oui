@@ -20,7 +20,6 @@ import {
   SettingOutlined,
   SunOutlined,
   SyncOutlined,
-  TagsOutlined,
   TeamOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
@@ -34,7 +33,7 @@ const DONATE_URL = 'https://donate.sanaei.dev/';
 const REPO_URL = 'https://github.com/tpxcer/oui';
 const LOGOUT_KEY = '__logout__';
 
-type IconName = 'dashboard' | 'inbound' | 'team' | 'groups' | 'setting' | 'tool' | 'cluster' | 'logout' | 'apidocs';
+type IconName = 'dashboard' | 'inbound' | 'team' | 'setting' | 'tool' | 'cluster' | 'logout' | 'apidocs';
 
 interface PanelUpdateInfo {
   currentVersion: string;
@@ -46,7 +45,6 @@ const iconByName: Record<IconName, ComponentType> = {
   dashboard: DashboardOutlined,
   inbound: ImportOutlined,
   team: TeamOutlined,
-  groups: TagsOutlined,
   setting: SettingOutlined,
   tool: ToolOutlined,
   cluster: ClusterOutlined,
@@ -208,7 +206,6 @@ export default function AppSidebar() {
     { key: '/', icon: 'dashboard', title: t('menu.dashboard') },
     { key: '/inbounds', icon: 'inbound', title: t('menu.inbounds') },
     { key: '/clients', icon: 'team', title: t('menu.clients') },
-    { key: '/groups', icon: 'groups', title: t('menu.groups') },
     { key: '/nodes', icon: 'cluster', title: t('menu.nodes') },
     { key: '/settings', icon: 'setting', title: t('menu.settings') },
     { key: '/xray', icon: 'tool', title: t('menu.xray') },
@@ -276,7 +273,7 @@ export default function AppSidebar() {
       >
         <div className={`sider-brand${collapsed ? ' sider-brand-collapsed' : ''}`}>
           <div className="brand-block">
-            <span className="brand-text">{collapsed ? '3X' : '3X-UI'}</span>
+            <span className="brand-text">OUI</span>
           </div>
           {!collapsed && (
             <div className="brand-actions">
@@ -335,7 +332,7 @@ export default function AppSidebar() {
       >
         <div className="drawer-header">
           <div className="brand-block">
-            <span className="drawer-brand">3X-UI</span>
+            <span className="drawer-brand">OUI</span>
           </div>
           <div className="drawer-header-actions">
             <DonateButton ariaLabel={t('menu.donate') || 'Donate'} />

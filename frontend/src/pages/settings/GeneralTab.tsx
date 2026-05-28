@@ -195,7 +195,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 <SettingListItem paddings="small" title="64Clouds VEID">
                   <Input
                     value={allSetting.serverProviderVEID}
-                    placeholder="例如：1982670"
+                    placeholder="请输入 VEID"
                     onChange={(e) => updateSetting({ serverProviderVEID: e.target.value })}
                   />
                 </SettingListItem>

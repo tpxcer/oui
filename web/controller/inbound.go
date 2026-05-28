@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -367,12 +368,51 @@ func (a *InboundController) importInbound(c *gin.Context) {
 	notifyClientsChanged()
 }
 
+func configuredLinkHostFrom(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	if h, _, err := net.SplitHostPort(raw); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	if strings.Contains(raw, "/") {
+		return ""
+	}
+	return strings.Trim(raw, "[]")
+}
+
 // resolveHost mirrors what sub.SubService.ResolveRequest does for the host
-// field: prefers X-Forwarded-Host (first entry of any list, port stripped),
-// then X-Real-IP, then the host portion of c.Request.Host. Keeping it in the
-// controller layer means the service interface stays HTTP-agnostic — service
-// methods receive a plain host string instead of a *gin.Context.
+// field, but configured subscription/panel domains win over request IPs so
+// generated client links keep using the public domain even when the operator
+// opens the panel through an IP address.
 func resolveHost(c *gin.Context) string {
+	settingService := service.SettingService{}
+	configuredCandidates := []string{}
+	if subDomain, err := settingService.GetSubDomain(); err == nil {
+		configuredCandidates = append(configuredCandidates, subDomain)
+	}
+	if webDomain, err := settingService.GetWebDomain(); err == nil {
+		configuredCandidates = append(configuredCandidates, webDomain)
+	}
+	if subURI, err := settingService.GetSubURI(); err == nil {
+		configuredCandidates = append(configuredCandidates, subURI)
+	}
+	if subJsonURI, err := settingService.GetSubJsonURI(); err == nil {
+		configuredCandidates = append(configuredCandidates, subJsonURI)
+	}
+	if subClashURI, err := settingService.GetSubClashURI(); err == nil {
+		configuredCandidates = append(configuredCandidates, subClashURI)
+	}
+	for _, candidate := range configuredCandidates {
+		if host := configuredLinkHostFrom(candidate); host != "" && net.ParseIP(host) == nil {
+			return host
+		}
+	}
+
 	if isTrustedForwardedRequest(c) {
 		if h := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); h != "" {
 			if i := strings.Index(h, ","); i >= 0 {

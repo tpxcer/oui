@@ -250,6 +250,7 @@ export default function InboundsPage() {
 
   const exportInboundLinks = useCallback((dbInbound: DBInbound) => {
     const projected = checkFallback(dbInbound);
+    const fallbackHostname = subSettings.linkHost || window.location.hostname;
     openText({
       title: t('pages.inbounds.exportLinksTitle'),
       content: genInboundLinks({
@@ -257,11 +258,11 @@ export default function InboundsPage() {
         remark: projected.remark,
         remarkModel,
         hostOverride: hostOverrideFor(dbInbound),
-        fallbackHostname: window.location.hostname,
+        fallbackHostname,
       }),
       fileName: projected.remark || 'inbound',
     });
-  }, [checkFallback, remarkModel, hostOverrideFor, openText, t]);
+  }, [checkFallback, remarkModel, hostOverrideFor, openText, t, subSettings.linkHost]);
 
   const exportInboundClipboard = useCallback((dbInbound: DBInbound) => {
     openText({ title: t('pages.inbounds.inboundJsonTitle'), content: JSON.stringify(dbInbound, null, 2) });
@@ -288,6 +289,7 @@ export default function InboundsPage() {
       dbInbounds.map((ib) => hydrateInbound(ib.id).then((r) => r ?? ib)),
     );
     const out: string[] = [];
+    const fallbackHostname = subSettings.linkHost || window.location.hostname;
     for (const ib of hydrated) {
       const projected = checkFallback(ib);
       out.push(genInboundLinks({
@@ -295,11 +297,11 @@ export default function InboundsPage() {
         remark: projected.remark,
         remarkModel,
         hostOverride: hostOverrideFor(ib),
-        fallbackHostname: window.location.hostname,
+        fallbackHostname,
       }));
     }
     openText({ title: t('pages.inbounds.exportAllLinksTitle'), content: out.join('\r\n'), fileName: 'All-Inbounds' });
-  }, [dbInbounds, hydrateInbound, checkFallback, remarkModel, hostOverrideFor, openText, t]);
+  }, [dbInbounds, hydrateInbound, checkFallback, remarkModel, hostOverrideFor, openText, t, subSettings.linkHost]);
 
   const exportAllSubs = useCallback(async () => {
     const hydrated = await Promise.all(

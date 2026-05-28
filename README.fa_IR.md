@@ -1,63 +1,76 @@
-[English](/README.md) | [فارسی](/README.fa_IR.md) | [العربية](/README.ar_EG.md) | [中文](/README.zh_CN.md) | [Español](/README.es_ES.md) | [Русский](/README.ru_RU.md)
+# OUI
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./media/3x-ui-dark.png">
-    <img alt="3x-ui" src="./media/3x-ui-light.png">
-  </picture>
-</p>
-
-[![Release](https://img.shields.io/github/v/release/mhsanaei/3x-ui.svg)](https://github.com/MHSanaei/3x-ui/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/mhsanaei/3x-ui/release.yml.svg)](https://github.com/MHSanaei/3x-ui/actions)
-[![GO Version](https://img.shields.io/github/go-mod/go-version/mhsanaei/3x-ui.svg)](#)
-[![Downloads](https://img.shields.io/github/downloads/mhsanaei/3x-ui/total.svg)](https://github.com/MHSanaei/3x-ui/releases/latest)
-[![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Go Reference](https://pkg.go.dev/badge/github.com/mhsanaei/3x-ui/v3.svg)](https://pkg.go.dev/github.com/mhsanaei/3x-ui/v3)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mhsanaei/3x-ui/v3)](https://goreportcard.com/report/github.com/mhsanaei/3x-ui/v3)
-
-**3X-UI** — یک پنل کنترل پیشرفته مبتنی بر وب با کد باز که برای مدیریت سرور Xray-core طراحی شده است. این پنل یک رابط کاربری آسان برای پیکربندی و نظارت بر پروتکل‌های مختلف VPN و پراکسی ارائه می‌دهد.
+OUI 是面向 Xray 的面板版本，保留协议管理、用户管理、流量统计、节点管理等核心能力，并加入来自 OUI Panel 的 Telegram 机器人和信息预览能力，让面板更适合快速开节点、观察节点状态和追踪实际使用位置。
 
 > [!IMPORTANT]
-> این پروژه فقط برای استفاده شخصی و ارتباطات است، لطفاً از آن برای اهداف غیرقانونی استفاده نکنید، لطفاً از آن در محیط تولید استفاده نکنید.
+> 本项目仅用于个人学习、服务器管理和合法通信场景。请勿用于任何违法用途，也请在正式环境中自行完成安全审计、备份和访问控制配置。
 
-به عنوان یک نسخه بهبود یافته از پروژه اصلی X-UI، 3X-UI پایداری بهتر، پشتیبانی گسترده‌تر از پروتکل‌ها و ویژگی‌های اضافی را ارائه می‌دهد.
+## 功能亮点
 
-## شروع سریع
+- **面板/TG 一键节点创建**：在入站列表或 TG 机器人中快速创建常用节点配置，支持 Hysteria2、VLESS Reality Vision、VLESS XHTTP TLS、VLESS XHTTP Reality，并自动选择 `50000-65000` 高位端口、尝试放行防火墙。
+- **节点上线提醒开关**：每个入站节点都可以单独设置 TG 上下线提醒，方便按节点粒度管理通知噪音。
+- **信息预览页**：将 API 文档入口调整为信息预览，集中展示 VPN 溯源、服务器信息、流量使用情况和资源状态。
+- **VPN 溯源查询**：支持通过 IP 查询节点实际使用位置，并拼接展示 IP、地区、坐标、来源和错误等完整结果。
+- **服务器商信息**：设置中可配置 64Clouds/KiwiVM VEID 与 API KEY，在服务器信息中展示套餐、节点位置、流量用量、重置时间、IP 和 PTR。
+- **中文安装与一键更新**：安装/更新主流程中文化，面板左下角使用日期版本号，并提供版本检测和后台一键更新入口。
+- **核心能力保留**：继续支持 Xray-core 管理、入站/客户端管理、订阅、证书、节点、流量、日志和面板设置等能力。
 
+## 快速安装
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/tpxcer/oui/main/install.sh)
 ```
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+
+安装完成后按终端提示进入面板。建议首次部署后立即修改默认登录信息、面板路径和安全相关设置。
+
+## 数据库
+
+项目支持 SQLite 和 PostgreSQL。
+
+- **SQLite**：默认方案，数据库文件通常位于 `/etc/x-ui/x-ui.db`，适合轻量部署。
+- **PostgreSQL**：适合更多客户端、更高并发或需要独立数据库管理的场景。
+
+PostgreSQL 环境变量示例：
+
+```bash
+XUI_DB_TYPE=postgres
+XUI_DB_DSN=postgres://xui:password@127.0.0.1:5432/xui?sslmode=disable
 ```
 
-برای مستندات کامل، لطفاً به [ویکی پروژه](https://github.com/MHSanaei/3x-ui/wiki) مراجعه کنید.
+## Docker
 
-## تشکر ویژه از
+默认 Docker Compose 使用 SQLite：
 
-- [alireza0](https://github.com/alireza0/)
+```bash
+docker compose up -d
+```
 
-## قدردانی
+如果需要 PostgreSQL，可参考 `docker-compose.yml` 中的注释启用 `postgres` profile。
 
-- [Iran v2ray rules](https://github.com/chocolate4u/Iran-v2ray-rules) (مجوز: **GPL-3.0**): _قوانین مسیریابی بهبود یافته v2ray/xray و v2ray/xray-clients با دامنه‌های ایرانی داخلی و تمرکز بر امنیت و مسدود کردن تبلیغات._
-- [Russia v2ray rules](https://github.com/runetfreedom/russia-v2ray-rules-dat) (مجوز: **GPL-3.0**): _این مخزن شامل قوانین مسیریابی V2Ray به‌روزرسانی شده خودکار بر اساس داده‌های دامنه‌ها و آدرس‌های مسدود شده در روسیه است._
+## 开发与验证
 
-## ابزارهای جامعه
+前端：
 
-ابزارها و یکپارچه‌سازی‌هایی که توسط جامعه پیرامون 3x-ui ساخته شده‌اند.
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
-- [terraform-provider-3x-ui](https://github.com/batonogov/terraform-provider-threexui) (مجوز: **MIT**): _مدیریت اینباندها، کلاینت‌ها، تنظیمات پنل و پیکربندی Xray به‌صورت کد با Terraform / OpenTofu._
+后端：
 
-## پشتیبانی از پروژه
+```bash
+go test ./...
+```
 
-**اگر این پروژه برای شما مفید است، می‌توانید به آن یک**:star2: بدهید
+## 鸣谢
 
-<a href="https://www.buymeacoffee.com/MHSanaei" target="_blank">
-<img src="./media/default-yellow.png" alt="Buy Me A Coffee" style="height: 70px !important;width: 277px !important;" >
-</a>
+- [alireza0](https://github.com/alireza0/)：上游致谢作者。
+- OUI Panel：Telegram 一键配置、节点通知和信息预览思路来源。
 
-</br>
-<a href="https://nowpayments.io/donation/hsanaei" target="_blank" rel="noreferrer noopener">
-   <img src="./media/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
-</a>
+## 许可
 
-## ستاره‌ها در طول زمان
-
-[![Stargazers over time](https://starchart.cc/MHSanaei/3x-ui.svg?variant=adaptive)](https://starchart.cc/MHSanaei/3x-ui)
+本项目继续遵循 GPL-3.0 许可证。使用、修改和分发时请遵守相关开源许可证要求。

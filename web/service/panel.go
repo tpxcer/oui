@@ -141,7 +141,7 @@ func downloadPanelUpdater() (string, error) {
 		return "", fmt.Errorf("下载面板更新器失败: HTTP %d", resp.StatusCode)
 	}
 
-	file, err := os.CreateTemp("", "3x-ui-update-*.sh")
+	file, err := os.CreateTemp("", "oui-update-*.sh")
 	if err != nil {
 		return "", err
 	}

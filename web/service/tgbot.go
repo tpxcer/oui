@@ -699,6 +699,20 @@ func (t *Tgbot) randomLowerAndNum(length int) string {
 	return string(bytes)
 }
 
+func randomHexFromCrypto(length int) string {
+	const charset = "0123456789abcdef"
+	bytes := make([]byte, length)
+	for i := range bytes {
+		randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			bytes[i] = charset[0]
+			continue
+		}
+		bytes[i] = charset[randomIndex.Int64()]
+	}
+	return string(bytes)
+}
+
 const (
 	tgQuickPortMin = 50000
 	tgQuickPortMax = 65000
@@ -805,6 +819,12 @@ func portLooksFree(port int, transport string) bool {
 }
 
 func (t *Tgbot) defaultQuickSNI() string {
+	if d, err := t.settingService.GetSubDomain(); err == nil && strings.TrimSpace(d) != "" {
+		return normalizeQuickLinkHost(d)
+	}
+	if d, err := t.settingService.GetSubURI(); err == nil && strings.TrimSpace(d) != "" {
+		return normalizeQuickLinkHost(d)
+	}
 	if d, err := t.settingService.GetWebDomain(); err == nil && strings.TrimSpace(d) != "" {
 		return normalizeQuickLinkHost(d)
 	}
@@ -830,7 +850,15 @@ func normalizeQuickLinkHost(raw string) string {
 	if host, _, err := net.SplitHostPort(raw); err == nil {
 		return strings.Trim(host, "[]")
 	}
+	if strings.Contains(raw, "/") {
+		return ""
+	}
 	return strings.Trim(raw, "[]")
+}
+
+func isQuickIPHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	return net.ParseIP(host) != nil
 }
 
 func isInternalQuickHost(host string) bool {
@@ -951,7 +979,7 @@ func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
 		"minClientVer": "",
 		"maxClientVer": "",
 		"maxTimediff":  0,
-		"shortIds":     []string{t.randomLowerAndNum(8)},
+		"shortIds":     []string{randomHexFromCrypto(8)},
 		"mldsa65Seed":  "",
 		"settings": map[string]any{
 			"publicKey":     publicKey,
@@ -2735,26 +2763,57 @@ func (t *Tgbot) SendMsgToTgbot(chatId int64, msg string, replyMarkup ...telego.R
 }
 
 func (t *Tgbot) quickPublicHost() string {
-	candidates := make([]string, 0, 5)
+	candidates := make([]string, 0, 10)
+	if subURI, err := t.settingService.GetSubURI(); err == nil {
+		candidates = append(candidates, subURI)
+	}
+	if subJsonURI, err := t.settingService.GetSubJsonURI(); err == nil {
+		candidates = append(candidates, subJsonURI)
+	}
+	if subClashURI, err := t.settingService.GetSubClashURI(); err == nil {
+		candidates = append(candidates, subClashURI)
+	}
 	if subDomain, err := t.settingService.GetSubDomain(); err == nil {
 		candidates = append(candidates, subDomain)
 	}
 	if webDomain, err := t.settingService.GetWebDomain(); err == nil {
 		candidates = append(candidates, webDomain)
 	}
+	if cert, err := t.settingService.GetCertFile(); err == nil {
+		candidates = append(candidates, certPathDomain(cert))
+	}
 	if status := t.serverService.LastStatus(); status != nil {
 		candidates = append(candidates, status.PublicIP.IPv4, status.PublicIP.IPv6)
 	}
 	candidates = append(candidates, getPublicIP("https://api4.ipify.org"), hostname)
 
+	ipFallbacks := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		host := normalizeQuickLinkHost(candidate)
 		if host == "" || host == "N/A" || isInternalQuickHost(host) {
 			continue
 		}
+		if isQuickIPHost(host) {
+			ipFallbacks = append(ipFallbacks, host)
+			continue
+		}
 		return host
 	}
+	if len(ipFallbacks) > 0 {
+		return ipFallbacks[0]
+	}
 	return ""
+}
+
+func canUseConfiguredQuickURI(raw string, preferredHost string) bool {
+	host := normalizeQuickLinkHost(raw)
+	if host == "" || isInternalQuickHost(host) {
+		return false
+	}
+	if preferredHost != "" && !isQuickIPHost(preferredHost) && isQuickIPHost(host) {
+		return false
+	}
+	return true
 }
 
 func formatQuickURLHost(host string, port int, tls bool) string {
@@ -2846,8 +2905,11 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 	var subURL string
 	var subJsonURL string
 
-	// If pre-configured URIs are available, use them directly
-	if subURI != "" {
+	preferredHost := subDomain
+
+	// If pre-configured URIs are available, use them directly only when they
+	// already point to a public domain or no better domain is configured.
+	if subURI != "" && canUseConfiguredQuickURI(subURI, preferredHost) {
 		if !strings.HasSuffix(subURI, "/") {
 			subURI = subURI + "/"
 		}
@@ -2856,7 +2918,7 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 		subURL = fmt.Sprintf("%s://%s%s%s", scheme, host, subPath, client.SubID)
 	}
 
-	if subJsonURI != "" {
+	if subJsonURI != "" && canUseConfiguredQuickURI(subJsonURI, preferredHost) {
 		if !strings.HasSuffix(subJsonURI, "/") {
 			subJsonURI = subJsonURI + "/"
 		}

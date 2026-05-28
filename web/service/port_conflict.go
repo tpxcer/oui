@@ -30,7 +30,7 @@ const (
 //   - shadowsocks: settings.network ("tcp" / "udp" / "tcp,udp"), overrides
 //     the streamSettings-derived bit when present
 //   - tunnel (xray dokodemo-door): same shape via settings.allowedNetwork
-//     (3x-ui's wrapper renames the field)
+//     (OUI's wrapper renames the field)
 //   - mixed (socks/http combo): tcp + udp when settings.udp is true
 //   - everything else: tcp
 func inboundTransports(protocol model.Protocol, streamSettings, settings string) transportBits {
@@ -70,7 +70,7 @@ func inboundTransports(protocol model.Protocol, streamSettings, settings string)
 			switch protocol {
 			case model.Shadowsocks, model.Tunnel:
 				// shadowsocks exposes settings.network, tunnel exposes
-				// settings.allowedNetwork (3x-ui's wrapper around xray's
+				// settings.allowedNetwork (OUI's wrapper around xray's
 				// dokodemo-door). both carry "tcp" / "udp" / "tcp,udp"
 				// and, when present, win outright over the streamSettings-
 				// derived default; absent/empty keeps the inferred bit (tcp).

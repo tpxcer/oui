@@ -204,6 +204,9 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 		}
 
 		incoming := c.ToRecord()
+		if incoming.SubID == "" {
+			incoming.SubID = uuid.NewString()
+		}
 		row := &model.ClientRecord{}
 		err := tx.Where("email = ?", email).First(row).Error
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {

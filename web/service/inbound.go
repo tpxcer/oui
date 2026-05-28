@@ -1,4 +1,4 @@
-// Package service provides business logic services for the 3x-ui web panel,
+// Package service provides business logic services for the OUI web panel,
 // including inbound/outbound management, user administration, settings, and Xray integration.
 package service
 
@@ -664,7 +664,52 @@ func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.ensureInboundClientSubIDs(db, inbound)
 	return inbound, nil
+}
+
+func (s *InboundService) ensureInboundClientSubIDs(db *gorm.DB, inbound *model.Inbound) {
+	if inbound == nil || strings.TrimSpace(inbound.Settings) == "" {
+		return
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(inbound.Settings), &raw); err != nil {
+		return
+	}
+	clientsRaw, ok := raw["clients"]
+	if !ok || len(clientsRaw) == 0 {
+		return
+	}
+	var clients []model.Client
+	if err := json.Unmarshal(clientsRaw, &clients); err != nil || len(clients) == 0 {
+		return
+	}
+	changed := false
+	for i := range clients {
+		if strings.TrimSpace(clients[i].Email) == "" {
+			continue
+		}
+		if strings.TrimSpace(clients[i].SubID) == "" {
+			clients[i].SubID = uuid.NewString()
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	clientsJSON, err := json.Marshal(clients)
+	if err != nil {
+		return
+	}
+	raw["clients"] = clientsJSON
+	next, err := json.Marshal(raw)
+	if err != nil {
+		return
+	}
+	inbound.Settings = string(next)
+	if err := db.Model(model.Inbound{}).Where("id = ?", inbound.Id).Update("settings", inbound.Settings).Error; err != nil {
+		logger.Warning("ensureInboundClientSubIDs:", err)
+	}
 }
 
 // SetInboundEnable toggles only the enable flag of an inbound, without

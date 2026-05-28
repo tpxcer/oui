@@ -17,7 +17,7 @@ const (
 	loginUserKey      = "LOGIN_USER"
 	loginEpochKey     = "LOGIN_EPOCH"
 	apiAuthUserKey    = "api_auth_user"
-	sessionCookieName = "3x-ui"
+	sessionCookieName = "oui"
 )
 
 func init() {

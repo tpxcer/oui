@@ -33,7 +33,7 @@ func TestCSRFMiddlewareRejectsMissingTokenAndAcceptsValidToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	store := cookie.NewStore([]byte("01234567890123456789012345678901"))
-	router.Use(sessions.Sessions("3x-ui", store))
+	router.Use(sessions.Sessions("oui", store))
 	router.GET("/token", func(c *gin.Context) {
 		token, err := session.EnsureCSRFToken(c)
 		if err != nil {

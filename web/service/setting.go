@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strconv"
 	"strings"
@@ -945,6 +946,87 @@ func extractHostname(host string) string {
 	return "[" + h + "]"
 }
 
+func defaultLinkHostFrom(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	if h, _, err := net.SplitHostPort(raw); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	if strings.Contains(raw, "/") {
+		return ""
+	}
+	return strings.Trim(raw, "[]")
+}
+
+func defaultHostIsIP(host string) bool {
+	host = strings.Trim(host, "[]")
+	return net.ParseIP(host) != nil
+}
+
+func defaultHostNeedsPublicDomain(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(strings.Trim(host, "[]")))
+	if host == "" || host == "localhost" || strings.Contains(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return true
+	}
+	return defaultHostIsIP(host)
+}
+
+func defaultURIWithPreferredHost(raw string, preferredHost string) string {
+	raw = strings.TrimSpace(raw)
+	preferredHost = strings.Trim(strings.TrimSpace(preferredHost), "[]")
+	if raw == "" || preferredHost == "" || defaultHostIsIP(preferredHost) {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return raw
+	}
+	if !defaultHostNeedsPublicDomain(u.Hostname()) {
+		return raw
+	}
+	if port := u.Port(); port != "" {
+		if strings.Contains(preferredHost, ":") {
+			u.Host = "[" + preferredHost + "]:" + port
+		} else {
+			u.Host = preferredHost + ":" + port
+		}
+	} else if strings.Contains(preferredHost, ":") {
+		u.Host = "[" + preferredHost + "]"
+	} else {
+		u.Host = preferredHost
+	}
+	return u.String()
+}
+
+func firstDefaultLinkHost(candidates ...string) string {
+	ipFallbacks := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		host := defaultLinkHostFrom(candidate)
+		if host != "" {
+			if defaultHostNeedsPublicDomain(host) {
+				if defaultHostIsIP(host) {
+					ipFallbacks = append(ipFallbacks, host)
+				}
+				continue
+			}
+			if defaultHostIsIP(host) {
+				ipFallbacks = append(ipFallbacks, host)
+				continue
+			}
+			return host
+		}
+	}
+	if len(ipFallbacks) > 0 {
+		return ipFallbacks[0]
+	}
+	return ""
+}
+
 func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 	type settingFunc func() (any, error)
 	settings := map[string]settingFunc{
@@ -1029,6 +1111,19 @@ func (s *SettingService) GetDefaultSettings(host string) (any, error) {
 			result["subClashURI"] = subURI + subClashPath
 		}
 	}
+	webDomain, _ := s.GetWebDomain()
+	result["linkHost"] = firstDefaultLinkHost(
+		mustString(s.GetSubDomain()),
+		webDomain,
+		result["subURI"].(string),
+		result["subJsonURI"].(string),
+		result["subClashURI"].(string),
+		host,
+	)
+	linkHost := result["linkHost"].(string)
+	result["subURI"] = defaultURIWithPreferredHost(result["subURI"].(string), linkHost)
+	result["subJsonURI"] = defaultURIWithPreferredHost(result["subJsonURI"].(string), linkHost)
+	result["subClashURI"] = defaultURIWithPreferredHost(result["subClashURI"].(string), linkHost)
 
 	return result, nil
 }

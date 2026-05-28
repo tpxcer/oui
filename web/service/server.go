@@ -334,7 +334,7 @@ type cloud64ServiceInfo struct {
 	DataCounter      uint64            `json:"data_counter"`
 	DataNextReset    int64             `json:"data_next_reset"`
 	IPAddresses      []string          `json:"ip_addresses"`
-	RDNSAPIAvailable int               `json:"rdns_api_available"`
+	RDNSAPIAvailable json.RawMessage   `json:"rdns_api_available"`
 	PTR              map[string]string `json:"ptr"`
 	Error            json.RawMessage   `json:"error"`
 }
@@ -755,7 +755,7 @@ func (s *ServerService) applyConfiguredServerProvider(status *Status) {
 	status.ServerInfo.DataCounter = info.DataCounter
 	status.ServerInfo.DataNextReset = info.DataNextReset
 	status.ServerInfo.IPAddresses = info.IPAddresses
-	status.ServerInfo.RDNSAPIAvailable = info.RDNSAPIAvailable == 1
+	status.ServerInfo.RDNSAPIAvailable = cloud64Truthy(info.RDNSAPIAvailable)
 	status.ServerInfo.PTR = info.PTR
 }
 
@@ -824,6 +824,26 @@ func cloud64ErrorMessage(raw json.RawMessage) string {
 		return s
 	}
 	return string(raw)
+}
+
+func cloud64Truthy(raw json.RawMessage) bool {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		return b
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n != 0
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(strings.ToLower(s))
+		return s == "1" || s == "true" || s == "yes" || s == "on"
+	}
+	return false
 }
 
 func (s *ServerService) applyNodeGeoLocation(status *Status, now time.Time) {

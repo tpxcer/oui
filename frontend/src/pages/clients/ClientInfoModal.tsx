@@ -47,7 +47,7 @@ function isPostQuantumLink(link: string): boolean {
   return false;
 }
 
-// 3x-ui's genRemark concatenates inbound remark + client email (and an
+// OUI's genRemark concatenates inbound remark + client email (and an
 // optional extra) using a configurable separator. The email half is
 // redundant in the row title — the modal already names the client by
 // email at the top — so trimEmail strips it back out for the row only.
@@ -112,6 +112,7 @@ interface SubSettings {
   subJsonEnable: boolean;
   subClashURI: string;
   subClashEnable: boolean;
+  linkHost: string;
 }
 
 interface ClientInfoModalProps {
@@ -135,6 +136,7 @@ const DEFAULT_SUB: SubSettings = {
   subJsonEnable: false,
   subClashURI: '',
   subClashEnable: false,
+  linkHost: '',
 };
 
 export default function ClientInfoModal({

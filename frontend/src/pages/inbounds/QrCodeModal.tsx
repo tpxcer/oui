@@ -56,7 +56,7 @@ export default function QrCodeModal({
   useEffect(() => {
     if (!open || !dbInbound) return;
     const inbound = inboundFromDb(dbInbound);
-    const fallbackHostname = window.location.hostname;
+    const fallbackHostname = subSettings?.linkHost || window.location.hostname;
     if (inbound.protocol === Protocols.WIREGUARD) {
       const peerRemark = client?.email
         ? `${dbInbound.remark}-${client.email}`

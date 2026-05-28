@@ -33,19 +33,26 @@ function percent(current: number, total: number) {
 
 function geoLine(geo?: Partial<NodeGeoLocation> | null) {
   if (!geo) return '-';
+  const address = geoAddress(geo);
   const parts = [
     geo.ip ? `IP：${geo.ip}` : '',
-    geo.country ? `国家：${geo.country}` : '',
-    geo.province ? `省份：${geo.province}` : '',
-    geo.city ? `城市：${geo.city}` : '',
-    geo.district ? `区县：${geo.district}` : '',
-    geo.detail ? `详细：${geo.detail}` : '',
-    geo.location ? `位置：${geo.location}` : '',
+    address ? `地址：${address}` : '',
     geo.latitude && geo.longitude ? `坐标：${geo.latitude.toFixed(5)}, ${geo.longitude.toFixed(5)}` : '',
     geo.source ? `来源：${geo.source}` : '',
     geo.error ? `错误：${geo.error}` : '',
   ].filter(Boolean);
   return parts.join('；') || '-';
+}
+
+function geoAddress(geo?: Partial<NodeGeoLocation> | null) {
+  if (!geo) return '';
+  if (geo.detail) return geo.detail;
+  if (geo.location) return geo.location;
+  const parts: string[] = [];
+  for (const p of [geo.country, geo.province, geo.city, geo.district]) {
+    if (p && !parts.includes(p)) parts.push(p);
+  }
+  return parts.join('');
 }
 
 function unixDate(ts?: number) {
@@ -140,7 +147,7 @@ export default function ApiDocsPage() {
                   </div>
                   <Spin spinning={traceLoading}>
                     <div className="trace-result">
-                      <strong>{traceGeo?.location || traceGeo?.detail || traceIp || '-'}</strong>
+                      <strong>{geoAddress(traceGeo) || traceIp || '-'}</strong>
                       <span>{geoLine(traceGeo)}</span>
                     </div>
                   </Spin>
