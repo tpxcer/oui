@@ -31,7 +31,7 @@ type PanelUpdateInfo struct {
 }
 
 const (
-	panelUpdaterURL      = "https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh"
+	panelUpdaterURL      = "https://raw.githubusercontent.com/tpxcer/oui/main/update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 )
 
@@ -57,7 +57,7 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 	return nil
 }
 
-// GetUpdateInfo checks GitHub for the latest 3x-ui release.
+// GetUpdateInfo checks GitHub for the latest OUI release.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 	latest, err := fetchLatestPanelVersion()
 	if err != nil {
@@ -74,12 +74,12 @@ func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
 // StartUpdate starts the official updater outside of the current web request.
 func (s *PanelService) StartUpdate() error {
 	if runtime.GOOS != "linux" {
-		return fmt.Errorf("panel web update is supported only on Linux installations")
+		return fmt.Errorf("面板网页更新仅支持 Linux 安装环境")
 	}
 
 	bash, err := exec.LookPath("bash")
 	if err != nil {
-		return fmt.Errorf("bash is required to run the panel updater: %w", err)
+		return fmt.Errorf("运行面板更新器需要 bash: %w", err)
 	}
 
 	scriptPath, err := downloadPanelUpdater()
@@ -104,7 +104,7 @@ func (s *PanelService) StartUpdate() error {
 			if !strings.Contains(output, "System has not been booted with systemd") &&
 				!strings.Contains(output, "Failed to connect to bus") {
 				_ = os.Remove(scriptPath)
-				return fmt.Errorf("failed to start panel update job: %w: %s", err, output)
+				return fmt.Errorf("启动面板更新任务失败: %w: %s", err, output)
 			}
 			logger.Warning("systemd-run is unavailable, falling back to detached update process:", output)
 		} else {
@@ -121,7 +121,7 @@ func (s *PanelService) StartUpdate() error {
 	setDetachedProcess(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = os.Remove(scriptPath)
-		return fmt.Errorf("failed to start panel update job: %w", err)
+		return fmt.Errorf("启动面板更新任务失败: %w", err)
 	}
 	if err := cmd.Process.Release(); err != nil {
 		logger.Warning("failed to release panel update process:", err)
@@ -134,11 +134,11 @@ func downloadPanelUpdater() (string, error) {
 	client := (&SettingService{}).NewProxiedHTTPClient(15 * time.Second)
 	resp, err := client.Get(panelUpdaterURL)
 	if err != nil {
-		return "", fmt.Errorf("download panel updater: %w", err)
+		return "", fmt.Errorf("下载面板更新器失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download panel updater: unexpected HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("下载面板更新器失败: HTTP %d", resp.StatusCode)
 	}
 
 	file, err := os.CreateTemp("", "3x-ui-update-*.sh")
@@ -156,10 +156,10 @@ func downloadPanelUpdater() (string, error) {
 
 	n, err := io.Copy(file, io.LimitReader(resp.Body, maxPanelUpdaterBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("write panel updater: %w", err)
+		return "", fmt.Errorf("写入面板更新器失败: %w", err)
 	}
 	if n > maxPanelUpdaterBytes {
-		return "", fmt.Errorf("panel updater exceeds %d bytes", maxPanelUpdaterBytes)
+		return "", fmt.Errorf("面板更新器超过 %d 字节", maxPanelUpdaterBytes)
 	}
 	if err := file.Chmod(0700); err != nil {
 		return "", err
@@ -170,13 +170,13 @@ func downloadPanelUpdater() (string, error) {
 
 func fetchLatestPanelVersion() (string, error) {
 	client := (&SettingService{}).NewProxiedHTTPClient(10 * time.Second)
-	resp, err := client.Get("https://api.github.com/repos/MHSanaei/3x-ui/releases/latest")
+	resp, err := client.Get("https://api.github.com/repos/tpxcer/oui/releases/latest")
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API returned status %d: %s", resp.StatusCode, resp.Status)
+		return "", fmt.Errorf("GitHub API 返回状态 %d: %s", resp.StatusCode, resp.Status)
 	}
 
 	var release Release
@@ -184,7 +184,7 @@ func fetchLatestPanelVersion() (string, error) {
 		return "", err
 	}
 	if release.TagName == "" {
-		return "", fmt.Errorf("latest panel release tag is empty")
+		return "", fmt.Errorf("最新面板发布标签为空")
 	}
 	return release.TagName, nil
 }
@@ -232,9 +232,21 @@ func compareVersionStrings(a string, b string) (int, bool) {
 	return 0, true
 }
 
-func parseVersionParts(version string) ([3]int, bool) {
-	var result [3]int
-	parts := strings.Split(normalizeVersionTag(version), ".")
+func parseVersionParts(version string) ([4]int, bool) {
+	var result [4]int
+	clean := normalizeVersionTag(version)
+	if clean == "" {
+		return result, false
+	}
+	if base, suffix, ok := strings.Cut(clean, "-"); ok {
+		clean = base
+		n, err := strconv.Atoi(suffix)
+		if err != nil {
+			return result, false
+		}
+		result[3] = n
+	}
+	parts := strings.Split(clean, ".")
 	if len(parts) != 3 {
 		return result, false
 	}

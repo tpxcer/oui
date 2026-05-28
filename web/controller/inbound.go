@@ -68,6 +68,7 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	g.GET("/:id/fallbacks", a.getFallbacks)
 
 	g.POST("/add", a.addInbound)
+	g.POST("/quickCreate", a.quickCreateInbound)
 	g.POST("/del/:id", a.delInbound)
 	g.POST("/update/:id", a.updateInbound)
 	g.POST("/setEnable/:id", a.setInboundEnable)
@@ -76,6 +77,27 @@ func (a *InboundController) initRouter(g *gin.RouterGroup) {
 	g.POST("/resetAllTraffics", a.resetAllTraffics)
 	g.POST("/import", a.importInbound)
 	g.POST("/:id/fallbacks", a.setFallbacks)
+}
+
+type quickCreateInboundForm struct {
+	Preset string `json:"preset" form:"preset"`
+}
+
+func (a *InboundController) quickCreateInbound(c *gin.Context) {
+	var form quickCreateInboundForm
+	if err := c.ShouldBind(&form); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	user := session.GetLoginUser(c)
+	result, err := (&service.QuickInboundService{}).Create(form.Preset, user.Id)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundCreateSuccess"), result, nil)
+	a.broadcastInboundsUpdate(user.Id)
+	notifyClientsChanged()
 }
 
 // getInbounds retrieves the list of inbounds for the logged-in user.

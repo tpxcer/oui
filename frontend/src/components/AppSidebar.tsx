@@ -1,11 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Drawer, Layout, Menu } from 'antd';
+import { Drawer, Layout, Menu, message } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ApiOutlined,
+  CloudDownloadOutlined,
   ClusterOutlined,
   CloseOutlined,
   DashboardOutlined,
@@ -18,6 +19,7 @@ import {
   MoonOutlined,
   SettingOutlined,
   SunOutlined,
+  SyncOutlined,
   TagsOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -29,10 +31,16 @@ import './AppSidebar.css';
 
 const SIDEBAR_COLLAPSED_KEY = 'isSidebarCollapsed';
 const DONATE_URL = 'https://donate.sanaei.dev/';
-const REPO_URL = 'https://github.com/MHSanaei/3x-ui';
+const REPO_URL = 'https://github.com/tpxcer/oui';
 const LOGOUT_KEY = '__logout__';
 
 type IconName = 'dashboard' | 'inbound' | 'team' | 'groups' | 'setting' | 'tool' | 'cluster' | 'logout' | 'apidocs';
+
+interface PanelUpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+}
 
 const iconByName: Record<IconName, ComponentType> = {
   dashboard: DashboardOutlined,
@@ -71,7 +79,7 @@ function DonateButton({ ariaLabel }: { ariaLabel: string }) {
 
 function VersionBadge({ version, collapsed }: { version: string; collapsed?: boolean }) {
   if (!version) return null;
-  const label = `v${version}`;
+  const label = version;
   return (
     <a
       href={REPO_URL}
@@ -84,6 +92,39 @@ function VersionBadge({ version, collapsed }: { version: string; collapsed?: boo
       <GithubOutlined />
       {!collapsed && <span className="sider-version-text">{label}</span>}
     </a>
+  );
+}
+
+function SidebarUpdateButton({
+  collapsed,
+  info,
+  checking,
+  updating,
+  onCheck,
+  onUpdate,
+}: {
+  collapsed?: boolean;
+  info: PanelUpdateInfo | null;
+  checking: boolean;
+  updating: boolean;
+  onCheck: () => void;
+  onUpdate: () => void;
+}) {
+  const updateAvailable = !!info?.updateAvailable;
+  const title = updateAvailable ? '一键更新' : '检测版本';
+  const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
+  return (
+    <button
+      type="button"
+      className={`sidebar-update${collapsed ? ' is-collapsed' : ''}${updateAvailable ? ' has-update' : ''}`}
+      title={title}
+      aria-label={title}
+      disabled={checking || updating}
+      onClick={updateAvailable ? onUpdate : onCheck}
+    >
+      <Icon spin={checking || updating} />
+      {!collapsed && <span>{updateAvailable ? '一键更新' : '检测'}</span>}
+    </button>
   );
 }
 
@@ -117,9 +158,51 @@ export default function AppSidebar() {
 
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<PanelUpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updatingPanel, setUpdatingPanel] = useState(false);
 
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
   const panelVersion = window.X_UI_CUR_VER || '';
+
+  const checkPanelUpdate = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo', undefined, { silent: true });
+      if (msg?.success && msg.obj) {
+        setUpdateInfo(msg.obj);
+        if (!msg.obj.updateAvailable) message.success('当前已是最新版');
+      }
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, []);
+
+  const updatePanel = useCallback(async () => {
+    setUpdatingPanel(true);
+    try {
+      const result = await HttpUtil.post('/panel/api/server/updatePanel');
+      if (result?.success) {
+        message.success('已开始后台更新，请稍后刷新页面');
+      }
+    } finally {
+      setUpdatingPanel(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setCheckingUpdate(true);
+      try {
+        const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo', undefined, { silent: true });
+        if (!cancelled && msg?.success && msg.obj) setUpdateInfo(msg.obj);
+      } finally {
+        if (!cancelled) setCheckingUpdate(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const tabs = useMemo<{ key: string; icon: IconName; title: string }[]>(() => [
     { key: '/', icon: 'dashboard', title: t('menu.dashboard') },
@@ -226,6 +309,14 @@ export default function AppSidebar() {
         />
         <div className="sider-footer">
           <VersionBadge version={panelVersion} collapsed={collapsed} />
+          <SidebarUpdateButton
+            collapsed={collapsed}
+            info={updateInfo}
+            checking={checkingUpdate}
+            updating={updatingPanel}
+            onCheck={checkPanelUpdate}
+            onUpdate={updatePanel}
+          />
         </div>
       </Layout.Sider>
 
@@ -283,6 +374,13 @@ export default function AppSidebar() {
         />
         <div className="drawer-footer">
           <VersionBadge version={panelVersion} />
+          <SidebarUpdateButton
+            info={updateInfo}
+            checking={checkingUpdate}
+            updating={updatingPanel}
+            onCheck={checkPanelUpdate}
+            onUpdate={updatePanel}
+          />
         </div>
       </Drawer>
 

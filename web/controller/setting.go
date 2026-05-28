@@ -55,7 +55,7 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 
 // getAllSetting retrieves all current settings.
 func (a *SettingController) getAllSetting(c *gin.Context) {
-	allSetting, err := a.settingService.GetAllSetting()
+	allSetting, err := a.settingService.GetAllSettingView()
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
 		return

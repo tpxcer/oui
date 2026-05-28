@@ -87,7 +87,7 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
         <div className="version-list">
           <div className="version-list-item">
             <span>{t('pages.index.currentPanelVersion')}</span>
-            <Tag color="green">v{info.currentVersion || '?'}</Tag>
+            <Tag color="green">{info.currentVersion || '?'}</Tag>
           </div>
           {info.updateAvailable ? (
             <div className="version-list-item">

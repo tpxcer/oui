@@ -62,7 +62,19 @@ export interface ServerInfo {
   provider: string;
   error: string;
   hostname: string;
+  nodeAlias: string;
   nodeLocation: string;
+  plan: string;
+  planMonthlyData: number;
+  planDisk: number;
+  planRam: number;
+  planSwap: number;
+  email: string;
+  dataCounter: number;
+  dataNextReset: number;
+  ipAddresses: string[];
+  rdnsApiAvailable: boolean;
+  ptr: Record<string, string>;
   vmType: string;
   os: string;
   geo: NodeGeoLocation;
@@ -118,7 +130,19 @@ export class Status {
     provider: '',
     error: '',
     hostname: '',
+    nodeAlias: '',
     nodeLocation: '',
+    plan: '',
+    planMonthlyData: 0,
+    planDisk: 0,
+    planRam: 0,
+    planSwap: 0,
+    email: '',
+    dataCounter: 0,
+    dataNextReset: 0,
+    ipAddresses: [],
+    rdnsApiAvailable: false,
+    ptr: {},
     vmType: '',
     os: '',
     geo: {

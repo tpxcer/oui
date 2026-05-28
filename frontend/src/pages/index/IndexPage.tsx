@@ -121,7 +121,7 @@ export default function IndexPage() {
     if (panelUpdateInfo.updateAvailable) {
       setPanelUpdateOpen(true);
     } else {
-      window.open('https://github.com/MHSanaei/3x-ui/releases', '_blank', 'noopener,noreferrer');
+      window.open('https://github.com/tpxcer/oui/releases', '_blank', 'noopener,noreferrer');
     }
   }
 
@@ -216,8 +216,8 @@ export default function IndexPage() {
                           {isMobile && displayVersion && (
                             <Tag color={panelUpdateInfo.updateAvailable ? 'orange' : 'green'}>
                               {panelUpdateInfo.updateAvailable
-                                ? `v${panelUpdateInfo.latestVersion}`
-                                : `v${displayVersion}`}
+                                ? panelUpdateInfo.latestVersion
+                                : displayVersion}
                             </Tag>
                           )}
                         </Space>
@@ -247,7 +247,7 @@ export default function IndexPage() {
                             <span>
                               {panelUpdateInfo.updateAvailable
                                 ? `${t('update')} ${panelUpdateInfo.latestVersion}`
-                                : `v${displayVersion}`}
+                                : displayVersion}
                             </span>
                           )}
                         </Space>,

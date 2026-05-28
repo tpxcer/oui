@@ -92,14 +92,26 @@ type Status struct {
 		IPv6 string `json:"ipv6"`
 	} `json:"publicIP"`
 	ServerInfo struct {
-		Source       string          `json:"source"`
-		Provider     string          `json:"provider"`
-		Error        string          `json:"error"`
-		Hostname     string          `json:"hostname"`
-		NodeLocation string          `json:"nodeLocation"`
-		VMType       string          `json:"vmType"`
-		OS           string          `json:"os"`
-		Geo          NodeGeoLocation `json:"geo"`
+		Source           string            `json:"source"`
+		Provider         string            `json:"provider"`
+		Error            string            `json:"error"`
+		Hostname         string            `json:"hostname"`
+		NodeAlias        string            `json:"nodeAlias"`
+		NodeLocation     string            `json:"nodeLocation"`
+		Plan             string            `json:"plan"`
+		PlanMonthlyData  uint64            `json:"planMonthlyData"`
+		PlanDisk         uint64            `json:"planDisk"`
+		PlanRAM          uint64            `json:"planRam"`
+		PlanSwap         uint64            `json:"planSwap"`
+		Email            string            `json:"email"`
+		DataCounter      uint64            `json:"dataCounter"`
+		DataNextReset    int64             `json:"dataNextReset"`
+		IPAddresses      []string          `json:"ipAddresses"`
+		RDNSAPIAvailable bool              `json:"rdnsApiAvailable"`
+		PTR              map[string]string `json:"ptr"`
+		VMType           string            `json:"vmType"`
+		OS               string            `json:"os"`
+		Geo              NodeGeoLocation   `json:"geo"`
 	} `json:"serverInfo"`
 	AppStats struct {
 		Threads uint32 `json:"threads"`
@@ -133,6 +145,9 @@ type ServerService struct {
 	cachedGeoLocation  NodeGeoLocation
 	lastGeoAttempt     time.Time
 	ipGeoCache         map[string]cachedIPGeo
+	cachedCloud64Key   string
+	cachedCloud64Info  *cloud64ServiceInfo
+	cachedCloud64At    time.Time
 
 	lastStatusMu sync.RWMutex
 	lastStatus   *Status
@@ -303,6 +318,25 @@ type NodeGeoLocation struct {
 type cachedIPGeo struct {
 	location NodeGeoLocation
 	at       time.Time
+}
+
+type cloud64ServiceInfo struct {
+	Hostname         string            `json:"hostname"`
+	NodeAlias        string            `json:"node_alias"`
+	NodeLocation     string            `json:"node_location"`
+	Plan             string            `json:"plan"`
+	PlanMonthlyData  uint64            `json:"plan_monthly_data"`
+	PlanDisk         uint64            `json:"plan_disk"`
+	PlanRAM          uint64            `json:"plan_ram"`
+	PlanSwap         uint64            `json:"plan_swap"`
+	OS               string            `json:"os"`
+	Email            string            `json:"email"`
+	DataCounter      uint64            `json:"data_counter"`
+	DataNextReset    int64             `json:"data_next_reset"`
+	IPAddresses      []string          `json:"ip_addresses"`
+	RDNSAPIAvailable int               `json:"rdns_api_available"`
+	PTR              map[string]string `json:"ptr"`
+	Error            json.RawMessage   `json:"error"`
 }
 
 func getPublicIP(url string) string {
@@ -670,6 +704,126 @@ func (s *ServerService) applySystemServerInfo(status *Status) {
 	if status.ServerInfo.OS == "" {
 		status.ServerInfo.OS = runtime.GOOS
 	}
+	s.applyConfiguredServerProvider(status)
+}
+
+func (s *ServerService) applyConfiguredServerProvider(status *Status) {
+	provider, _ := s.settingService.GetServerProvider()
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		return
+	}
+	if provider != "64clouds" {
+		status.ServerInfo.Provider = provider
+		status.ServerInfo.Error = "暂不支持该服务器商"
+		return
+	}
+
+	status.ServerInfo.Source = "64clouds"
+	status.ServerInfo.Provider = "64Clouds/KiwiVM"
+	veid, _ := s.settingService.GetServerProviderVEID()
+	apiKey, _ := s.settingService.GetServerProviderAPIKey()
+	veid = strings.TrimSpace(veid)
+	apiKey = strings.TrimSpace(apiKey)
+	if veid == "" || apiKey == "" {
+		status.ServerInfo.Error = "请在设置中填写 64Clouds VEID 和 API KEY"
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	info, err := s.get64CloudsServiceInfo(ctx, veid, apiKey)
+	if err != nil {
+		status.ServerInfo.Error = err.Error()
+		return
+	}
+	status.ServerInfo.Error = ""
+	if info.Hostname != "" {
+		status.ServerInfo.Hostname = info.Hostname
+	}
+	status.ServerInfo.NodeAlias = info.NodeAlias
+	status.ServerInfo.NodeLocation = info.NodeLocation
+	status.ServerInfo.Plan = info.Plan
+	status.ServerInfo.PlanMonthlyData = info.PlanMonthlyData
+	status.ServerInfo.PlanDisk = info.PlanDisk
+	status.ServerInfo.PlanRAM = info.PlanRAM
+	status.ServerInfo.PlanSwap = info.PlanSwap
+	if info.OS != "" {
+		status.ServerInfo.OS = info.OS
+	}
+	status.ServerInfo.Email = info.Email
+	status.ServerInfo.DataCounter = info.DataCounter
+	status.ServerInfo.DataNextReset = info.DataNextReset
+	status.ServerInfo.IPAddresses = info.IPAddresses
+	status.ServerInfo.RDNSAPIAvailable = info.RDNSAPIAvailable == 1
+	status.ServerInfo.PTR = info.PTR
+}
+
+func (s *ServerService) get64CloudsServiceInfo(ctx context.Context, veid string, apiKey string) (*cloud64ServiceInfo, error) {
+	cacheKey := veid + ":" + apiKey
+	now := time.Now()
+
+	s.mu.Lock()
+	if s.cachedCloud64Info != nil && s.cachedCloud64Key == cacheKey && now.Sub(s.cachedCloud64At) < 15*time.Minute {
+		info := s.cachedCloud64Info
+		s.mu.Unlock()
+		return info, nil
+	}
+	s.mu.Unlock()
+
+	endpoint, _ := url.Parse("https://api.64clouds.com/v1/getServiceInfo")
+	q := endpoint.Query()
+	q.Set("veid", veid)
+	q.Set("api_key", apiKey)
+	endpoint.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.settingService.NewProxiedHTTPClient(8 * time.Second).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("64Clouds API 返回 HTTP %d", resp.StatusCode)
+	}
+	var info cloud64ServiceInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+	if msg := cloud64ErrorMessage(info.Error); msg != "" {
+		return nil, fmt.Errorf("64Clouds API 错误：%s", msg)
+	}
+
+	s.mu.Lock()
+	s.cachedCloud64Key = cacheKey
+	s.cachedCloud64Info = &info
+	s.cachedCloud64At = time.Now()
+	s.mu.Unlock()
+	return &info, nil
+}
+
+func cloud64ErrorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		if n == 0 {
+			return ""
+		}
+		return strconv.Itoa(n)
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if strings.TrimSpace(s) == "" || s == "0" {
+			return ""
+		}
+		return s
+	}
+	return string(raw)
 }
 
 func (s *ServerService) applyNodeGeoLocation(status *Status, now time.Time) {

@@ -574,6 +574,63 @@
         }
       }
     },
+    "/panel/api/inbounds/quickCreate": {
+      "post": {
+        "tags": [
+          "Inbounds"
+        ],
+        "summary": "Create one high-port preset inbound and one client in a single request. Supported presets: hysteria2, vlessReality, vlessXhttpTls, vlessXhttpReality. The server picks a free port in 50000-65000 and attempts to open the matching firewall port.",
+        "operationId": "post_panel_api_inbounds_quickCreate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              },
+              "example": {
+                "preset": "vlessXhttpReality"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "email": "xhttp-r-a1b2c3",
+                    "firewall": "ufw: 已放行 61234/tcp",
+                    "presetKey": "vlessXhttpReality",
+                    "presetLabel": "VLESS XHTTP Reality",
+                    "inbound": {
+                      "remark": "VLESS XHTTP Reality 一键节点",
+                      "port": 61234,
+                      "protocol": "vless"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/inbounds/del/{id}": {
       "post": {
         "tags": [

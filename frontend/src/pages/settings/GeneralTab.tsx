@@ -160,8 +160,8 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
 
             <SettingListItem
               paddings="small"
-              title="Trusted proxy CIDRs"
-              description="Comma-separated IPs/CIDRs allowed to set forwarded host, proto, and client IP headers."
+              title="可信代理 CIDR"
+              description="允许设置转发主机、协议和客户端 IP 头的 IP/CIDR，多个用英文逗号分隔。"
             >
               <Input
                 value={allSetting.trustedProxyCIDRs}
@@ -178,9 +178,44 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
               />
             </SettingListItem>
 
+            <SettingListItem paddings="small" title="服务器商" description="用于服务器信息页拉取 VPS 商家的套餐、流量和节点位置。">
+              <Select
+                value={allSetting.serverProvider || ''}
+                onChange={(v) => updateSetting({ serverProvider: v })}
+                style={{ width: '100%' }}
+                options={[
+                  { value: '', label: '不启用' },
+                  { value: '64clouds', label: '64Clouds / KiwiVM' },
+                ]}
+              />
+            </SettingListItem>
+
+            {allSetting.serverProvider === '64clouds' && (
+              <>
+                <SettingListItem paddings="small" title="64Clouds VEID">
+                  <Input
+                    value={allSetting.serverProviderVEID}
+                    placeholder="例如：1982670"
+                    onChange={(e) => updateSetting({ serverProviderVEID: e.target.value })}
+                  />
+                </SettingListItem>
+                <SettingListItem
+                  paddings="small"
+                  title="64Clouds API KEY"
+                  description={allSetting.hasServerProviderAPIKey ? '已配置，留空会保留当前密钥。' : '在 KiwiVM 面板中点击按钮显示 API KEY。'}
+                >
+                  <Input.Password
+                    value={allSetting.serverProviderAPIKey}
+                    placeholder={allSetting.hasServerProviderAPIKey ? '已配置，输入新值可替换' : ''}
+                    onChange={(e) => updateSetting({ serverProviderAPIKey: e.target.value })}
+                  />
+                </SettingListItem>
+              </>
+            )}
+
             <SettingListItem paddings="small" title={t('pages.settings.pageSize')} description={t('pages.settings.pageSizeDesc')}>
-              <InputNumber value={allSetting.pageSize} min={0} step={5} style={{ width: '100%' }}
-                onChange={(v) => updateSetting({ pageSize: Number(v) || 0 })} />
+              <InputNumber value={allSetting.pageSize || 25} min={1} max={1000} step={5} style={{ width: '100%' }}
+                onChange={(v) => updateSetting({ pageSize: Math.max(1, Number(v) || 25) })} />
             </SettingListItem>
 
             <SettingListItem paddings="small" title={t('pages.settings.language')}>
@@ -271,58 +306,58 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
         label: 'LDAP',
         children: (
           <>
-            <SettingListItem paddings="small" title="Enable LDAP sync">
+            <SettingListItem paddings="small" title="启用 LDAP 同步">
               <Switch checked={allSetting.ldapEnable} onChange={(v) => updateSetting({ ldapEnable: v })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="LDAP host">
+            <SettingListItem paddings="small" title="LDAP 主机">
               <Input value={allSetting.ldapHost} onChange={(e) => updateSetting({ ldapHost: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="LDAP port">
+            <SettingListItem paddings="small" title="LDAP 端口">
               <InputNumber value={allSetting.ldapPort} min={1} max={65535} style={{ width: '100%' }}
                 onChange={(v) => updateSetting({ ldapPort: Number(v) || 0 })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Use TLS (LDAPS)">
+            <SettingListItem paddings="small" title="使用 TLS (LDAPS)">
               <Switch checked={allSetting.ldapUseTLS} onChange={(v) => updateSetting({ ldapUseTLS: v })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Bind DN">
+            <SettingListItem paddings="small" title="绑定 DN">
               <Input value={allSetting.ldapBindDN} onChange={(e) => updateSetting({ ldapBindDN: e.target.value })} />
             </SettingListItem>
             <SettingListItem
               paddings="small"
               title={t('password')}
-              description={allSetting.hasLdapPassword ? 'Configured; leave blank to keep current password.' : 'Not configured.'}
+              description={allSetting.hasLdapPassword ? '已配置，留空会保留当前密码。' : '未配置。'}
             >
               <Input.Password
                 value={allSetting.ldapPassword}
-                placeholder={allSetting.hasLdapPassword ? 'Configured - enter a new value to replace' : ''}
+                placeholder={allSetting.hasLdapPassword ? '已配置，输入新值可替换' : ''}
                 onChange={(e) => updateSetting({ ldapPassword: e.target.value })}
               />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Base DN">
+            <SettingListItem paddings="small" title="基础 DN">
               <Input value={allSetting.ldapBaseDN} onChange={(e) => updateSetting({ ldapBaseDN: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="User filter">
+            <SettingListItem paddings="small" title="用户过滤器">
               <Input value={allSetting.ldapUserFilter} onChange={(e) => updateSetting({ ldapUserFilter: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="User attribute (username/email)">
+            <SettingListItem paddings="small" title="用户属性（用户名/邮箱）">
               <Input value={allSetting.ldapUserAttr} onChange={(e) => updateSetting({ ldapUserAttr: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="VLESS flag attribute">
+            <SettingListItem paddings="small" title="VLESS 标记属性">
               <Input value={allSetting.ldapVlessField} onChange={(e) => updateSetting({ ldapVlessField: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Generic flag attribute (optional)" description="If set, overrides VLESS flag — e.g. shadowInactive.">
+            <SettingListItem paddings="small" title="通用标记属性（可选）" description="填写后会覆盖 VLESS 标记，例如 shadowInactive。">
               <Input value={allSetting.ldapFlagField} onChange={(e) => updateSetting({ ldapFlagField: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Truthy values" description="Comma-separated; default: true,1,yes,on">
+            <SettingListItem paddings="small" title="启用值" description="多个值用英文逗号分隔，默认 true,1,yes,on。">
               <Input value={allSetting.ldapTruthyValues} onChange={(e) => updateSetting({ ldapTruthyValues: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Invert flag" description="Enable when the attribute means disabled (e.g. shadowInactive).">
+            <SettingListItem paddings="small" title="反转标记" description="当属性表示禁用时开启，例如 shadowInactive。">
               <Switch checked={allSetting.ldapInvertFlag} onChange={(v) => updateSetting({ ldapInvertFlag: v })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Sync schedule" description="Cron-like string, e.g. @every 1m">
+            <SettingListItem paddings="small" title="同步计划" description="Cron 风格表达式，例如 @every 1m。">
               <Input value={allSetting.ldapSyncCron} onChange={(e) => updateSetting({ ldapSyncCron: e.target.value })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Inbound tags" description="Inbounds that LDAP sync may auto-create or auto-delete clients on.">
+            <SettingListItem paddings="small" title="入站标签" description="LDAP 同步可以在这些入站上自动创建或删除客户端。">
               <>
                 <Select
                   mode="multiple"
@@ -332,25 +367,25 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                   options={inboundOptions}
                 />
                 {inboundOptions.length === 0 && (
-                  <div className="ldap-no-inbounds">No inbounds found. Create one in Inbounds first.</div>
+                  <div className="ldap-no-inbounds">没有找到入站，请先在入站列表中创建。</div>
                 )}
               </>
             </SettingListItem>
-            <SettingListItem paddings="small" title="Auto create clients">
+            <SettingListItem paddings="small" title="自动创建客户端">
               <Switch checked={allSetting.ldapAutoCreate} onChange={(v) => updateSetting({ ldapAutoCreate: v })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Auto delete clients">
+            <SettingListItem paddings="small" title="自动删除客户端">
               <Switch checked={allSetting.ldapAutoDelete} onChange={(v) => updateSetting({ ldapAutoDelete: v })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Default total (GB)">
+            <SettingListItem paddings="small" title="默认总流量 (GB)">
               <InputNumber value={allSetting.ldapDefaultTotalGB} min={0} style={{ width: '100%' }}
                 onChange={(v) => updateSetting({ ldapDefaultTotalGB: Number(v) || 0 })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Default expiry (days)">
+            <SettingListItem paddings="small" title="默认到期天数">
               <InputNumber value={allSetting.ldapDefaultExpiryDays} min={0} style={{ width: '100%' }}
                 onChange={(v) => updateSetting({ ldapDefaultExpiryDays: Number(v) || 0 })} />
             </SettingListItem>
-            <SettingListItem paddings="small" title="Default IP limit">
+            <SettingListItem paddings="small" title="默认 IP 限制">
               <InputNumber value={allSetting.ldapDefaultLimitIP} min={0} style={{ width: '100%' }}
                 onChange={(v) => updateSetting({ ldapDefaultLimitIP: Number(v) || 0 })} />
             </SettingListItem>

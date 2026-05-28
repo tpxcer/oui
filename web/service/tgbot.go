@@ -4,12 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
-	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -30,7 +28,6 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/util/common"
 	"github.com/mhsanaei/3x-ui/v3/web/global"
 	"github.com/mhsanaei/3x-ui/v3/web/locale"
-	"github.com/mhsanaei/3x-ui/v3/web/websocket"
 	"github.com/mhsanaei/3x-ui/v3/xray"
 
 	"github.com/google/uuid"
@@ -703,8 +700,8 @@ func (t *Tgbot) randomLowerAndNum(length int) string {
 }
 
 const (
-	tgQuickPortMin = 55000
-	tgQuickPortMax = 65535
+	tgQuickPortMin = 50000
+	tgQuickPortMax = 65000
 )
 
 type tgQuickPreset struct {
@@ -752,6 +749,13 @@ var tgQuickPresets = map[string]tgQuickPreset{
 		EmailPrefix: "xhttp-r",
 		Transport:   "tcp",
 	},
+}
+
+var tgQuickPresetOrder = []string{
+	"hysteria2",
+	"vlessReality",
+	"vlessXhttpTls",
+	"vlessXhttpReality",
 }
 
 func (t *Tgbot) randomQuickPort(transport string) (int, error) {
@@ -1155,31 +1159,26 @@ func (t *Tgbot) quickConfigKeyboard() *telego.InlineKeyboardMarkup {
 }
 
 func (t *Tgbot) createQuickConfig(chatId int64, key string) {
-	inbound, email, err := t.buildQuickInbound(key)
+	result, err := (&QuickInboundService{
+		inboundService: t.inboundService,
+		settingService: t.settingService,
+		serverService:  t.serverService,
+		xrayService:    t.xrayService,
+	}).Create(key, 0)
 	if err != nil {
 		t.SendMsgToTgbot(chatId, "❗ 一键配置失败：\r\n"+err.Error())
 		return
 	}
-	created, needRestart, err := t.inboundService.AddInbound(inbound)
-	if err != nil {
-		t.SendMsgToTgbot(chatId, "❗ 一键配置失败：\r\n"+err.Error())
-		return
-	}
-	if needRestart {
-		t.xrayService.SetToNeedRestart()
-	}
-	websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
-	firewallMsg := allowInboundPort(created.Port, tgQuickPresets[key].Transport)
 	t.SendMsgToTgbot(chatId, fmt.Sprintf(
 		"✅ 一键配置完成\r\n节点：<code>%s</code>\r\n端口：<code>%d</code>\r\n客户端：<code>%s</code>\r\n防火墙：<code>%s</code>",
-		html.EscapeString(created.Remark),
-		created.Port,
-		html.EscapeString(email),
-		html.EscapeString(firewallMsg),
+		html.EscapeString(result.Inbound.Remark),
+		result.Inbound.Port,
+		html.EscapeString(result.Email),
+		html.EscapeString(result.Firewall),
 	))
-	t.sendClientSubLinks(chatId, email)
-	t.sendClientIndividualLinks(chatId, email)
-	t.sendClientQRLinks(chatId, email)
+	t.sendClientSubLinks(chatId, result.Email)
+	t.sendClientIndividualLinks(chatId, result.Email)
+	t.sendClientQRLinks(chatId, result.Email)
 }
 
 func allowInboundPort(port int, transport string) string {
@@ -1198,7 +1197,7 @@ func allowInboundPort(port int, transport string) string {
 			}
 		}
 		if len(errs) == 0 {
-			return "ufw 已放行"
+			return fmt.Sprintf("ufw 已放行 %d/%s", port, strings.Join(protocols, ","))
 		}
 		return "ufw 放行失败：" + strings.Join(errs, "; ")
 	}
@@ -1216,7 +1215,7 @@ func allowInboundPort(port int, transport string) string {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = exec.CommandContext(ctx, path, "--reload").Run()
 			cancel()
-			return "firewalld 已放行"
+			return fmt.Sprintf("firewalld 已放行 %d/%s", port, strings.Join(protocols, ","))
 		}
 		return "firewalld 放行失败：" + strings.Join(errs, "; ")
 	}
@@ -2735,6 +2734,62 @@ func (t *Tgbot) SendMsgToTgbot(chatId int64, msg string, replyMarkup ...telego.R
 	}
 }
 
+func (t *Tgbot) quickPublicHost() string {
+	candidates := make([]string, 0, 5)
+	if subDomain, err := t.settingService.GetSubDomain(); err == nil {
+		candidates = append(candidates, subDomain)
+	}
+	if webDomain, err := t.settingService.GetWebDomain(); err == nil {
+		candidates = append(candidates, webDomain)
+	}
+	if status := t.serverService.LastStatus(); status != nil {
+		candidates = append(candidates, status.PublicIP.IPv4, status.PublicIP.IPv6)
+	}
+	candidates = append(candidates, getPublicIP("https://api4.ipify.org"), hostname)
+
+	for _, candidate := range candidates {
+		host := normalizeQuickLinkHost(candidate)
+		if host == "" || host == "N/A" || isInternalQuickHost(host) {
+			continue
+		}
+		return host
+	}
+	return ""
+}
+
+func formatQuickURLHost(host string, port int, tls bool) string {
+	if host == "" {
+		host = "localhost"
+	}
+	displayHost := host
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		displayHost = "[" + host + "]"
+	}
+	if (port == 443 && tls) || (port == 80 && !tls) {
+		return displayHost
+	}
+	return fmt.Sprintf("%s:%d", displayHost, port)
+}
+
+func (t *Tgbot) linkGenerationHost() (string, error) {
+	host := t.quickPublicHost()
+	if host == "" {
+		return "", common.NewError("未能自动获取公网主机，请在面板设置中配置订阅域名或面板域名")
+	}
+	return host, nil
+}
+
+func cleanTelegramLinks(links []string) []string {
+	cleaned := make([]string, 0, len(links))
+	for _, link := range links {
+		link = strings.TrimSpace(link)
+		if link != "" {
+			cleaned = append(cleaned, link)
+		}
+	}
+	return cleaned
+}
+
 // buildSubscriptionURLs builds the HTML sub page URL and JSON subscription URL for a client email
 func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 	// Resolve subId from client email
@@ -2761,24 +2816,18 @@ func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 		scheme = "https"
 	}
 
-	// Fallbacks
-	if subDomain == "" {
-		// try panel domain, otherwise OS hostname
-		if d, err := t.settingService.GetWebDomain(); err == nil && d != "" {
-			subDomain = d
-		} else if hostname != "" {
-			subDomain = hostname
+	// Fallbacks. Avoid OS/internal hostnames such as *.internal because
+	// Telegram-side previews and bot-side helpers cannot resolve them.
+	subDomain = normalizeQuickLinkHost(subDomain)
+	if subDomain == "" || isInternalQuickHost(subDomain) {
+		if publicHost := t.quickPublicHost(); publicHost != "" {
+			subDomain = publicHost
 		} else {
 			subDomain = "localhost"
 		}
 	}
 
-	host := subDomain
-	if (subPort == 443 && tls) || (subPort == 80 && !tls) {
-		// standard ports: no port in host
-	} else {
-		host = fmt.Sprintf("%s:%d", subDomain, subPort)
-	}
+	host := formatQuickURLHost(subDomain, subPort, tls)
 
 	// Ensure paths
 	if !strings.HasPrefix(subPath, "/") {
@@ -2845,66 +2894,21 @@ func (t *Tgbot) sendClientSubLinks(chatId int64, email string) {
 	t.SendMsgToTgbot(chatId, msg, inlineKeyboard)
 }
 
-// sendClientIndividualLinks fetches the subscription content (individual links) and sends it to the user
+// sendClientIndividualLinks generates individual links directly instead of
+// fetching the subscription URL. This avoids failures when the server hostname
+// is an internal cloud name that public DNS cannot resolve.
 func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
-	// Build the HTML sub page URL; we'll call it with header Accept to get raw content
-	subURL, _, err := t.buildSubscriptionURLs(email)
+	host, err := t.linkGenerationHost()
 	if err != nil {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 		return
 	}
-
-	// Try to fetch raw subscription links. Prefer plain text response.
-	req, err := http.NewRequest("GET", subURL, nil)
+	links, err := t.inboundService.GetAllClientLinks(host, email)
 	if err != nil {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 		return
 	}
-	// Force plain text to avoid HTML page; controller respects Accept header
-	req.Header.Set("Accept", "text/plain, */*;q=0.1")
-
-	// Use optimized client with connection pooling
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	req = req.WithContext(ctx)
-
-	resp, err := optimizedHTTPClient.Do(req)
-	if err != nil {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
-		return
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
-		return
-	}
-
-	// If service is configured to encode (Base64), decode it
-	encoded, _ := t.settingService.GetSubEncrypt()
-	var content string
-	if encoded {
-		decoded, err := base64.StdEncoding.DecodeString(string(bodyBytes))
-		if err != nil {
-			// fallback to raw text
-			content = string(bodyBytes)
-		} else {
-			content = string(decoded)
-		}
-	} else {
-		content = string(bodyBytes)
-	}
-
-	// Normalize line endings and trim
-	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-	var cleaned []string
-	for _, l := range lines {
-		l = strings.TrimSpace(l)
-		if l != "" {
-			cleaned = append(cleaned, l)
-		}
-	}
+	cleaned := cleanTelegramLinks(links)
 	if len(cleaned) == 0 {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.noResult"))
 		return
@@ -2919,9 +2923,8 @@ func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
 		msg.WriteString(t.I18nBot("subscription.individualLinks"))
 		msg.WriteString(":\r\n")
 		for _, link := range chunk {
-			// wrap each link in <code>
 			msg.WriteString("<code>")
-			msg.WriteString(link)
+			msg.WriteString(html.EscapeString(link))
 			msg.WriteString("</code>\r\n")
 		}
 		t.SendMsgToTgbot(chatId, msg.String())
@@ -2971,53 +2974,26 @@ func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
 		}
 	}
 
-	// Also generate a few individual links' QRs (first up to 5)
-	subPageURL := subURL
-	req, err := http.NewRequest("GET", subPageURL, nil)
-	if err == nil {
-		req.Header.Set("Accept", "text/plain, */*;q=0.1")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		req = req.WithContext(ctx)
-		if resp, err := optimizedHTTPClient.Do(req); err == nil {
-			body, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
-			encoded, _ := t.settingService.GetSubEncrypt()
-			var content string
-			if encoded {
-				if dec, err := base64.StdEncoding.DecodeString(string(body)); err == nil {
-					content = string(dec)
-				} else {
-					content = string(body)
-				}
-			} else {
-				content = string(body)
-			}
-			lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-			var cleaned []string
-			for _, l := range lines {
-				l = strings.TrimSpace(l)
-				if l != "" {
-					cleaned = append(cleaned, l)
-				}
-			}
-			if len(cleaned) > 0 {
-				max := min(len(cleaned), 5)
-				for i := range max {
-					if png, err := createQR(cleaned[i], 320); err == nil {
-						// Use the email as filename for individual link QR
-						filename := email + ".png"
-						document := tu.Document(
-							tu.ID(chatId),
-							tu.FileFromBytes(png, filename),
-						)
-						_, _ = bot.SendDocument(context.Background(), document)
-						// Reduced delay for better performance
-						if i < max-1 { // Only delay between documents, not after the last one
-							time.Sleep(50 * time.Millisecond)
-						}
-					}
-				}
+	host, err := t.linkGenerationHost()
+	if err != nil {
+		return
+	}
+	links, err := t.inboundService.GetAllClientLinks(host, email)
+	if err != nil {
+		return
+	}
+	cleaned := cleanTelegramLinks(links)
+	max := min(len(cleaned), 5)
+	for i := range max {
+		if png, err := createQR(cleaned[i], 320); err == nil {
+			filename := email + ".png"
+			document := tu.Document(
+				tu.ID(chatId),
+				tu.FileFromBytes(png, filename),
+			)
+			_, _ = bot.SendDocument(context.Background(), document)
+			if i < max-1 {
+				time.Sleep(50 * time.Millisecond)
 			}
 		}
 	}

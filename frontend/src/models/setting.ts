@@ -10,6 +10,9 @@ export class AllSetting {
   sessionMaxAge = 360;
   trustedProxyCIDRs = '127.0.0.1/32,::1/128';
   panelProxy = '';
+  serverProvider = '';
+  serverProviderVEID = '';
+  serverProviderAPIKey = '';
   pageSize = 25;
   expireDiff = 0;
   trafficDiff = 0;
@@ -88,6 +91,7 @@ export class AllSetting {
   hasApiToken = false;
   hasWarpSecret = false;
   hasNordSecret = false;
+  hasServerProviderAPIKey = false;
 
   constructor(data?: unknown) {
     if (data != null) {

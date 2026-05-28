@@ -32,12 +32,12 @@ _fail() {
 }
 
 # check root
-[[ $EUID -ne 0 ]] && _fail "FATAL ERROR: Please run this script with root privilege."
+[[ $EUID -ne 0 ]] && _fail "严重错误：请使用 root 权限运行此脚本。"
 
 if _command_exists curl; then
     curl_bin=$(which curl)
 else
-    _fail "ERROR: Command 'curl' not found."
+    _fail "错误：未找到 curl 命令。"
 fi
 
 # Check OS and set release variable
@@ -48,9 +48,9 @@ elif [[ -f /usr/lib/os-release ]]; then
     source /usr/lib/os-release
     release=$ID
 else
-    _fail "Failed to check the system OS, please contact the author!"
+    _fail "检测系统发行版失败，请联系维护者。"
 fi
-echo "The OS release is: $release"
+echo "检测到系统发行版：$release"
 
 arch() {
     case "$(uname -m)" in
@@ -61,7 +61,7 @@ arch() {
         armv6* | armv6) echo 'armv6' ;;
         armv5* | armv5) echo 'armv5' ;;
         s390x) echo 's390x' ;;
-        *) echo -e "${red}Unsupported CPU architecture!${plain}" && rm -f "${cur_dir}/${script_name}" > /dev/null 2>&1 && exit 2 ;;
+        *) echo -e "${red}不支持的 CPU 架构！${plain}" && rm -f "${cur_dir}/${script_name}" > /dev/null 2>&1 && exit 2 ;;
     esac
 }
 
@@ -804,56 +804,56 @@ update_x-ui() {
 
     if [ -f "${xui_folder}/x-ui" ]; then
         current_xui_version=$(${xui_folder}/x-ui -v)
-        echo -e "${green}Current x-ui version: ${current_xui_version}${plain}"
+        echo -e "${green}当前 x-ui 版本：${current_xui_version}${plain}"
     else
-        _fail "ERROR: Current x-ui version: unknown"
+        _fail "错误：当前 x-ui 版本未知。"
     fi
 
-    echo -e "${green}Downloading new x-ui version...${plain}"
+    echo -e "${green}正在下载新的 x-ui 版本...${plain}"
 
-    tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     if [[ ! -n "$tag_version" ]]; then
-        echo -e "${yellow}Trying to fetch version with IPv4...${plain}"
-        tag_version=$(${curl_bin} -4 -Ls "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        echo -e "${yellow}正在尝试使用 IPv4 获取版本...${plain}"
+        tag_version=$(${curl_bin} -4 -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$tag_version" ]]; then
-            _fail "ERROR: Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later"
+            _fail "错误：获取 x-ui 版本失败，可能是 GitHub API 限制，请稍后重试。"
         fi
     fi
-    echo -e "Got x-ui latest version: ${tag_version}, beginning the installation..."
-    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
+    echo -e "已获取 x-ui 最新版本：${tag_version}，开始安装..."
+    ${curl_bin} -fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/tpxcer/oui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
     if [[ $? -ne 0 ]]; then
-        echo -e "${yellow}Trying to fetch version with IPv4...${plain}"
-        ${curl_bin} -4fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
+        echo -e "${yellow}正在尝试使用 IPv4 下载...${plain}"
+        ${curl_bin} -4fLRo ${xui_folder}-linux-$(arch).tar.gz https://github.com/tpxcer/oui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz 2> /dev/null
         if [[ $? -ne 0 ]]; then
-            _fail "ERROR: Failed to download x-ui, please be sure that your server can access GitHub"
+            _fail "错误：下载 x-ui 失败，请确认服务器可以访问 GitHub。"
         fi
     fi
 
     if [[ -e ${xui_folder}/ ]]; then
-        echo -e "${green}Stopping x-ui...${plain}"
+        echo -e "${green}正在停止 x-ui...${plain}"
         if [[ $release == "alpine" ]]; then
             if [ -f "/etc/init.d/x-ui" ]; then
                 rc-service x-ui stop > /dev/null 2>&1
                 rc-update del x-ui > /dev/null 2>&1
-                echo -e "${green}Removing old service unit version...${plain}"
+                echo -e "${green}正在移除旧的服务单元...${plain}"
                 rm -f /etc/init.d/x-ui > /dev/null 2>&1
             else
                 rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
-                _fail "ERROR: x-ui service unit not installed."
+                _fail "错误：未安装 x-ui 服务单元。"
             fi
         else
             if [ -f "${xui_service}/x-ui.service" ]; then
                 systemctl stop x-ui > /dev/null 2>&1
                 systemctl disable x-ui > /dev/null 2>&1
-                echo -e "${green}Removing old systemd unit version...${plain}"
+                echo -e "${green}正在移除旧的 systemd 服务单元...${plain}"
                 rm ${xui_service}/x-ui.service -f > /dev/null 2>&1
                 systemctl daemon-reload > /dev/null 2>&1
             else
                 rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
-                _fail "ERROR: x-ui systemd unit not installed."
+                _fail "错误：未安装 x-ui systemd 服务单元。"
             fi
         fi
-        echo -e "${green}Removing old x-ui version...${plain}"
+        echo -e "${green}正在移除旧的 x-ui 版本...${plain}"
         rm ${xui_folder} -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui.service -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui.service.debian -f > /dev/null 2>&1
@@ -861,17 +861,17 @@ update_x-ui() {
         rm ${xui_folder}/x-ui.service.rhel -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui.sh -f > /dev/null 2>&1
-        echo -e "${green}Removing old xray version...${plain}"
+        echo -e "${green}正在移除旧的 xray 版本...${plain}"
         rm ${xui_folder}/bin/xray-linux-amd64 -f > /dev/null 2>&1
-        echo -e "${green}Removing old README and LICENSE file...${plain}"
+        echo -e "${green}正在移除旧的 README 和 LICENSE 文件...${plain}"
         rm ${xui_folder}/bin/README.md -f > /dev/null 2>&1
         rm ${xui_folder}/bin/LICENSE -f > /dev/null 2>&1
     else
         rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
-        _fail "ERROR: x-ui not installed."
+        _fail "错误：未安装 x-ui。"
     fi
 
-    echo -e "${green}Installing new x-ui version...${plain}"
+    echo -e "${green}正在安装新的 x-ui 版本...${plain}"
     tar zxvf x-ui-linux-$(arch).tar.gz > /dev/null 2>&1
     rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
     cd x-ui > /dev/null 2>&1
@@ -885,13 +885,13 @@ update_x-ui() {
 
     chmod +x x-ui bin/xray-linux-$(arch) > /dev/null 2>&1
 
-    echo -e "${green}Downloading and installing x-ui.sh script...${plain}"
-    ${curl_bin} -fLRo /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh > /dev/null 2>&1
+    echo -e "${green}正在下载并安装 x-ui.sh 脚本...${plain}"
+    ${curl_bin} -fLRo /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh > /dev/null 2>&1
     if [[ $? -ne 0 ]]; then
-        echo -e "${yellow}Trying to fetch x-ui with IPv4...${plain}"
-        ${curl_bin} -4fLRo /usr/bin/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh > /dev/null 2>&1
+        echo -e "${yellow}正在尝试使用 IPv4 下载 x-ui...${plain}"
+        ${curl_bin} -4fLRo /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh > /dev/null 2>&1
         if [[ $? -ne 0 ]]; then
-            _fail "ERROR: Failed to download x-ui.sh script, please be sure that your server can access GitHub"
+            _fail "错误：下载 x-ui.sh 脚本失败，请确认服务器可以访问 GitHub。"
         fi
     fi
 
@@ -899,21 +899,21 @@ update_x-ui() {
     chmod +x /usr/bin/x-ui > /dev/null 2>&1
     mkdir -p /var/log/x-ui > /dev/null 2>&1
 
-    echo -e "${green}Changing owner...${plain}"
+    echo -e "${green}正在设置文件所有者...${plain}"
     chown -R root:root ${xui_folder} > /dev/null 2>&1
 
     if [ -f "${xui_folder}/bin/config.json" ]; then
-        echo -e "${green}Changing on config file permissions...${plain}"
+        echo -e "${green}正在设置配置文件权限...${plain}"
         chmod 640 ${xui_folder}/bin/config.json > /dev/null 2>&1
     fi
 
     if [[ $release == "alpine" ]]; then
-        echo -e "${green}Downloading and installing startup unit x-ui.rc...${plain}"
-        ${curl_bin} -fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.rc > /dev/null 2>&1
+        echo -e "${green}正在下载并安装启动脚本 x-ui.rc...${plain}"
+        ${curl_bin} -fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.rc > /dev/null 2>&1
         if [[ $? -ne 0 ]]; then
-            ${curl_bin} -4fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.rc > /dev/null 2>&1
+            ${curl_bin} -4fLRo /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.rc > /dev/null 2>&1
             if [[ $? -ne 0 ]]; then
-                _fail "ERROR: Failed to download startup unit x-ui.rc, please be sure that your server can access GitHub"
+                _fail "错误：下载启动脚本 x-ui.rc 失败，请确认服务器可以访问 GitHub。"
             fi
         fi
         chmod +x /etc/init.d/x-ui > /dev/null 2>&1
@@ -922,10 +922,10 @@ update_x-ui() {
         rc-service x-ui start > /dev/null 2>&1
     else
         if [ -f "x-ui.service" ]; then
-            echo -e "${green}Installing systemd unit...${plain}"
+            echo -e "${green}正在安装 systemd 服务单元...${plain}"
             cp -f x-ui.service ${xui_service}/ > /dev/null 2>&1
             if [[ $? -ne 0 ]]; then
-                echo -e "${red}Failed to copy x-ui.service${plain}"
+                echo -e "${red}复制 x-ui.service 失败。${plain}"
                 exit 1
             fi
         else
@@ -933,7 +933,7 @@ update_x-ui() {
             case "${release}" in
                 ubuntu | debian | armbian)
                     if [ -f "x-ui.service.debian" ]; then
-                        echo -e "${green}Installing debian-like systemd unit...${plain}"
+                        echo -e "${green}正在安装 Debian 系 systemd 服务单元...${plain}"
                         cp -f x-ui.service.debian ${xui_service}/x-ui.service > /dev/null 2>&1
                         if [[ $? -eq 0 ]]; then
                             service_installed=true
@@ -942,7 +942,7 @@ update_x-ui() {
                     ;;
                 arch | manjaro | parch)
                     if [ -f "x-ui.service.arch" ]; then
-                        echo -e "${green}Installing arch-like systemd unit...${plain}"
+                        echo -e "${green}正在安装 Arch 系 systemd 服务单元...${plain}"
                         cp -f x-ui.service.arch ${xui_service}/x-ui.service > /dev/null 2>&1
                         if [[ $? -eq 0 ]]; then
                             service_installed=true
@@ -951,7 +951,7 @@ update_x-ui() {
                     ;;
                 *)
                     if [ -f "x-ui.service.rhel" ]; then
-                        echo -e "${green}Installing rhel-like systemd unit...${plain}"
+                        echo -e "${green}正在安装 RHEL 系 systemd 服务单元...${plain}"
                         cp -f x-ui.service.rhel ${xui_service}/x-ui.service > /dev/null 2>&1
                         if [[ $? -eq 0 ]]; then
                             service_installed=true
@@ -962,21 +962,21 @@ update_x-ui() {
 
             # If service file not found in tar.gz, download from GitHub
             if [ "$service_installed" = false ]; then
-                echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
+                echo -e "${yellow}压缩包中未找到服务文件，正在从 GitHub 下载...${plain}"
                 case "${release}" in
                     ubuntu | debian | armbian)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.service.debian > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.debian > /dev/null 2>&1
                         ;;
                     arch | manjaro | parch)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.service.arch > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.arch > /dev/null 2>&1
                         ;;
                     *)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.service.rhel > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.rhel > /dev/null 2>&1
                         ;;
                 esac
 
                 if [[ $? -ne 0 ]]; then
-                    echo -e "${red}Failed to install x-ui.service from GitHub${plain}"
+                    echo -e "${red}从 GitHub 安装 x-ui.service 失败。${plain}"
                     exit 1
                 fi
             fi
@@ -990,28 +990,28 @@ update_x-ui() {
 
     config_after_update
 
-    echo -e "${green}x-ui ${tag_version}${plain} updating finished, it is running now..."
+    echo -e "${green}x-ui ${tag_version}${plain} 更新完成，当前正在运行..."
     echo -e ""
     echo -e "┌───────────────────────────────────────────────────────┐
-│  ${blue}x-ui control menu usages (subcommands):${plain}              │
+│  ${blue}x-ui 控制菜单用法（子命令）：${plain}                        │
 │                                                       │
-│  ${blue}x-ui${plain}              - Admin Management Script          │
-│  ${blue}x-ui start${plain}        - Start                            │
-│  ${blue}x-ui stop${plain}         - Stop                             │
-│  ${blue}x-ui restart${plain}      - Restart                          │
-│  ${blue}x-ui status${plain}       - Current Status                   │
-│  ${blue}x-ui settings${plain}     - Current Settings                 │
-│  ${blue}x-ui enable${plain}       - Enable Autostart on OS Startup   │
-│  ${blue}x-ui disable${plain}      - Disable Autostart on OS Startup  │
-│  ${blue}x-ui log${plain}          - Check logs                       │
-│  ${blue}x-ui banlog${plain}       - Check Fail2ban ban logs          │
-│  ${blue}x-ui update${plain}       - Update                           │
-│  ${blue}x-ui legacy${plain}       - Legacy version                   │
-│  ${blue}x-ui install${plain}      - Install                          │
-│  ${blue}x-ui uninstall${plain}    - Uninstall                        │
+│  ${blue}x-ui${plain}              - 管理脚本                         │
+│  ${blue}x-ui start${plain}        - 启动                             │
+│  ${blue}x-ui stop${plain}         - 停止                             │
+│  ${blue}x-ui restart${plain}      - 重启                             │
+│  ${blue}x-ui status${plain}       - 查看当前状态                     │
+│  ${blue}x-ui settings${plain}     - 查看当前设置                     │
+│  ${blue}x-ui enable${plain}       - 开启开机自启                     │
+│  ${blue}x-ui disable${plain}      - 关闭开机自启                     │
+│  ${blue}x-ui log${plain}          - 查看日志                         │
+│  ${blue}x-ui banlog${plain}       - 查看 Fail2ban 封禁日志           │
+│  ${blue}x-ui update${plain}       - 更新                             │
+│  ${blue}x-ui legacy${plain}       - 旧版本管理                       │
+│  ${blue}x-ui install${plain}      - 安装                             │
+│  ${blue}x-ui uninstall${plain}    - 卸载                             │
 └───────────────────────────────────────────────────────┘"
 }
 
-echo -e "${green}Running...${plain}"
+echo -e "${green}正在运行...${plain}"
 install_base
 update_x-ui $1

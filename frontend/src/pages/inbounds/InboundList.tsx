@@ -31,6 +31,7 @@ import {
   TagsOutlined,
   UsergroupAddOutlined,
   UsergroupDeleteOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import { HttpUtil, SizeFormatter, IntlUtil, ColorUtils } from '@/utils';
@@ -174,6 +175,7 @@ export type RowAction =
   | 'clone';
 
 export type GeneralAction = 'import' | 'export' | 'subs' | 'resetInbounds';
+export type QuickCreateKey = 'hysteria2' | 'vlessReality' | 'vlessXhttpTls' | 'vlessXhttpReality';
 
 interface InboundListProps {
   dbInbounds: DBInboundRecord[];
@@ -188,6 +190,7 @@ interface InboundListProps {
   nodesById: Map<number, NodeRecord>;
   hasActiveNode: boolean;
   onAddInbound: () => void;
+  onQuickCreate: (key: QuickCreateKey) => void;
   onGeneralAction: (key: GeneralAction) => void;
   onRowAction: (action: { key: RowAction; dbInbound: DBInboundRecord }) => void;
 }
@@ -299,6 +302,7 @@ export default function InboundList({
   nodesById,
   hasActiveNode,
   onAddInbound,
+  onQuickCreate,
   onGeneralAction,
   onRowAction,
 }: InboundListProps) {
@@ -591,6 +595,16 @@ export default function InboundList({
     onClick: ({ key }) => onGeneralAction(key as GeneralAction),
   };
 
+  const quickCreateMenu: MenuProps = {
+    items: [
+      { key: 'hysteria2', label: 'Hysteria2' },
+      { key: 'vlessReality', label: 'VLESS Reality Vision' },
+      { key: 'vlessXhttpTls', label: 'VLESS XHTTP TLS' },
+      { key: 'vlessXhttpReality', label: 'VLESS XHTTP Reality' },
+    ],
+    onClick: ({ key }) => onQuickCreate(key as QuickCreateKey),
+  };
+
   return (
     <Card
       hoverable
@@ -599,6 +613,11 @@ export default function InboundList({
           <Button type="primary" onClick={onAddInbound} icon={<PlusOutlined />}>
             {!isMobile && t('pages.inbounds.addInbound')}
           </Button>
+          <Dropdown trigger={['click']} menu={quickCreateMenu}>
+            <Button icon={<ThunderboltOutlined />}>
+              {!isMobile && t('pages.inbounds.quickCreate')}
+            </Button>
+          </Dropdown>
           <Dropdown trigger={['click']} menu={generalActionsMenu}>
             <Button type="primary" icon={<MenuOutlined />}>
               {!isMobile && t('pages.inbounds.generalActions')}

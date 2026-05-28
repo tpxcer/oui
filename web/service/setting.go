@@ -38,6 +38,9 @@ var defaultValueMap = map[string]string{
 	"webBasePath":                 "/",
 	"sessionMaxAge":               "360",
 	"trustedProxyCIDRs":           "127.0.0.1/32,::1/128",
+	"serverProvider":              "",
+	"serverProviderVEID":          "",
+	"serverProviderAPIKey":        "",
 	"pageSize":                    "25",
 	"expireDiff":                  "0",
 	"trafficDiff":                 "0",
@@ -199,6 +202,9 @@ func (s *SettingService) GetAllSetting() (*entity.AllSetting, error) {
 			return nil, err
 		}
 	}
+	if allSetting.PageSize < 1 {
+		allSetting.PageSize = 25
+	}
 
 	return allSetting, nil
 }
@@ -214,6 +220,7 @@ func (s *SettingService) GetAllSettingView() (*entity.AllSettingView, error) {
 	view.HasLdapPassword = secretConfigured(allSetting.LdapPassword)
 	view.HasWarpSecret = secretConfigured(mustString(s.GetWarp()))
 	view.HasNordSecret = secretConfigured(mustString(s.GetNord()))
+	view.HasServerProviderAPIKey = secretConfigured(allSetting.ServerProviderAPIKey)
 	var apiTokenCount int64
 	if err := database.GetDB().Model(model.ApiToken{}).Where("enabled = ?", true).Count(&apiTokenCount).Error; err == nil {
 		view.HasApiToken = apiTokenCount > 0
@@ -221,6 +228,7 @@ func (s *SettingService) GetAllSettingView() (*entity.AllSettingView, error) {
 	view.TgBotToken = ""
 	view.TwoFactorToken = ""
 	view.LdapPassword = ""
+	view.ServerProviderAPIKey = ""
 	return view, nil
 }
 
@@ -360,6 +368,18 @@ func (s *SettingService) GetPanelProxy() (string, error) {
 
 func (s *SettingService) SetPanelProxy(proxyUrl string) error {
 	return s.setString("panelProxy", proxyUrl)
+}
+
+func (s *SettingService) GetServerProvider() (string, error) {
+	return s.getString("serverProvider")
+}
+
+func (s *SettingService) GetServerProviderVEID() (string, error) {
+	return s.getString("serverProviderVEID")
+}
+
+func (s *SettingService) GetServerProviderAPIKey() (string, error) {
+	return s.getString("serverProviderAPIKey")
 }
 
 // NewProxiedHTTPClient returns an HTTP client that routes the panel's own
@@ -626,7 +646,17 @@ func (s *SettingService) GetSubEmailInRemark() (bool, error) {
 }
 
 func (s *SettingService) GetPageSize() (int, error) {
-	return s.getInt("pageSize")
+	pageSize, err := s.getInt("pageSize")
+	if err != nil {
+		return 0, err
+	}
+	if pageSize < 1 {
+		return 25, nil
+	}
+	if pageSize > 1000 {
+		return 1000, nil
+	}
+	return pageSize, nil
 }
 
 func (s *SettingService) GetSubURI() (string, error) {
@@ -840,6 +870,13 @@ func (s *SettingService) preserveRedactedSecrets(allSetting *entity.AllSetting) 
 		}
 		allSetting.LdapPassword = value
 	}
+	if strings.TrimSpace(allSetting.ServerProviderAPIKey) == "" {
+		value, err := s.GetServerProviderAPIKey()
+		if err != nil {
+			return err
+		}
+		allSetting.ServerProviderAPIKey = value
+	}
 	if allSetting.TwoFactorEnable && strings.TrimSpace(allSetting.TwoFactorToken) == "" {
 		value, err := s.GetTwoFactorToken()
 		if err != nil {
@@ -870,7 +907,7 @@ func validateSettingsURLs(allSetting *entity.AllSetting) error {
 
 func (s *SettingService) UpdateSecret(key string, value string) error {
 	switch key {
-	case "tgBotToken", "ldapPassword", "twoFactorToken":
+	case "tgBotToken", "ldapPassword", "twoFactorToken", "serverProviderAPIKey":
 		return s.saveSetting(key, strings.TrimSpace(value))
 	default:
 		return common.NewError("secret key is not replaceable:", key)

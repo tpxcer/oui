@@ -32,8 +32,25 @@ function percent(current: number, total: number) {
 }
 
 function geoLine(geo?: Partial<NodeGeoLocation> | null) {
-  if (!geo || geo.error) return geo?.error || '-';
-  return geo.location || geo.detail || [geo.country, geo.province, geo.city, geo.district].filter(Boolean).join('') || '-';
+  if (!geo) return '-';
+  const parts = [
+    geo.ip ? `IP：${geo.ip}` : '',
+    geo.country ? `国家：${geo.country}` : '',
+    geo.province ? `省份：${geo.province}` : '',
+    geo.city ? `城市：${geo.city}` : '',
+    geo.district ? `区县：${geo.district}` : '',
+    geo.detail ? `详细：${geo.detail}` : '',
+    geo.location ? `位置：${geo.location}` : '',
+    geo.latitude && geo.longitude ? `坐标：${geo.latitude.toFixed(5)}, ${geo.longitude.toFixed(5)}` : '',
+    geo.source ? `来源：${geo.source}` : '',
+    geo.error ? `错误：${geo.error}` : '',
+  ].filter(Boolean);
+  return parts.join('；') || '-';
+}
+
+function unixDate(ts?: number) {
+  if (!ts) return '-';
+  return new Date(ts * 1000).toLocaleString();
 }
 
 export default function ApiDocsPage() {
@@ -78,6 +95,9 @@ export default function ApiDocsPage() {
   };
 
   const trafficTotal = status.netTraffic.sent + status.netTraffic.recv;
+  const ptrText = Object.entries(status.serverInfo.ptr || {})
+    .map(([ip, ptr]) => `${ip} -> ${ptr}`)
+    .join('；');
 
   return (
     <ConfigProvider theme={antdThemeConfig}>
@@ -120,9 +140,8 @@ export default function ApiDocsPage() {
                   </div>
                   <Spin spinning={traceLoading}>
                     <div className="trace-result">
-                      <strong>{geoLine(traceGeo)}</strong>
-                      <span>{traceGeo?.ip || traceIp || '-'}</span>
-                      <span>{traceGeo?.latitude && traceGeo?.longitude ? `${traceGeo.latitude.toFixed(5)}, ${traceGeo.longitude.toFixed(5)}` : '-'}</span>
+                      <strong>{traceGeo?.location || traceGeo?.detail || traceIp || '-'}</strong>
+                      <span>{geoLine(traceGeo)}</span>
                     </div>
                   </Spin>
                 </section>
@@ -133,10 +152,24 @@ export default function ApiDocsPage() {
                     <span>服务器</span>
                   </div>
                   <div className="server-list">
+                    <div><span>服务器商</span><strong>{status.serverInfo.provider || '-'}</strong></div>
                     <div><span>系统</span><strong>{status.serverInfo.os || '-'}</strong></div>
                     <div><span>虚拟化</span><strong>{status.serverInfo.vmType || '-'}</strong></div>
+                    <div><span>节点</span><strong>{[status.serverInfo.nodeAlias, status.serverInfo.nodeLocation].filter(Boolean).join(' / ') || '-'}</strong></div>
+                    <div><span>套餐</span><strong>{status.serverInfo.plan || '-'}</strong></div>
+                    <div><span>月流量</span><strong>{status.serverInfo.planMonthlyData ? SizeFormatter.sizeFormat(status.serverInfo.planMonthlyData) : '-'}</strong></div>
+                    <div><span>已用流量</span><strong>{status.serverInfo.dataCounter ? SizeFormatter.sizeFormat(status.serverInfo.dataCounter) : '-'}</strong></div>
+                    <div><span>下次重置</span><strong>{unixDate(status.serverInfo.dataNextReset)}</strong></div>
+                    <div><span>套餐资源</span><strong>{[
+                      status.serverInfo.planRam ? `RAM ${SizeFormatter.sizeFormat(status.serverInfo.planRam)}` : '',
+                      status.serverInfo.planSwap ? `Swap ${SizeFormatter.sizeFormat(status.serverInfo.planSwap)}` : '',
+                      status.serverInfo.planDisk ? `Disk ${SizeFormatter.sizeFormat(status.serverInfo.planDisk)}` : '',
+                    ].filter(Boolean).join(' / ') || '-'}</strong></div>
                     <div><span>运行</span><strong>{TimeFormatter.formatSecond(status.uptime)}</strong></div>
                     <div><span>公网 IPv4</span><strong>{publicIPv4 || '-'}</strong></div>
+                    <div><span>服务商 IP</span><strong>{status.serverInfo.ipAddresses?.length ? status.serverInfo.ipAddresses.join('，') : '-'}</strong></div>
+                    <div><span>PTR</span><strong>{ptrText || (status.serverInfo.rdnsApiAvailable ? '可用' : '-')}</strong></div>
+                    {status.serverInfo.error && <div><span>服务商错误</span><strong>{status.serverInfo.error}</strong></div>}
                   </div>
                 </section>
 

@@ -34,6 +34,7 @@ const PromptModal = lazy(() => import('@/components/PromptModal'));
 
 import { useInbounds } from './useInbounds';
 import InboundList from './InboundList';
+import type { QuickCreateKey } from './InboundList';
 import LazyMount from '@/components/LazyMount';
 const InboundFormModal = lazy(() => import('./InboundFormModal'));
 const InboundInfoModal = lazy(() => import('./InboundInfoModal'));
@@ -56,6 +57,13 @@ type RowAction =
   | 'clone';
 
 type GeneralAction = 'import' | 'export' | 'subs' | 'resetInbounds';
+
+interface QuickCreateResult {
+  inbound?: { remark?: string; port?: number };
+  email?: string;
+  firewall?: string;
+  presetLabel?: string;
+}
 
 interface ClientMatchTarget {
   id?: string;
@@ -333,6 +341,17 @@ export default function InboundsPage() {
     setFormOpen(true);
   }, []);
 
+  const onQuickCreate = useCallback(async (preset: QuickCreateKey) => {
+    const msg = await HttpUtil.post<QuickCreateResult>('/panel/api/inbounds/quickCreate', { preset });
+    if (!msg?.success) return;
+    const result = msg.obj;
+    await refresh();
+    const remark = result?.inbound?.remark || result?.presetLabel || '一键节点';
+    const port = result?.inbound?.port ? `:${result.inbound.port}` : '';
+    const firewall = result?.firewall ? `，防火墙：${result.firewall}` : '';
+    messageApi.success(`${remark}${port} 已创建${firewall}`);
+  }, [refresh, messageApi]);
+
   const openEdit = useCallback((dbInbound: DBInbound) => {
     setFormMode('edit');
     setFormDbInbound(dbInbound);
@@ -557,6 +576,7 @@ export default function InboundsPage() {
                       nodesById={nodesById}
                       hasActiveNode={showNodeInfo}
                       onAddInbound={onAddInbound}
+                      onQuickCreate={onQuickCreate}
                       onGeneralAction={onGeneralAction}
                       onRowAction={({ key, dbInbound }) => onRowAction({ key, dbInbound: dbInbound as unknown as DBInbound })}
                     />

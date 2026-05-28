@@ -75,12 +75,14 @@
 }
 
 .trace-result strong {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.25;
+  word-break: break-word;
 }
 
 .trace-result span {
   color: var(--ant-color-text-secondary);
+  word-break: break-word;
 }
 
 .server-list {
@@ -108,6 +110,7 @@
 .server-list strong {
   text-align: right;
   word-break: break-word;
+  min-width: 0;
 }
 
 .usage-panel,

@@ -14,6 +14,9 @@ export const AllSettingSchema = z.object({
   sessionMaxAge: z.number().int().min(1).optional(),
   trustedProxyCIDRs: z.string().optional(),
   panelProxy: z.string().optional(),
+  serverProvider: z.string().optional(),
+  serverProviderVEID: z.string().optional(),
+  serverProviderAPIKey: z.string().optional(),
   pageSize: z.number().int().min(1).max(1000).optional(),
   expireDiff: nonNegativeInt.optional(),
   trafficDiff: nonNegativeInt.optional(),
@@ -90,6 +93,7 @@ export const AllSettingSchema = z.object({
   hasApiToken: z.boolean().optional(),
   hasWarpSecret: z.boolean().optional(),
   hasNordSecret: z.boolean().optional(),
+  hasServerProviderAPIKey: z.boolean().optional(),
 }).loose();
 
 export type AllSettingInput = z.infer<typeof AllSettingSchema>;
