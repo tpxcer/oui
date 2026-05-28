@@ -401,6 +401,26 @@ func (s *ServerService) LookupIPGeo(ctx context.Context, ip string) NodeGeoLocat
 	return geo
 }
 
+func joinGeoAddress(values ...string) string {
+	parts := []string{}
+	for _, value := range values {
+		part := strings.TrimSpace(value)
+		if part == "" {
+			continue
+		}
+		current := strings.Join(parts, "")
+		if slices.Contains(parts, part) || (current != "" && strings.Contains(current, part)) {
+			continue
+		}
+		if current != "" && strings.Contains(part, current) {
+			parts = []string{part}
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "")
+}
+
 func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
 	result := NodeGeoLocation{IP: ip, Source: "meituan"}
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -442,13 +462,7 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 	result.Province = strings.TrimSpace(locResp.Data.RGeo.Province)
 	result.City = strings.TrimSpace(locResp.Data.RGeo.City)
 	result.District = strings.TrimSpace(locResp.Data.RGeo.District)
-	parts := []string{}
-	for _, p := range []string{result.Country, result.Province, result.City, result.District} {
-		if p != "" && !slices.Contains(parts, p) {
-			parts = append(parts, p)
-		}
-	}
-	result.Location = strings.Join(parts, "")
+	result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District)
 
 	if result.Latitude == 0 && result.Longitude == 0 {
 		return result, nil
@@ -474,7 +488,7 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 	if err := json.NewDecoder(groupRespHTTP.Body).Decode(&groupResp); err == nil {
 		result.Detail = strings.TrimSpace(groupResp.Data.Detail)
 		if result.Detail != "" {
-			result.Location = result.Detail
+			result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District, result.Detail)
 		}
 	}
 	return result, nil
@@ -720,13 +734,13 @@ func (s *ServerService) applyConfiguredServerProvider(status *Status) {
 	}
 
 	status.ServerInfo.Source = "64clouds"
-	status.ServerInfo.Provider = "64Clouds/KiwiVM"
+	status.ServerInfo.Provider = "自定义"
 	veid, _ := s.settingService.GetServerProviderVEID()
 	apiKey, _ := s.settingService.GetServerProviderAPIKey()
 	veid = strings.TrimSpace(veid)
 	apiKey = strings.TrimSpace(apiKey)
 	if veid == "" || apiKey == "" {
-		status.ServerInfo.Error = "请在设置中填写 64Clouds VEID 和 API KEY"
+		status.ServerInfo.Error = "请在设置中填写自定义 VEID 和自定义 API KEY"
 		return
 	}
 
@@ -787,14 +801,14 @@ func (s *ServerService) get64CloudsServiceInfo(ctx context.Context, veid string,
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("64Clouds API 返回 HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("服务器商 API 返回 HTTP %d", resp.StatusCode)
 	}
 	var info cloud64ServiceInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, err
 	}
 	if msg := cloud64ErrorMessage(info.Error); msg != "" {
-		return nil, fmt.Errorf("64Clouds API 错误：%s", msg)
+		return nil, fmt.Errorf("服务器商 API 错误：%s", msg)
 	}
 
 	s.mu.Lock()

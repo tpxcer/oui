@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Collapse, Input, InputNumber, Select, Switch } from 'antd';
 import { LanguageManager } from '@/utils';
@@ -12,6 +12,7 @@ interface TelegramTabProps {
 
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {
   const { t } = useTranslation();
+  const [tgBotTokenDraft, setTgBotTokenDraft] = useState('');
 
   const langOptions = useMemo(
     () => LanguageManager.supportedLanguages.map((l: { value: string; name: string; icon: string }) => ({
@@ -40,12 +41,15 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
             <SettingListItem
               paddings="small"
               title={t('pages.settings.telegramToken')}
-              description={allSetting.hasTgBotToken ? 'Configured; leave blank to keep current token.' : t('pages.settings.telegramTokenDesc')}
+              description={allSetting.hasTgBotToken ? '已配置，输入新令牌才会替换；留空保存会保留当前令牌。' : t('pages.settings.telegramTokenDesc')}
             >
               <Input.Password
-                value={allSetting.tgBotToken}
-                placeholder={allSetting.hasTgBotToken ? 'Configured - enter a new token to replace' : ''}
-                onChange={(e) => updateSetting({ tgBotToken: e.target.value })}
+                value={tgBotTokenDraft}
+                placeholder={allSetting.hasTgBotToken ? '留空保留当前令牌，输入新令牌替换' : '请输入 Telegram Bot Token'}
+                onChange={(e) => {
+                  setTgBotTokenDraft(e.target.value);
+                  updateSetting({ tgBotToken: e.target.value });
+                }}
               />
             </SettingListItem>
 

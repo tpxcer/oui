@@ -75,6 +75,13 @@ export default function ClientQrModal({
 
   const items = useMemo(() => {
     const out: { key: string; label: string; children: React.ReactNode }[] = [];
+    links.forEach((link, idx) => {
+      out.push({
+        key: `l${idx}`,
+        label: `${t('pages.clients.link')} ${idx + 1}`,
+        children: <QrPanel value={link} remark={`${client?.email || ''} #${idx + 1}`} />,
+      });
+    });
     if (subLink) {
       out.push({
         key: 'sub',
@@ -89,13 +96,6 @@ export default function ClientQrModal({
         children: <QrPanel value={subJsonLink} remark={`${client?.email || ''} — JSON`} />,
       });
     }
-    links.forEach((link, idx) => {
-      out.push({
-        key: `l${idx}`,
-        label: `${t('pages.clients.link')} ${idx + 1}`,
-        children: <QrPanel value={link} remark={`${client?.email || ''} #${idx + 1}`} />,
-      });
-    });
     return out;
   }, [subLink, subJsonLink, links, client?.email, t]);
 

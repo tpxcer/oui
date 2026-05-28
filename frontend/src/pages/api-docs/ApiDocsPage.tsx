@@ -46,11 +46,20 @@ function geoLine(geo?: Partial<NodeGeoLocation> | null) {
 
 function geoAddress(geo?: Partial<NodeGeoLocation> | null) {
   if (!geo) return '';
-  if (geo.detail) return geo.detail;
-  if (geo.location) return geo.location;
   const parts: string[] = [];
-  for (const p of [geo.country, geo.province, geo.city, geo.district]) {
-    if (p && !parts.includes(p)) parts.push(p);
+  const addPart = (value?: string) => {
+    const part = (value || '').trim();
+    if (!part) return;
+    const current = parts.join('');
+    if (parts.includes(part) || (current && current.includes(part))) return;
+    if (current && part.includes(current)) {
+      parts.splice(0, parts.length, part);
+      return;
+    }
+    parts.push(part);
+  };
+  for (const p of [geo.country, geo.province, geo.city, geo.district, geo.detail, geo.location]) {
+    addPart(p);
   }
   return parts.join('');
 }

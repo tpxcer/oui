@@ -117,6 +117,7 @@ export default function QrPanel({
               value={value}
               size={size}
               type="svg"
+              errorLevel="L"
               bordered={false}
               color="#000000"
               bgColor="#ffffff"

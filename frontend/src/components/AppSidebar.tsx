@@ -11,7 +11,6 @@ import {
   CloseOutlined,
   DashboardOutlined,
   GithubOutlined,
-  HeartOutlined,
   ImportOutlined,
   LogoutOutlined,
   MenuOutlined,
@@ -29,7 +28,6 @@ import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
 import './AppSidebar.css';
 
 const SIDEBAR_COLLAPSED_KEY = 'isSidebarCollapsed';
-const DONATE_URL = 'https://donate.sanaei.dev/';
 const REPO_URL = 'https://github.com/tpxcer/oui';
 const LOGOUT_KEY = '__logout__';
 
@@ -60,21 +58,6 @@ function readCollapsed(): boolean {
   }
 }
 
-function DonateButton({ ariaLabel }: { ariaLabel: string }) {
-  return (
-    <a
-      href={DONATE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="sidebar-donate"
-      aria-label={ariaLabel}
-      title={ariaLabel}
-    >
-      <HeartOutlined />
-    </a>
-  );
-}
-
 function VersionBadge({ version, collapsed }: { version: string; collapsed?: boolean }) {
   if (!version) return null;
   const label = version;
@@ -98,6 +81,7 @@ function SidebarUpdateButton({
   info,
   checking,
   updating,
+  progress,
   onCheck,
   onUpdate,
 }: {
@@ -105,25 +89,30 @@ function SidebarUpdateButton({
   info: PanelUpdateInfo | null;
   checking: boolean;
   updating: boolean;
+  progress: number;
   onCheck: () => void;
   onUpdate: () => void;
 }) {
   const updateAvailable = !!info?.updateAvailable;
   const nextVersion = info?.latestVersion || '';
   const title = updateAvailable && nextVersion ? `一键更新到 ${nextVersion}` : updateAvailable ? '一键更新' : '检测版本';
-  const label = updating ? '更新中' : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测';
+  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测';
   const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
+  const safeProgress = Math.max(0, Math.min(100, progress));
   return (
     <button
       type="button"
-      className={`sidebar-update${collapsed ? ' is-collapsed' : ''}${updateAvailable ? ' has-update' : ''}`}
+      className={`sidebar-update${collapsed ? ' is-collapsed' : ''}${updateAvailable ? ' has-update' : ''}${updating ? ' is-updating' : ''}`}
       title={title}
       aria-label={title}
       disabled={checking || updating}
       onClick={updateAvailable ? onUpdate : onCheck}
     >
-      <Icon spin={checking || updating} />
-      {!collapsed && <span>{label}</span>}
+      {updating && <span className="sidebar-update-progress" style={{ width: `${safeProgress}%` }} />}
+      <span className="sidebar-update-content">
+        <Icon spin={checking || updating} />
+        {!collapsed && <span>{label}</span>}
+      </span>
     </button>
   );
 }
@@ -161,6 +150,7 @@ export default function AppSidebar() {
   const [updateInfo, setUpdateInfo] = useState<PanelUpdateInfo | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updatingPanel, setUpdatingPanel] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
 
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
   const panelVersion = window.X_UI_CUR_VER || '';
@@ -184,15 +174,37 @@ export default function AppSidebar() {
 
   const updatePanel = useCallback(async () => {
     setUpdatingPanel(true);
+    setUpdateProgress(8);
     try {
       const result = await HttpUtil.post('/panel/api/server/updatePanel');
       if (result?.success) {
+        setUpdateProgress(100);
         message.success('已开始后台更新，请稍后刷新页面');
+        window.setTimeout(() => setUpdatingPanel(false), 3000);
+      } else {
+        setUpdatingPanel(false);
       }
-    } finally {
+    } catch {
       setUpdatingPanel(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!updatingPanel) return undefined;
+    const timer = window.setInterval(() => {
+      setUpdateProgress((value) => {
+        if (value >= 95) return value;
+        return Math.min(95, value + Math.max(1, Math.round((95 - value) * 0.12)));
+      });
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [updatingPanel]);
+
+  useEffect(() => {
+    if (!updatingPanel) {
+      setUpdateProgress(0);
+    }
+  }, [updatingPanel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +295,6 @@ export default function AppSidebar() {
           </div>
           {!collapsed && (
             <div className="brand-actions">
-              <DonateButton ariaLabel={t('menu.donate') || 'Donate'} />
               <ThemeCycleButton
                 id="theme-cycle"
                 isDark={isDark}
@@ -309,6 +320,7 @@ export default function AppSidebar() {
             info={updateInfo}
             checking={checkingUpdate}
             updating={updatingPanel}
+            progress={updateProgress}
             onCheck={checkPanelUpdate}
             onUpdate={updatePanel}
           />
@@ -341,7 +353,6 @@ export default function AppSidebar() {
             <span className="drawer-brand">OUI</span>
           </div>
           <div className="drawer-header-actions">
-            <DonateButton ariaLabel={t('menu.donate') || 'Donate'} />
             <ThemeCycleButton
               id="theme-cycle-drawer"
               isDark={isDark}
@@ -373,6 +384,7 @@ export default function AppSidebar() {
             info={updateInfo}
             checking={checkingUpdate}
             updating={updatingPanel}
+            progress={updateProgress}
             onCheck={checkPanelUpdate}
             onUpdate={updatePanel}
           />
@@ -396,6 +408,19 @@ export default function AppSidebar() {
         >
           <MenuOutlined />
         </button>
+      )}
+
+      {updatingPanel && (
+        <div className="panel-update-lock" role="status" aria-live="polite">
+          <div className="panel-update-lock-card">
+            <CloudDownloadOutlined spin />
+            <strong>{updateInfo?.latestVersion ? `正在更新到 ${updateInfo.latestVersion}` : '正在更新到最新版本'}</strong>
+            <div className="panel-update-lock-bar">
+              <span style={{ width: `${Math.max(0, Math.min(100, updateProgress))}%` }} />
+            </div>
+            <small>{Math.round(updateProgress)}%</small>
+          </div>
+        </div>
       )}
     </div>
   );

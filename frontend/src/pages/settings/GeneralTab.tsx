@@ -34,6 +34,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
 
   const [lang, setLang] = useState<string>(() => LanguageManager.getLanguage());
   const [inboundOptions, setInboundOptions] = useState<{ label: string; value: string }[]>([]);
+  const [serverProviderAPIKeyDraft, setServerProviderAPIKeyDraft] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -185,14 +186,14 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 style={{ width: '100%' }}
                 options={[
                   { value: '', label: '不启用' },
-                  { value: '64clouds', label: '64Clouds / KiwiVM' },
+                  { value: '64clouds', label: '自定义' },
                 ]}
               />
             </SettingListItem>
 
             {allSetting.serverProvider === '64clouds' && (
               <>
-                <SettingListItem paddings="small" title="64Clouds VEID">
+                <SettingListItem paddings="small" title="自定义 VEID">
                   <Input
                     value={allSetting.serverProviderVEID}
                     placeholder="请输入 VEID"
@@ -201,13 +202,16 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 </SettingListItem>
                 <SettingListItem
                   paddings="small"
-                  title="64Clouds API KEY"
-                  description={allSetting.hasServerProviderAPIKey ? '已配置，留空会保留当前密钥。' : '在 KiwiVM 面板中点击按钮显示 API KEY。'}
+                  title="自定义 API KEY"
+                  description={allSetting.hasServerProviderAPIKey ? '已配置，输入新密钥才会替换；留空保存会保留当前密钥。' : '请填写服务器商提供的 API KEY。'}
                 >
                   <Input.Password
-                    value={allSetting.serverProviderAPIKey}
-                    placeholder={allSetting.hasServerProviderAPIKey ? '已配置，输入新值可替换' : ''}
-                    onChange={(e) => updateSetting({ serverProviderAPIKey: e.target.value })}
+                    value={serverProviderAPIKeyDraft}
+                    placeholder={allSetting.hasServerProviderAPIKey ? '留空保留当前密钥，输入新密钥替换' : '请输入 API KEY'}
+                    onChange={(e) => {
+                      setServerProviderAPIKeyDraft(e.target.value);
+                      updateSetting({ serverProviderAPIKey: e.target.value });
+                    }}
                   />
                 </SettingListItem>
               </>

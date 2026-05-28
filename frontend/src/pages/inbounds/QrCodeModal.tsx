@@ -108,12 +108,6 @@ export default function QrCodeModal({
 
   const qrItems = useMemo<QrItem[]>(() => {
     const items: QrItem[] = [];
-    if (subLink) {
-      items.push({ key: 'sub', header: t('subscription.title'), value: subLink });
-    }
-    if (subJsonLink) {
-      items.push({ key: 'sub-json', header: `${t('subscription.title')} (JSON)`, value: subJsonLink });
-    }
     links.forEach((link, idx) => {
       items.push({ key: `l${idx}`, header: link.remark || `Link ${idx + 1}`, value: link.link });
     });
@@ -128,6 +122,12 @@ export default function QrCodeModal({
         items.push({ key: `wl${idx}`, header: `Peer ${idx + 1} link`, value: wireguardLinks[idx] });
       }
     });
+    if (subLink) {
+      items.push({ key: 'sub', header: t('subscription.title'), value: subLink });
+    }
+    if (subJsonLink) {
+      items.push({ key: 'sub-json', header: `${t('subscription.title')} (JSON)`, value: subJsonLink });
+    }
     return items;
   }, [subLink, subJsonLink, links, wireguardConfigs, wireguardLinks, t]);
 
