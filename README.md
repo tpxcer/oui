@@ -1,95 +1,75 @@
-[English](/README.md) | [فارسی](/README.fa_IR.md) | [العربية](/README.ar_EG.md) | [中文](/README.zh_CN.md) | [Español](/README.es_ES.md) | [Русский](/README.ru_RU.md)
+# OUI
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="./media/3x-ui-dark.png">
-    <img alt="3x-ui" src="./media/3x-ui-light.png">
-  </picture>
-</p>
-
-[![Release](https://img.shields.io/github/v/release/mhsanaei/3x-ui.svg)](https://github.com/MHSanaei/3x-ui/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/mhsanaei/3x-ui/release.yml.svg)](https://github.com/MHSanaei/3x-ui/actions)
-[![GO Version](https://img.shields.io/github/go-mod/go-version/mhsanaei/3x-ui.svg)](#)
-[![Downloads](https://img.shields.io/github/downloads/mhsanaei/3x-ui/total.svg)](https://github.com/MHSanaei/3x-ui/releases/latest)
-[![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Go Reference](https://pkg.go.dev/badge/github.com/mhsanaei/3x-ui/v3.svg)](https://pkg.go.dev/github.com/mhsanaei/3x-ui/v3)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mhsanaei/3x-ui/v3)](https://goreportcard.com/report/github.com/mhsanaei/3x-ui/v3)
-
-**3X-UI** — advanced, open-source web-based control panel designed for managing Xray-core server. It offers a user-friendly interface for configuring and monitoring various VPN and proxy protocols.
+OUI 是基于最新 3x-ui 改造的 Xray 面板版本，在保留 3x-ui 协议管理、用户管理、流量统计、节点管理等核心能力的基础上，加入了来自 OUI Panel 的 Telegram 机器人和信息预览能力，让面板更适合快速开节点、观察节点状态和追踪实际使用位置。
 
 > [!IMPORTANT]
-> This project is only for personal usage, please do not use it for illegal purposes, and please do not use it in a production environment.
+> 本项目仅用于个人学习、服务器管理和合法通信场景。请勿用于任何违法用途，也请在正式环境中自行完成安全审计、备份和访问控制配置。
 
-As an enhanced fork of the original X-UI project, 3X-UI provides improved stability, broader protocol support, and additional features.
+## 功能亮点
 
-## Quick Start
+- **Telegram 一键节点创建**：在 TG 机器人中快速创建常用节点配置，支持 Hysteria2、VLESS Reality Vision、VLESS XHTTP TLS、VLESS XHTTP Reality 等预设。
+- **节点上线提醒开关**：每个入站节点都可以单独设置 TG 上下线提醒，方便按节点粒度管理通知噪音。
+- **信息预览页**：将原 3x-ui API 文档入口调整为信息预览，集中展示 VPN 溯源、服务器信息、流量使用情况和资源状态。
+- **VPN 溯源查询**：支持通过 IP 查询节点实际使用位置，辅助判断连接来源和使用环境。
+- **3x-ui 核心能力保留**：继续支持 Xray-core 管理、入站/客户端管理、订阅、证书、节点、流量、日志和面板设置等能力。
+
+## 快速安装
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/tpxcer/oui/main/install.sh)
 ```
 
-For full documentation, please visit the [project Wiki](https://github.com/MHSanaei/3x-ui/wiki).
+安装完成后按终端提示进入面板。建议首次部署后立即修改默认登录信息、面板路径和安全相关设置。
 
-## Database Options
+## 数据库
 
-3X-UI supports two backends, chosen during the install:
+项目沿用 3x-ui 的数据库能力，支持 SQLite 和 PostgreSQL。
 
-- **SQLite** (default) — a single file at `/etc/x-ui/x-ui.db`. Zero setup, ideal for small/medium deployments.
-- **PostgreSQL** — recommended for high client counts or multi-node setups. The installer can install PostgreSQL locally for you, or accept a DSN to an existing server.
+- **SQLite**：默认方案，数据库文件通常位于 `/etc/x-ui/x-ui.db`，适合轻量部署。
+- **PostgreSQL**：适合更多客户端、更高并发或需要独立数据库管理的场景。
 
-At runtime the backend is selected via env vars (the installer writes these to `/etc/default/x-ui` for you):
+PostgreSQL 环境变量示例：
 
-```
+```bash
 XUI_DB_TYPE=postgres
 XUI_DB_DSN=postgres://xui:password@127.0.0.1:5432/xui?sslmode=disable
 ```
 
-### Migrating an existing SQLite install to PostgreSQL
+## Docker
+
+默认 Docker Compose 使用 SQLite：
 
 ```bash
-x-ui migrate-db --dsn "postgres://xui:password@127.0.0.1:5432/xui?sslmode=disable"
-# then set XUI_DB_TYPE and XUI_DB_DSN in /etc/default/x-ui and restart:
-systemctl restart x-ui
+docker compose up -d
 ```
 
-The source SQLite file is left untouched; remove it manually once you have verified the new backend.
+如果需要 PostgreSQL，可参考 `docker-compose.yml` 中的注释启用 `postgres` profile。
 
-### Docker
+## 开发与验证
 
-The default `docker compose up -d` keeps using SQLite. To run with the bundled PostgreSQL service, uncomment the two `XUI_DB_*` env lines in `docker-compose.yml` and start with the profile:
+前端：
 
 ```bash
-docker compose --profile postgres up -d
+cd frontend
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-## A Special Thanks to
+后端：
 
-- [alireza0](https://github.com/alireza0/)
+```bash
+go test ./...
+```
 
-## Acknowledgment
+## 鸣谢
 
-- [Iran v2ray rules](https://github.com/chocolate4u/Iran-v2ray-rules) (License: **GPL-3.0**): _Enhanced v2ray/xray and v2ray/xray-clients routing rules with built-in Iranian domains and a focus on security and adblocking._
-- [Russia v2ray rules](https://github.com/runetfreedom/russia-v2ray-rules-dat) (License: **GPL-3.0**): _This repository contains automatically updated V2Ray routing rules based on data on blocked domains and addresses in Russia._
+- [MHSanaei/3x-ui](https://github.com/MHSanaei/3x-ui)：本项目的基础面板。
+- [alireza0](https://github.com/alireza0/)：3x-ui 上游致谢作者。
+- OUI Panel：Telegram 一键配置、节点通知和信息预览思路来源。
 
-## Community Tools
+## 许可
 
-Tools and integrations built by the community around 3x-ui.
-
-- [terraform-provider-3x-ui](https://github.com/batonogov/terraform-provider-threexui) (License: **MIT**): _Manage inbounds, clients, panel settings, and Xray configuration as code with Terraform / OpenTofu._
-
-## Support project
-
-**If this project is helpful to you, you may wish to give it a**:star2:
-
-<a href="https://www.buymeacoffee.com/MHSanaei" target="_blank">
-<img src="./media/default-yellow.png" alt="Buy Me A Coffee" style="height: 70px !important;width: 277px !important;" >
-</a>
-
-</br>
-<a href="https://nowpayments.io/donation/hsanaei" target="_blank" rel="noreferrer noopener">
-   <img src="./media/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
-</a>
-
-## Stargazers over Time
-
-[![Stargazers over time](https://starchart.cc/MHSanaei/3x-ui.svg?variant=adaptive)](https://starchart.cc/MHSanaei/3x-ui)
+本项目基于 3x-ui 继续遵循 GPL-3.0 许可证。使用、修改和分发时请遵守上游项目与本项目的许可证要求。
