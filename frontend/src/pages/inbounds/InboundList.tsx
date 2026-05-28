@@ -332,6 +332,15 @@ export default function InboundList({
     const sorted = [...dbInbounds].sort((a, b) => fn(a, b, { nodesById, clientCount }));
     return sortOrder === 'descend' ? sorted.reverse() : sorted;
   }, [dbInbounds, sortKey, sortOrder, nodesById, clientCount]);
+  const rowNumberById = useMemo(() => {
+    const rows = new Map<number, number>();
+    sortedInbounds.forEach((record, index) => rows.set(record.id, index + 1));
+    return rows;
+  }, [sortedInbounds]);
+  const rowNumber = useCallback(
+    (record: DBInboundRecord) => rowNumberById.get(record.id) ?? 0,
+    [rowNumberById],
+  );
 
   const hasAnyRemark = useMemo(
     () => dbInbounds.some((i) => typeof i.remark === 'string' && i.remark.trim() !== ''),
@@ -354,6 +363,7 @@ export default function InboundList({
         align: 'right',
         width: 30,
         ...sorterFor('id'),
+        render: (_, record) => rowNumber(record),
       },
       {
         title: t('pages.inbounds.operate'),
@@ -576,7 +586,7 @@ export default function InboundList({
     );
 
     return cols;
-  }, [t, hasAnyRemark, hasActiveNode, nodesById, clientCount, subEnable, expireDiff, trafficDiff, datepicker, onRowAction, onSwitchEnable, sorterFor]);
+  }, [t, hasAnyRemark, hasActiveNode, nodesById, clientCount, subEnable, expireDiff, trafficDiff, datepicker, onRowAction, onSwitchEnable, sorterFor, rowNumber]);
 
   const paginationFor = (rows: DBInboundRecord[]) => {
     const size = pageSize > 0 ? pageSize : rows.length || 1;
@@ -638,7 +648,7 @@ export default function InboundList({
               sortedInbounds.map((record) => (
                 <div key={record.id} className="inbound-card">
                   <div className="card-head">
-                    <span className="card-id">#{record.id}</span>
+                    <span className="card-id">#{rowNumber(record)}</span>
                     <span className="tag-name">{record.remark}</span>
                     <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title={t('info')}>
@@ -697,7 +707,7 @@ export default function InboundList({
         footer={null}
         width={360}
         centered
-        title={statsRecord ? `#${statsRecord.id} ${statsRecord.remark || ''}`.trim() : ''}
+        title={statsRecord ? `#${rowNumber(statsRecord)} ${statsRecord.remark || ''}`.trim() : ''}
         onCancel={() => setStatsRecord(null)}
         destroyOnHidden
       >

@@ -222,6 +222,11 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 			var stream map[string]any
 			json.Unmarshal([]byte(inbound.StreamSettings), &stream)
 
+			if normalized, changed := normalizeRealityShortIdsInStreamSettings(inbound.StreamSettings); changed {
+				inbound.StreamSettings = normalized
+				json.Unmarshal([]byte(inbound.StreamSettings), &stream)
+			}
+
 			// Remove the "settings" field under "tlsSettings" and "realitySettings"
 			tlsSettings, ok1 := stream["tlsSettings"].(map[string]any)
 			realitySettings, ok2 := stream["realitySettings"].(map[string]any)
@@ -303,7 +308,6 @@ func resolveXrayLogPaths(logCfg json_util.RawMessage) json_util.RawMessage {
 	}
 	return out
 }
-
 
 // GetXrayTraffic fetches the current traffic statistics from the running Xray process.
 func (s *XrayService) GetXrayTraffic() ([]*xray.Traffic, []*xray.ClientTraffic, error) {

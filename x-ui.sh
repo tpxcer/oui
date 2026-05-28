@@ -6,7 +6,7 @@ blue='\033[0;34m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
-#Add some basic function here
+# 基础日志函数
 function LOGD() {
     echo -e "${yellow}[DEG] $* ${plain}"
 }
@@ -50,10 +50,10 @@ is_domain() {
     [[ "$1" =~ ^([A-Za-z0-9](-*[A-Za-z0-9])*\.)+(xn--[a-z0-9]{2,}|[A-Za-z]{2,})$ ]] && return 0 || return 1
 }
 
-# check root
-[[ $EUID -ne 0 ]] && LOGE "ERROR: You must be root to run this script! \n" && exit 1
+# 检查 root 权限
+[[ $EUID -ne 0 ]] && LOGE "错误：请使用 root 权限运行此脚本！\n" && exit 1
 
-# Check OS and set release variable
+# 检测系统发行版
 if [[ -f /etc/os-release ]]; then
     source /etc/os-release
     release=$ID
@@ -61,10 +61,10 @@ elif [[ -f /usr/lib/os-release ]]; then
     source /usr/lib/os-release
     release=$ID
 else
-    echo "Failed to check the system OS, please contact the author!" >&2
+    echo "检测系统发行版失败，请联系维护者。" >&2
     exit 1
 fi
-echo "The OS release is: $release"
+echo "检测到系统发行版：$release"
 
 os_version=""
 os_version=$(grep "^VERSION_ID" /etc/os-release | cut -d '=' -f2 | tr -d '"' | tr -d '.')
@@ -79,7 +79,7 @@ iplimit_banned_log_path="${log_folder}/3xipl-banned.log"
 
 confirm() {
     if [[ $# > 1 ]]; then
-        echo && read -rp "$1 [Default $2]: " temp
+        echo && read -rp "$1 [默认 $2]: " temp
         if [[ "${temp}" == "" ]]; then
             temp=$2
         fi
@@ -94,7 +94,7 @@ confirm() {
 }
 
 confirm_restart() {
-    confirm "Restart the panel, Attention: Restarting the panel will also restart xray" "y"
+    confirm "是否重启面板？注意：重启面板也会同时重启 Xray" "y"
     if [[ $? == 0 ]]; then
         restart
     else
@@ -103,7 +103,7 @@ confirm_restart() {
 }
 
 before_show_menu() {
-    echo && echo -n -e "${yellow}Press enter to return to the main menu: ${plain}" && read -r temp
+    echo && echo -n -e "${yellow}按回车返回主菜单：${plain}" && read -r temp
     show_menu
 }
 
@@ -119,57 +119,76 @@ install() {
 }
 
 update() {
-    confirm "This function will update all OUI components to the latest version, and the data will not be lost. Do you want to continue?" "y"
+    confirm "此功能会把 OUI 全部组件更新到最新版本，数据不会丢失。是否继续？" "y"
     if [[ $? != 0 ]]; then
-        LOGE "Cancelled"
+        LOGE "已取消"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
         return 0
     fi
-    bash <(curl -Ls https://raw.githubusercontent.com/tpxcer/oui/main/update.sh)
-    if [[ $? == 0 ]]; then
-        LOGI "Update is complete, Panel has automatically restarted "
+    echo -e "${green}正在获取更新脚本，下载进度会显示在下方...${plain}"
+    local tmp_update_script
+    tmp_update_script="$(mktemp)"
+    if ! curl -fL --progress-bar -o "${tmp_update_script}" https://raw.githubusercontent.com/tpxcer/oui/main/update.sh; then
+        LOGE "下载更新脚本失败，请检查服务器是否可以连接 GitHub。"
+        rm -f "${tmp_update_script}"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    bash "${tmp_update_script}"
+    local update_rc=$?
+    rm -f "${tmp_update_script}"
+    if [[ ${update_rc} == 0 ]]; then
+        LOGI "更新完成，面板已自动重启。"
         before_show_menu
+    else
+        LOGE "更新失败，请查看上方输出。"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return ${update_rc}
     fi
 }
 
 update_menu() {
-    echo -e "${yellow}Updating Menu${plain}"
-    confirm "This function will update the menu to the latest changes." "y"
+    echo -e "${yellow}正在更新管理菜单${plain}"
+    confirm "此功能会把管理菜单更新到最新版本。是否继续？" "y"
     if [[ $? != 0 ]]; then
-        LOGE "Cancelled"
+        LOGE "已取消"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
         return 0
     fi
 
-    curl -fLRo /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh
+    curl -fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh
     chmod +x ${xui_folder}/x-ui.sh
     chmod +x /usr/bin/x-ui
 
     if [[ $? == 0 ]]; then
-        echo -e "${green}Update successful. The panel has automatically restarted.${plain}"
+        echo -e "${green}菜单更新成功。${plain}"
         exit 0
     else
-        echo -e "${red}Failed to update the menu.${plain}"
+        echo -e "${red}菜单更新失败。${plain}"
         return 1
     fi
 }
 
 legacy_version() {
-    echo -n "Enter the panel version (like 2.4.0):"
+    echo -n "请输入要安装的面板版本（例如 2026.5.28-3）："
     read -r tag_version
 
     if [ -z "$tag_version" ]; then
-        echo "Panel version cannot be empty. Exiting."
+        echo "面板版本不能为空，安装已退出。"
         exit 1
     fi
-    # Use the entered panel version in the download link
+    # 使用输入版本生成安装地址
     install_command="bash <(curl -Ls "https://raw.githubusercontent.com/tpxcer/oui/$tag_version/install.sh") $tag_version"
 
-    echo "Downloading and installing panel version $tag_version..."
+    echo "正在下载并安装面板版本 $tag_version..."
     eval $install_command
 }
 
@@ -194,7 +213,7 @@ xui_env_file_path() {
 }
 
 uninstall() {
-    confirm "Are you sure you want to uninstall the panel? xray will also uninstalled!" "n"
+    confirm "确认卸载面板吗？Xray 也会一起卸载！" "n"
     if [[ $? != 0 ]]; then
         if [[ $# == 0 ]]; then
             show_menu
@@ -219,8 +238,8 @@ uninstall() {
     rm -f "$(xui_env_file_path)"
 
     echo ""
-    echo -e "Uninstalled Successfully.\n"
-    echo "If you need to install this panel again, you can use below command:"
+    echo -e "卸载成功。\n"
+    echo "如需重新安装面板，请使用以下命令："
     echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/tpxcer/oui/main/install.sh)${plain}"
     echo ""
     # Trap the SIGTERM signal
@@ -229,7 +248,7 @@ uninstall() {
 }
 
 reset_user() {
-    confirm "Are you sure to reset the username and password of the panel?" "n"
+    confirm "确认重置面板用户名和密码吗？" "n"
     if [[ $? != 0 ]]; then
         if [[ $# == 0 ]]; then
             show_menu
@@ -237,22 +256,22 @@ reset_user() {
         return 0
     fi
 
-    read -rp "Please set the login username [default is a random username]: " config_account
+    read -rp "请设置登录用户名 [默认随机生成]：" config_account
     [[ -z $config_account ]] && config_account=$(gen_random_string 10)
-    read -rp "Please set the login password [default is a random password]: " config_password
+    read -rp "请设置登录密码 [默认随机生成]：" config_password
     [[ -z $config_password ]] && config_password=$(gen_random_string 18)
 
-    read -rp "Do you want to disable currently configured two-factor authentication? (y/n): " twoFactorConfirm
+    read -rp "是否禁用当前已配置的两步验证？(y/n)：" twoFactorConfirm
     if [[ $twoFactorConfirm != "y" && $twoFactorConfirm != "Y" ]]; then
         ${xui_folder}/x-ui setting -username "${config_account}" -password "${config_password}" -resetTwoFactor false > /dev/null 2>&1
     else
         ${xui_folder}/x-ui setting -username "${config_account}" -password "${config_password}" -resetTwoFactor true > /dev/null 2>&1
-        echo -e "Two factor authentication has been disabled."
+        echo -e "两步验证已禁用。"
     fi
 
-    echo -e "Panel login username has been reset to: ${green} ${config_account} ${plain}"
-    echo -e "Panel login password has been reset to: ${green} ${config_password} ${plain}"
-    echo -e "${green} Please use the new login username and password to access the OUI panel. Also remember them! ${plain}"
+    echo -e "面板登录用户名已重置为：${green} ${config_account} ${plain}"
+    echo -e "面板登录密码已重置为：${green} ${config_password} ${plain}"
+    echo -e "${green}请使用新的用户名和密码登录 OUI 面板，并妥善保存。${plain}"
     confirm_restart
 }
 
@@ -264,11 +283,11 @@ gen_random_string() {
 }
 
 reset_webbasepath() {
-    echo -e "${yellow}Resetting Web Base Path${plain}"
+    echo -e "${yellow}正在重置 Web 访问路径${plain}"
 
-    read -rp "Are you sure you want to reset the web base path? (y/n): " confirm
+    read -rp "确认重置 Web 访问路径吗？(y/n)：" confirm
     if [[ $confirm != "y" && $confirm != "Y" ]]; then
-        echo -e "${yellow}Operation canceled.${plain}"
+        echo -e "${yellow}操作已取消。${plain}"
         return
     fi
 
@@ -277,13 +296,13 @@ reset_webbasepath() {
     # Apply the new web base path setting
     ${xui_folder}/x-ui setting -webBasePath "${config_webBasePath}" > /dev/null 2>&1
 
-    echo -e "Web base path has been reset to: ${green}${config_webBasePath}${plain}"
-    echo -e "${green}Please use the new web base path to access the panel.${plain}"
+    echo -e "Web 访问路径已重置为：${green}${config_webBasePath}${plain}"
+    echo -e "${green}请使用新的 Web 访问路径进入面板。${plain}"
     restart
 }
 
 reset_config() {
-    confirm "Are you sure you want to reset all panel settings, Account data will not be lost, Username and password will not change" "n"
+    confirm "确认重置所有面板设置吗？账号数据不会丢失，用户名和密码不会改变" "n"
     if [[ $? != 0 ]]; then
         if [[ $# == 0 ]]; then
             show_menu
@@ -291,14 +310,14 @@ reset_config() {
         return 0
     fi
     ${xui_folder}/x-ui setting -reset
-    echo -e "All panel settings have been reset to default."
+    echo -e "所有面板设置已恢复为默认值。"
     restart
 }
 
 check_config() {
     local info=$(${xui_folder}/x-ui setting -show true)
     if [[ $? != 0 ]]; then
-        LOGE "get current settings error, please check logs"
+        LOGE "获取当前设置失败，请查看日志。"
         show_menu
         return
     fi
@@ -311,9 +330,9 @@ check_config() {
         dsn="$(grep -E '^XUI_DB_DSN=' "$db_env_file" | head -1 | cut -d= -f2-)"
         local dsn_safe
         dsn_safe="$(echo "$dsn" | sed -E 's|(://[^:/@]+:)[^@]+@|\1****@|')"
-        echo -e "${green}Database: PostgreSQL — ${dsn_safe}${plain}"
+        echo -e "${green}数据库：PostgreSQL - ${dsn_safe}${plain}"
     else
-        echo -e "${green}Database: SQLite (/etc/x-ui/x-ui.db)${plain}"
+        echo -e "${green}数据库：SQLite (/etc/x-ui/x-ui.db)${plain}"
     fi
 
     local existing_webBasePath=$(echo "$info" | grep -Eo 'webBasePath: .+' | awk '{print $2}')
@@ -339,12 +358,12 @@ check_config() {
     done
 
     if [[ -z "$server_ip" ]]; then
-        echo -e "${yellow}Could not auto-detect server IP from any provider.${plain}"
+        echo -e "${yellow}未能自动检测服务器公网 IP。${plain}"
         while [[ -z "$server_ip" ]]; do
-            read -rp "Please enter your server's public IPv4 address: " server_ip
+            read -rp "请输入服务器公网 IPv4 地址：" server_ip
             server_ip="${server_ip// /}"
             if [[ ! "$server_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo -e "${red}Invalid IPv4 address. Please try again.${plain}"
+                echo -e "${red}IPv4 地址无效，请重试。${plain}"
                 server_ip=""
             fi
         done
@@ -354,42 +373,42 @@ check_config() {
         local domain=$(basename "$(dirname "$existing_cert")")
 
         if [[ "$domain" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-            echo -e "${green}Access URL: https://${domain}:${existing_port}${existing_webBasePath}${plain}"
+            echo -e "${green}访问地址：https://${domain}:${existing_port}${existing_webBasePath}${plain}"
         else
-            echo -e "${green}Access URL: https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+            echo -e "${green}访问地址：https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
         fi
     else
-        echo -e "${red}⚠ WARNING: No SSL certificate configured!${plain}"
-        echo -e "${yellow}You can get a Let's Encrypt certificate for your IP address (valid ~6 days, auto-renews).${plain}"
-        read -rp "Generate SSL certificate for IP now? [y/N]: " gen_ssl
+        echo -e "${red}警告：当前未配置 SSL 证书！${plain}"
+        echo -e "${yellow}可以为服务器 IP 申请 Let's Encrypt 证书（约 6 天有效，自动续期）。${plain}"
+        read -rp "现在为 IP 申请 SSL 证书吗？[y/N]：" gen_ssl
         if [[ "$gen_ssl" == "y" || "$gen_ssl" == "Y" ]]; then
             stop 0 > /dev/null 2>&1
             ssl_cert_issue_for_ip
             if [[ $? -eq 0 ]]; then
-                echo -e "${green}Access URL: https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+                echo -e "${green}访问地址：https://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
                 # ssl_cert_issue_for_ip already restarts the panel, but ensure it's running
                 start 0 > /dev/null 2>&1
             else
-                LOGE "IP certificate setup failed."
-                echo -e "${yellow}You can try again via option 19 (SSL Certificate Management).${plain}"
+                LOGE "IP 证书配置失败。"
+                echo -e "${yellow}可以稍后通过选项 19（SSL 证书管理）重试。${plain}"
                 start 0 > /dev/null 2>&1
             fi
         else
-            echo -e "${yellow}Access URL: http://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
-            echo -e "${yellow}For security, please configure SSL certificate using option 19 (SSL Certificate Management)${plain}"
+            echo -e "${yellow}访问地址：http://${server_ip}:${existing_port}${existing_webBasePath}${plain}"
+            echo -e "${yellow}为保证安全，请通过选项 19（SSL 证书管理）配置证书。${plain}"
         fi
     fi
 }
 
 set_port() {
-    echo -n "Enter port number[1-65535]: "
+    echo -n "请输入端口号 [1-65535]："
     read -r port
     if [[ -z "${port}" ]]; then
-        LOGD "Cancelled"
+        LOGD "已取消"
         before_show_menu
     else
         ${xui_folder}/x-ui setting -port ${port}
-        echo -e "The port is set, Please restart the panel now, and use the new port ${green}${port}${plain} to access web panel"
+        echo -e "端口已设置，请立即重启面板，并使用新端口 ${green}${port}${plain} 访问 Web 面板。"
         confirm_restart
     fi
 }
@@ -398,7 +417,7 @@ start() {
     check_status
     if [[ $? == 0 ]]; then
         echo ""
-        LOGI "Panel is running, No need to start again, If you need to restart, please select restart"
+        LOGI "面板已在运行，无需重复启动；如需刷新服务，请选择重启。"
     else
         if [[ $release == "alpine" ]]; then
             rc-service x-ui start
@@ -408,9 +427,9 @@ start() {
         sleep 2
         check_status
         if [[ $? == 0 ]]; then
-            LOGI "x-ui Started Successfully"
+            LOGI "OUI 启动成功。"
         else
-            LOGE "panel Failed to start, Probably because it takes longer than two seconds to start, Please check the log information later"
+            LOGE "面板启动失败，可能是启动时间超过 2 秒，请稍后查看日志。"
         fi
     fi
 
@@ -423,7 +442,7 @@ stop() {
     check_status
     if [[ $? == 1 ]]; then
         echo ""
-        LOGI "Panel stopped, No need to stop again!"
+        LOGI "面板已停止，无需重复停止。"
     else
         if [[ $release == "alpine" ]]; then
             rc-service x-ui stop
@@ -433,9 +452,9 @@ stop() {
         sleep 2
         check_status
         if [[ $? == 1 ]]; then
-            LOGI "x-ui and xray stopped successfully"
+            LOGI "OUI 和 Xray 已成功停止。"
         else
-            LOGE "Panel stop failed, Probably because the stop time exceeds two seconds, Please check the log information later"
+            LOGE "面板停止失败，可能是停止时间超过 2 秒，请稍后查看日志。"
         fi
     fi
 
@@ -453,9 +472,9 @@ restart() {
     sleep 2
     check_status
     if [[ $? == 0 ]]; then
-        LOGI "x-ui and xray Restarted successfully"
+        LOGI "OUI 和 Xray 已成功重启。"
     else
-        LOGE "Panel restart failed, Probably because it takes longer than two seconds to start, Please check the log information later"
+        LOGE "面板重启失败，可能是启动时间超过 2 秒，请稍后查看日志。"
     fi
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -468,7 +487,7 @@ restart_xray() {
     else
         systemctl reload x-ui
     fi
-    LOGI "xray-core Restart signal sent successfully, Please check the log information to confirm whether xray restarted successfully"
+    LOGI "Xray-core 重启信号已发送，请通过日志确认 Xray 是否重启成功。"
     sleep 2
     show_xray_status
     if [[ $# == 0 ]]; then
@@ -494,9 +513,9 @@ enable() {
         systemctl enable x-ui
     fi
     if [[ $? == 0 ]]; then
-        LOGI "x-ui Set to boot automatically on startup successfully"
+        LOGI "OUI 已设置为开机自启。"
     else
-        LOGE "x-ui Failed to set Autostart"
+        LOGE "OUI 设置开机自启失败。"
     fi
 
     if [[ $# == 0 ]]; then
@@ -511,9 +530,9 @@ disable() {
         systemctl disable x-ui
     fi
     if [[ $? == 0 ]]; then
-        LOGI "x-ui Autostart Cancelled successfully"
+        LOGI "OUI 已取消开机自启。"
     else
-        LOGE "x-ui Failed to cancel autostart"
+        LOGE "OUI 取消开机自启失败。"
     fi
 
     if [[ $# == 0 ]]; then
@@ -523,9 +542,9 @@ disable() {
 
 show_log() {
     if [[ $release == "alpine" ]]; then
-        echo -e "${green}\t1.${plain} Debug Log"
-        echo -e "${green}\t0.${plain} Back to Main Menu"
-        read -rp "Choose an option: " choice
+        echo -e "${green}\t1.${plain} 调试日志"
+        echo -e "${green}\t0.${plain} 返回主菜单"
+        read -rp "请选择：" choice
 
         case "$choice" in
             0)
@@ -538,15 +557,15 @@ show_log() {
                 fi
                 ;;
             *)
-                echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
+                echo -e "${red}无效选项，请输入有效数字。${plain}\n"
                 show_log
                 ;;
         esac
     else
-        echo -e "${green}\t1.${plain} Debug Log"
-        echo -e "${green}\t2.${plain} Clear All logs"
-        echo -e "${green}\t0.${plain} Back to Main Menu"
-        read -rp "Choose an option: " choice
+        echo -e "${green}\t1.${plain} 调试日志"
+        echo -e "${green}\t2.${plain} 清空全部日志"
+        echo -e "${green}\t0.${plain} 返回主菜单"
+        read -rp "请选择：" choice
 
         case "$choice" in
             0)
@@ -561,11 +580,11 @@ show_log() {
             2)
                 sudo journalctl --rotate
                 sudo journalctl --vacuum-time=1s
-                echo "All Logs cleared."
+                echo "所有日志已清空。"
                 restart
                 ;;
             *)
-                echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
+                echo -e "${red}无效选项，请输入有效数字。${plain}\n"
                 show_log
                 ;;
         esac
@@ -573,10 +592,10 @@ show_log() {
 }
 
 bbr_menu() {
-    echo -e "${green}\t1.${plain} Enable BBR"
-    echo -e "${green}\t2.${plain} Disable BBR"
-    echo -e "${green}\t0.${plain} Back to Main Menu"
-    read -rp "Choose an option: " choice
+    echo -e "${green}\t1.${plain} 启用 BBR"
+    echo -e "${green}\t2.${plain} 禁用 BBR"
+    echo -e "${green}\t0.${plain} 返回主菜单"
+    read -rp "请选择：" choice
     case "$choice" in
         0)
             show_menu
@@ -590,7 +609,7 @@ bbr_menu() {
             bbr_menu
             ;;
         *)
-            echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
+            echo -e "${red}无效选项，请输入有效数字。${plain}\n"
             bbr_menu
             ;;
     esac
@@ -599,7 +618,7 @@ bbr_menu() {
 disable_bbr() {
 
     if [[ $(sysctl -n net.ipv4.tcp_congestion_control) != "bbr" ]] || [[ ! $(sysctl -n net.core.default_qdisc) =~ ^(fq|cake)$ ]]; then
-        echo -e "${yellow}BBR is not currently enabled.${plain}"
+        echo -e "${yellow}当前未启用 BBR。${plain}"
         before_show_menu
     fi
 
@@ -639,7 +658,7 @@ enable_bbr() {
             echo "net.ipv4.tcp_congestion_control = bbr"
         } > "/etc/sysctl.d/99-bbr-x-ui.conf"
         if [ -f "/etc/sysctl.conf" ]; then
-            # Backup old settings from sysctl.conf, if any
+            # 备份 sysctl.conf 中的旧设置
             sed -i 's/^net.core.default_qdisc/# &/' /etc/sysctl.conf
             sed -i 's/^net.ipv4.tcp_congestion_control/# &/' /etc/sysctl.conf
         fi
@@ -654,21 +673,21 @@ enable_bbr() {
 
     # Verify that BBR is enabled
     if [[ $(sysctl -n net.ipv4.tcp_congestion_control) == "bbr" ]]; then
-        echo -e "${green}BBR has been enabled successfully.${plain}"
+        echo -e "${green}BBR 已成功启用。${plain}"
     else
-        echo -e "${red}Failed to enable BBR. Please check your system configuration.${plain}"
+        echo -e "${red}启用 BBR 失败，请检查系统配置。${plain}"
     fi
 }
 
 update_shell() {
-    curl -fLRo /usr/bin/x-ui -z /usr/bin/x-ui https://github.com/tpxcer/oui/raw/main/x-ui.sh
+    curl -fL --progress-bar -o /usr/bin/x-ui -z /usr/bin/x-ui https://github.com/tpxcer/oui/raw/main/x-ui.sh
     if [[ $? != 0 ]]; then
         echo ""
-        LOGE "Failed to download script, Please check whether the machine can connect Github"
+        LOGE "下载脚本失败，请检查服务器是否可以连接 GitHub。"
         before_show_menu
     else
         chmod +x /usr/bin/x-ui
-        LOGI "Upgrade script succeeded, Please rerun the script"
+        LOGI "管理脚本升级成功，请重新运行 x-ui。"
         before_show_menu
     fi
 }
@@ -718,7 +737,7 @@ check_uninstall() {
     check_status
     if [[ $? != 2 ]]; then
         echo ""
-        LOGE "Panel installed, Please do not reinstall"
+        LOGE "面板已安装，请勿重复安装。"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
@@ -732,7 +751,7 @@ check_install() {
     check_status
     if [[ $? == 2 ]]; then
         echo ""
-        LOGE "Please install the panel first"
+        LOGE "请先安装面板。"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
@@ -746,15 +765,15 @@ show_status() {
     check_status
     case $? in
         0)
-            echo -e "Panel state: ${green}Running${plain}"
+            echo -e "面板状态：${green}运行中${plain}"
             show_enable_status
             ;;
         1)
-            echo -e "Panel state: ${yellow}Not Running${plain}"
+            echo -e "面板状态：${yellow}未运行${plain}"
             show_enable_status
             ;;
         2)
-            echo -e "Panel state: ${red}Not Installed${plain}"
+            echo -e "面板状态：${red}未安装${plain}"
             ;;
     esac
     show_xray_status
@@ -763,9 +782,9 @@ show_status() {
 show_enable_status() {
     check_enabled
     if [[ $? == 0 ]]; then
-        echo -e "Start automatically: ${green}Yes${plain}"
+        echo -e "开机自启：${green}已启用${plain}"
     else
-        echo -e "Start automatically: ${red}No${plain}"
+        echo -e "开机自启：${red}未启用${plain}"
     fi
 }
 
@@ -781,22 +800,22 @@ check_xray_status() {
 show_xray_status() {
     check_xray_status
     if [[ $? == 0 ]]; then
-        echo -e "xray state: ${green}Running${plain}"
+        echo -e "Xray 状态：${green}运行中${plain}"
     else
-        echo -e "xray state: ${red}Not Running${plain}"
+        echo -e "Xray 状态：${red}未运行${plain}"
     fi
 }
 
 firewall_menu() {
-    echo -e "${green}\t1.${plain} ${green}Install${plain} Firewall"
-    echo -e "${green}\t2.${plain} Port List [numbered]"
-    echo -e "${green}\t3.${plain} ${green}Open${plain} Ports"
-    echo -e "${green}\t4.${plain} ${red}Delete${plain} Ports from List"
-    echo -e "${green}\t5.${plain} ${green}Enable${plain} Firewall"
-    echo -e "${green}\t6.${plain} ${red}Disable${plain} Firewall"
-    echo -e "${green}\t7.${plain} Firewall Status"
-    echo -e "${green}\t0.${plain} Back to Main Menu"
-    read -rp "Choose an option: " choice
+    echo -e "${green}\t1.${plain} ${green}安装${plain}防火墙"
+    echo -e "${green}\t2.${plain} 端口规则列表 [带序号]"
+    echo -e "${green}\t3.${plain} ${green}开放${plain}端口"
+    echo -e "${green}\t4.${plain} 从列表中${red}删除${plain}端口"
+    echo -e "${green}\t5.${plain} ${green}启用${plain}防火墙"
+    echo -e "${green}\t6.${plain} ${red}禁用${plain}防火墙"
+    echo -e "${green}\t7.${plain} 防火墙状态"
+    echo -e "${green}\t0.${plain} 返回主菜单"
+    read -rp "请选择：" choice
     case "$choice" in
         0)
             show_menu
@@ -830,7 +849,7 @@ firewall_menu() {
             firewall_menu
             ;;
         *)
-            echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
+            echo -e "${red}无效选项，请输入有效数字。${plain}\n"
             firewall_menu
             ;;
     esac
@@ -838,18 +857,18 @@ firewall_menu() {
 
 install_firewall() {
     if ! command -v ufw &> /dev/null; then
-        echo "ufw firewall is not installed. Installing now..."
+        echo "未安装 ufw 防火墙，正在安装..."
         apt-get update
         apt-get install -y ufw
     else
-        echo "ufw firewall is already installed"
+        echo "ufw 防火墙已安装。"
     fi
 
     # Check if the firewall is inactive
     if ufw status | grep -q "Status: active"; then
-        echo "Firewall is already active"
+        echo "防火墙已处于启用状态。"
     else
-        echo "Activating firewall..."
+        echo "正在启用防火墙..."
         # Open the necessary ports
         ufw allow ssh
         ufw allow http
@@ -864,11 +883,11 @@ install_firewall() {
 
 open_ports() {
     # Prompt the user to enter the ports they want to open
-    read -rp "Enter the ports you want to open (e.g. 80,443,2053 or range 400-500): " ports
+    read -rp "请输入要开放的端口（例如 80,443,2053 或范围 400-500）：" ports
 
     # Check if the input is valid
     if ! [[ $ports =~ ^([0-9]+|[0-9]+-[0-9]+)(,([0-9]+|[0-9]+-[0-9]+))*$ ]]; then
-        echo "Error: Invalid input. Please enter a comma-separated list of ports or a range of ports (e.g. 80,443,2053 or 400-500)." >&2
+        echo "错误：输入无效，请输入英文逗号分隔的端口或端口范围（例如 80,443,2053 或 400-500）。" >&2
         exit 1
     fi
 
@@ -889,7 +908,7 @@ open_ports() {
     done
 
     # Confirm that the ports are opened
-    echo "Opened the specified ports:"
+    echo "已开放以下端口："
     for port in "${PORT_LIST[@]}"; do
         if [[ $port == *-* ]]; then
             start_port=$(echo $port | cut -d'-' -f1)
@@ -905,22 +924,22 @@ open_ports() {
 
 delete_ports() {
     # Display current rules with numbers
-    echo "Current UFW rules:"
+    echo "当前 UFW 规则："
     ufw status numbered
 
     # Ask the user how they want to delete rules
-    echo "Do you want to delete rules by:"
-    echo "1) Rule numbers"
-    echo "2) Ports"
-    read -rp "Enter your choice (1 or 2): " choice
+    echo "请选择删除方式："
+    echo "1) 按规则序号"
+    echo "2) 按端口"
+    read -rp "请输入选项（1 或 2）：" choice
 
     if [[ $choice -eq 1 ]]; then
         # Deleting by rule numbers
-        read -rp "Enter the rule numbers you want to delete (1, 2, etc.): " rule_numbers
+        read -rp "请输入要删除的规则序号（例如 1,2）：" rule_numbers
 
         # Validate the input
         if ! [[ $rule_numbers =~ ^([0-9]+)(,[0-9]+)*$ ]]; then
-            echo "Error: Invalid input. Please enter a comma-separated list of rule numbers." >&2
+            echo "错误：输入无效，请输入英文逗号分隔的规则序号。" >&2
             exit 1
         fi
 
@@ -928,18 +947,18 @@ delete_ports() {
         IFS=',' read -ra RULE_NUMBERS <<< "$rule_numbers"
         for rule_number in "${RULE_NUMBERS[@]}"; do
             # Delete the rule by number
-            ufw delete "$rule_number" || echo "Failed to delete rule number $rule_number"
+            ufw delete "$rule_number" || echo "删除规则序号 $rule_number 失败"
         done
 
-        echo "Selected rules have been deleted."
+        echo "选中的规则已删除。"
 
     elif [[ $choice -eq 2 ]]; then
         # Deleting by ports
-        read -rp "Enter the ports you want to delete (e.g. 80,443,2053 or range 400-500): " ports
+        read -rp "请输入要删除的端口（例如 80,443,2053 或范围 400-500）：" ports
 
         # Validate the input
         if ! [[ $ports =~ ^([0-9]+|[0-9]+-[0-9]+)(,([0-9]+|[0-9]+-[0-9]+))*$ ]]; then
-            echo "Error: Invalid input. Please enter a comma-separated list of ports or a range of ports (e.g. 80,443,2053 or 400-500)." >&2
+            echo "错误：输入无效，请输入英文逗号分隔的端口或端口范围（例如 80,443,2053 或 400-500）。" >&2
             exit 1
         fi
 
@@ -960,7 +979,7 @@ delete_ports() {
         done
 
         # Confirmation of deletion
-        echo "Deleted the specified ports:"
+        echo "已删除以下端口："
         for port in "${PORT_LIST[@]}"; do
             if [[ $port == *-* ]]; then
                 start_port=$(echo $port | cut -d'-' -f1)
@@ -973,7 +992,7 @@ delete_ports() {
             fi
         done
     else
-        echo "${red}Error:${plain} Invalid choice. Please enter 1 or 2." >&2
+        echo "${red}错误：${plain} 无效选项，请输入 1 或 2。" >&2
         exit 1
     fi
 }
@@ -1011,9 +1030,9 @@ update_geo() {
     echo -e "${green}\t1.${plain} Loyalsoldier (geoip.dat, geosite.dat)"
     echo -e "${green}\t2.${plain} chocolate4u (geoip_IR.dat, geosite_IR.dat)"
     echo -e "${green}\t3.${plain} runetfreedom (geoip_RU.dat, geosite_RU.dat)"
-    echo -e "${green}\t4.${plain} All"
-    echo -e "${green}\t0.${plain} Back to Main Menu"
-    read -rp "Choose an option: " choice
+    echo -e "${green}\t4.${plain} 全部更新"
+    echo -e "${green}\t0.${plain} 返回主菜单"
+    read -rp "请选择：" choice
 
     case "$choice" in
         0)
@@ -1021,26 +1040,26 @@ update_geo() {
             ;;
         1)
             update_geofiles "main"
-            echo -e "${green}Loyalsoldier datasets have been updated successfully!${plain}"
+            echo -e "${green}Loyalsoldier 数据集更新成功。${plain}"
             restart
             ;;
         2)
             update_geofiles "IR"
-            echo -e "${green}chocolate4u datasets have been updated successfully!${plain}"
+            echo -e "${green}chocolate4u 数据集更新成功。${plain}"
             restart
             ;;
         3)
             update_geofiles "RU"
-            echo -e "${green}runetfreedom datasets have been updated successfully!${plain}"
+            echo -e "${green}runetfreedom 数据集更新成功。${plain}"
             restart
             ;;
         4)
             update_all_geofiles
-            echo -e "${green}All geo files have been updated successfully!${plain}"
+            echo -e "${green}全部 Geo 文件更新成功。${plain}"
             restart
             ;;
         *)
-            echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
+            echo -e "${red}无效选项，请输入有效数字。${plain}\n"
             update_geo
             ;;
     esac
@@ -2278,68 +2297,68 @@ SSH_port_forwarding() {
 
 show_usage() {
     echo -e "┌────────────────────────────────────────────────────────────────┐
-│  ${blue}x-ui control menu usages (subcommands):${plain}                       │
+│  ${blue}OUI 控制菜单用法（子命令）：${plain}                                │
 │                                                                │
-│  ${blue}x-ui${plain}                       - Admin Management Script          │
-│  ${blue}x-ui start${plain}                 - Start                            │
-│  ${blue}x-ui stop${plain}                  - Stop                             │
-│  ${blue}x-ui restart${plain}               - Restart                          │
-|  ${blue}x-ui restart-xray${plain}          - Restart Xray                     │
-│  ${blue}x-ui status${plain}                - Current Status                   │
-│  ${blue}x-ui settings${plain}              - Current Settings                 │
-│  ${blue}x-ui enable${plain}                - Enable Autostart on OS Startup   │
-│  ${blue}x-ui disable${plain}               - Disable Autostart on OS Startup  │
-│  ${blue}x-ui log${plain}                   - Check logs                       │
-│  ${blue}x-ui banlog${plain}                - Check Fail2ban ban logs          │
-│  ${blue}x-ui update${plain}                - Update                           │
-│  ${blue}x-ui update-all-geofiles${plain}   - Update all geo files             │
-│  ${blue}x-ui legacy${plain}                - Legacy version                   │
-│  ${blue}x-ui install${plain}               - Install                          │
-│  ${blue}x-ui uninstall${plain}             - Uninstall                        │
+│  ${blue}x-ui${plain}                       - 管理脚本                         │
+│  ${blue}x-ui start${plain}                 - 启动                             │
+│  ${blue}x-ui stop${plain}                  - 停止                             │
+│  ${blue}x-ui restart${plain}               - 重启                             │
+│  ${blue}x-ui restart-xray${plain}          - 重启 Xray                        │
+│  ${blue}x-ui status${plain}                - 查看当前状态                     │
+│  ${blue}x-ui settings${plain}              - 查看当前设置                     │
+│  ${blue}x-ui enable${plain}                - 开启开机自启                     │
+│  ${blue}x-ui disable${plain}               - 关闭开机自启                     │
+│  ${blue}x-ui log${plain}                   - 查看日志                         │
+│  ${blue}x-ui banlog${plain}                - 查看 Fail2ban 封禁日志           │
+│  ${blue}x-ui update${plain}                - 更新                             │
+│  ${blue}x-ui update-all-geofiles${plain}   - 更新全部 Geo 文件                │
+│  ${blue}x-ui legacy${plain}                - 安装指定旧版本                   │
+│  ${blue}x-ui install${plain}               - 安装                             │
+│  ${blue}x-ui uninstall${plain}             - 卸载                             │
 └────────────────────────────────────────────────────────────────┘"
 }
 
 show_menu() {
     echo -e "
 ╔────────────────────────────────────────────────╗
-│   ${green}OUI Panel Management Script${plain}                   │
-│   ${green}0.${plain} Exit Script                               │
+│   ${green}OUI 面板管理脚本${plain}                              │
+│   ${green}0.${plain} 退出脚本                                  │
 │────────────────────────────────────────────────│
-│   ${green}1.${plain} Install                                   │
-│   ${green}2.${plain} Update                                    │
-│   ${green}3.${plain} Update Menu                               │
-│   ${green}4.${plain} Legacy Version                            │
-│   ${green}5.${plain} Uninstall                                 │
+│   ${green}1.${plain} 安装                                      │
+│   ${green}2.${plain} 更新                                      │
+│   ${green}3.${plain} 更新菜单                                  │
+│   ${green}4.${plain} 安装指定旧版本                            │
+│   ${green}5.${plain} 卸载                                      │
 │────────────────────────────────────────────────│
-│   ${green}6.${plain} Reset Username & Password                 │
-│   ${green}7.${plain} Reset Web Base Path                       │
-│   ${green}8.${plain} Reset Settings                            │
-│   ${green}9.${plain} Change Port                               │
-│  ${green}10.${plain} View Current Settings                     │
+│   ${green}6.${plain} 重置用户名和密码                          │
+│   ${green}7.${plain} 重置 Web 访问路径                         │
+│   ${green}8.${plain} 重置设置                                  │
+│   ${green}9.${plain} 修改端口                                  │
+│  ${green}10.${plain} 查看当前设置                              │
 │────────────────────────────────────────────────│
-│  ${green}11.${plain} Start                                     │
-│  ${green}12.${plain} Stop                                      │
-│  ${green}13.${plain} Restart                                   │
-|  ${green}14.${plain} Restart Xray                              │
-│  ${green}15.${plain} Check Status                              │
-│  ${green}16.${plain} Logs Management                           │
+│  ${green}11.${plain} 启动                                      │
+│  ${green}12.${plain} 停止                                      │
+│  ${green}13.${plain} 重启                                      │
+│  ${green}14.${plain} 重启 Xray                                 │
+│  ${green}15.${plain} 查看状态                                  │
+│  ${green}16.${plain} 日志管理                                  │
 │────────────────────────────────────────────────│
-│  ${green}17.${plain} Enable Autostart                          │
-│  ${green}18.${plain} Disable Autostart                         │
+│  ${green}17.${plain} 开启开机自启                              │
+│  ${green}18.${plain} 关闭开机自启                              │
 │────────────────────────────────────────────────│
-│  ${green}19.${plain} SSL Certificate Management                │
-│  ${green}20.${plain} Cloudflare SSL Certificate                │
-│  ${green}21.${plain} IP Limit Management                       │
-│  ${green}22.${plain} Firewall Management                       │
-│  ${green}23.${plain} SSH Port Forwarding Management            │
+│  ${green}19.${plain} SSL 证书管理                              │
+│  ${green}20.${plain} Cloudflare SSL 证书                       │
+│  ${green}21.${plain} IP 限制管理                               │
+│  ${green}22.${plain} 防火墙管理                                │
+│  ${green}23.${plain} SSH 端口转发管理                          │
 │────────────────────────────────────────────────│
-│  ${green}24.${plain} Enable BBR                                │
-│  ${green}25.${plain} Update Geo Files                          │
-│  ${green}26.${plain} Speedtest by Ookla                        │
+│  ${green}24.${plain} 启用 BBR                                  │
+│  ${green}25.${plain} 更新 Geo 文件                             │
+│  ${green}26.${plain} Ookla 测速                                │
 ╚────────────────────────────────────────────────╝
 "
     show_status
-    echo && read -rp "Please enter your selection [0-26]: " num
+    echo && read -rp "请输入选项 [0-26]：" num
 
     case "${num}" in
         0)
@@ -2424,7 +2443,7 @@ show_menu() {
             run_speedtest
             ;;
         *)
-            LOGE "Please enter the correct number [0-26]"
+            LOGE "请输入正确的数字 [0-26]"
             ;;
     esac
 }

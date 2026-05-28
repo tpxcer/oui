@@ -134,6 +134,7 @@ func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
+	s.ensureInboundsStreamSettings(db, inbounds)
 	s.enrichClientStats(db, inbounds)
 	s.annotateFallbackParents(db, inbounds)
 	return inbounds, nil
@@ -156,6 +157,7 @@ func (s *InboundService) GetInboundsSlim(userId int) ([]*model.Inbound, error) {
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
+	s.ensureInboundsStreamSettings(db, inbounds)
 	s.annotateFallbackParents(db, inbounds)
 	for _, ib := range inbounds {
 		ib.Settings = slimSettingsClients(ib.Settings)
@@ -351,6 +353,7 @@ func (s *InboundService) GetAllInbounds() ([]*model.Inbound, error) {
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return nil, err
 	}
+	s.ensureInboundsStreamSettings(db, inbounds)
 	s.enrichClientStats(db, inbounds)
 	return inbounds, nil
 }
@@ -460,6 +463,10 @@ func (s *InboundService) normalizeStreamSettings(inbound *model.Inbound) {
 
 	if !protocolsWithStream[inbound.Protocol] {
 		inbound.StreamSettings = ""
+		return
+	}
+	if normalized, changed := normalizeRealityShortIdsInStreamSettings(inbound.StreamSettings); changed {
+		inbound.StreamSettings = normalized
 	}
 }
 
@@ -664,8 +671,32 @@ func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.ensureInboundStreamSettings(db, inbound)
 	s.ensureInboundClientSubIDs(db, inbound)
 	return inbound, nil
+}
+
+func (s *InboundService) ensureInboundsStreamSettings(db *gorm.DB, inbounds []*model.Inbound) {
+	for _, inbound := range inbounds {
+		s.ensureInboundStreamSettings(db, inbound)
+	}
+}
+
+func (s *InboundService) ensureInboundStreamSettings(db *gorm.DB, inbound *model.Inbound) {
+	if inbound == nil {
+		return
+	}
+	normalized, changed := normalizeRealityShortIdsInStreamSettings(inbound.StreamSettings)
+	if !changed {
+		return
+	}
+	inbound.StreamSettings = normalized
+	if db == nil {
+		db = database.GetDB()
+	}
+	if err := db.Model(model.Inbound{}).Where("id = ?", inbound.Id).Update("stream_settings", normalized).Error; err != nil {
+		logger.Warning("ensureInboundStreamSettings:", err)
+	}
 }
 
 func (s *InboundService) ensureInboundClientSubIDs(db *gorm.DB, inbound *model.Inbound) {

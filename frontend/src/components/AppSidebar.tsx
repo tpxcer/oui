@@ -109,7 +109,9 @@ function SidebarUpdateButton({
   onUpdate: () => void;
 }) {
   const updateAvailable = !!info?.updateAvailable;
-  const title = updateAvailable ? '一键更新' : '检测版本';
+  const nextVersion = info?.latestVersion || '';
+  const title = updateAvailable && nextVersion ? `一键更新到 ${nextVersion}` : updateAvailable ? '一键更新' : '检测版本';
+  const label = updating ? '更新中' : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测';
   const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
   return (
     <button
@@ -121,7 +123,7 @@ function SidebarUpdateButton({
       onClick={updateAvailable ? onUpdate : onCheck}
     >
       <Icon spin={checking || updating} />
-      {!collapsed && <span>{updateAvailable ? '一键更新' : '检测'}</span>}
+      {!collapsed && <span>{label}</span>}
     </button>
   );
 }
@@ -169,7 +171,11 @@ export default function AppSidebar() {
       const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo', undefined, { silent: true });
       if (msg?.success && msg.obj) {
         setUpdateInfo(msg.obj);
-        if (!msg.obj.updateAvailable) message.success('当前已是最新版');
+        if (msg.obj.updateAvailable) {
+          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
+        } else {
+          message.success('当前已是最新版');
+        }
       }
     } finally {
       setCheckingUpdate(false);
@@ -296,14 +302,6 @@ export default function AppSidebar() {
           items={toMenuItems(navItems)}
           onClick={onMenuClick}
         />
-        <Menu
-          theme={currentTheme}
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          className="sider-utility"
-          items={toMenuItems(utilItems)}
-          onClick={onMenuClick}
-        />
         <div className="sider-footer">
           <VersionBadge version={panelVersion} collapsed={collapsed} />
           <SidebarUpdateButton
@@ -315,6 +313,14 @@ export default function AppSidebar() {
             onUpdate={updatePanel}
           />
         </div>
+        <Menu
+          theme={currentTheme}
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          className="sider-utility"
+          items={toMenuItems(utilItems)}
+          onClick={onMenuClick}
+        />
       </Layout.Sider>
 
       <Drawer
@@ -361,14 +367,6 @@ export default function AppSidebar() {
           items={toMenuItems(navItems)}
           onClick={(info) => { onMenuClick(info); setDrawerOpen(false); }}
         />
-        <Menu
-          theme={currentTheme}
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          className="drawer-menu drawer-utility"
-          items={toMenuItems(utilItems)}
-          onClick={(info) => { onMenuClick(info); setDrawerOpen(false); }}
-        />
         <div className="drawer-footer">
           <VersionBadge version={panelVersion} />
           <SidebarUpdateButton
@@ -379,6 +377,14 @@ export default function AppSidebar() {
             onUpdate={updatePanel}
           />
         </div>
+        <Menu
+          theme={currentTheme}
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          className="drawer-menu drawer-utility"
+          items={toMenuItems(utilItems)}
+          onClick={(info) => { onMenuClick(info); setDrawerOpen(false); }}
+        />
       </Drawer>
 
       {!drawerOpen && (
