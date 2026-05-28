@@ -15,6 +15,7 @@ export const AllSettingSchema = z.object({
   trustedProxyCIDRs: z.string().optional(),
   panelProxy: z.string().optional(),
   serverProvider: z.string().optional(),
+  serverProviderURL: z.string().optional(),
   serverProviderVEID: z.string().optional(),
   serverProviderAPIKey: z.string().optional(),
   pageSize: z.number().int().min(1).max(1000).optional(),

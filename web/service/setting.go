@@ -40,6 +40,7 @@ var defaultValueMap = map[string]string{
 	"sessionMaxAge":               "360",
 	"trustedProxyCIDRs":           "127.0.0.1/32,::1/128",
 	"serverProvider":              "",
+	"serverProviderURL":           "",
 	"serverProviderVEID":          "",
 	"serverProviderAPIKey":        "",
 	"pageSize":                    "25",
@@ -373,6 +374,10 @@ func (s *SettingService) SetPanelProxy(proxyUrl string) error {
 
 func (s *SettingService) GetServerProvider() (string, error) {
 	return s.getString("serverProvider")
+}
+
+func (s *SettingService) GetServerProviderURL() (string, error) {
+	return s.getString("serverProviderURL")
 }
 
 func (s *SettingService) GetServerProviderVEID() (string, error) {
@@ -902,6 +907,13 @@ func validateSettingsURLs(allSetting *entity.AllSetting) error {
 			return common.NewError("telegram API server URL is invalid:", err)
 		}
 		allSetting.TgBotAPIServer = u
+	}
+	if allSetting.ServerProviderURL != "" {
+		u, err := SanitizeHTTPURL(allSetting.ServerProviderURL)
+		if err != nil {
+			return common.NewError("server provider URL is invalid:", err)
+		}
+		allSetting.ServerProviderURL = u
 	}
 	return nil
 }

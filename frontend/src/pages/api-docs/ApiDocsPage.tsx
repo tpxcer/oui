@@ -12,8 +12,8 @@ import {
   message,
 } from 'antd';
 import {
-  AimOutlined,
   CloudServerOutlined,
+  DashboardOutlined,
   EnvironmentOutlined,
   ReloadOutlined,
   SwapOutlined,
@@ -111,6 +111,7 @@ export default function ApiDocsPage() {
   };
 
   const trafficTotal = status.netTraffic.sent + status.netTraffic.recv;
+  const providerTrafficPercent = percent(status.serverInfo.dataCounter, status.serverInfo.planMonthlyData);
   const ptrText = Object.entries(status.serverInfo.ptr || {})
     .map(([ip, ptr]) => `${ip} -> ${ptr}`)
     .join('；');
@@ -173,8 +174,19 @@ export default function ApiDocsPage() {
                     <div><span>虚拟化</span><strong>{status.serverInfo.vmType || '-'}</strong></div>
                     <div><span>节点</span><strong>{[status.serverInfo.nodeAlias, status.serverInfo.nodeLocation].filter(Boolean).join(' / ') || '-'}</strong></div>
                     <div><span>套餐</span><strong>{status.serverInfo.plan || '-'}</strong></div>
-                    <div><span>月流量</span><strong>{status.serverInfo.planMonthlyData ? SizeFormatter.sizeFormat(status.serverInfo.planMonthlyData) : '-'}</strong></div>
-                    <div><span>已用流量</span><strong>{status.serverInfo.dataCounter ? SizeFormatter.sizeFormat(status.serverInfo.dataCounter) : '-'}</strong></div>
+                    {(status.serverInfo.planMonthlyData > 0 || status.serverInfo.dataCounter > 0) && (
+                      <div className="server-traffic-row">
+                        <span>套餐流量</span>
+                        <strong>
+                          <span>{SizeFormatter.sizeFormat(status.serverInfo.dataCounter)} / {status.serverInfo.planMonthlyData ? SizeFormatter.sizeFormat(status.serverInfo.planMonthlyData) : '不限'}</span>
+                          <Progress
+                            percent={status.serverInfo.planMonthlyData ? providerTrafficPercent : 100}
+                            showInfo={!!status.serverInfo.planMonthlyData}
+                            strokeColor="#1677ff"
+                          />
+                        </strong>
+                      </div>
+                    )}
                     <div><span>下次重置</span><strong>{unixDate(status.serverInfo.dataNextReset)}</strong></div>
                     <div><span>套餐资源</span><strong>{[
                       status.serverInfo.planRam ? `RAM ${SizeFormatter.sizeFormat(status.serverInfo.planRam)}` : '',
@@ -211,15 +223,18 @@ export default function ApiDocsPage() {
                   </div>
                 </section>
 
-                <section className="preview-panel resource-panel">
+                <section className="preview-panel overview-panel">
                   <div className="panel-title">
-                    <AimOutlined />
-                    <span>资源</span>
+                    <DashboardOutlined />
+                    <span>面板概览</span>
                   </div>
-                  <div className="resource-grid">
-                    <div><Progress type="dashboard" percent={status.cpu.percent} size={96} /><span>CPU</span></div>
-                    <div><Progress type="dashboard" percent={status.mem.percent} size={96} strokeColor="#22a06b" /><span>内存</span></div>
-                    <div><Progress type="dashboard" percent={status.disk.percent} size={96} strokeColor="#d97706" /><span>磁盘</span></div>
+                  <div className="overview-grid">
+                    <div><span>面板运行</span><strong>{TimeFormatter.formatSecond(status.appStats.uptime || status.appUptime)}</strong></div>
+                    <div><span>面板内存</span><strong>{SizeFormatter.sizeFormat(status.appStats.mem)}</strong></div>
+                    <div><span>线程数</span><strong>{status.appStats.threads || '-'}</strong></div>
+                    <div><span>TCP 连接</span><strong>{status.tcpCount}</strong></div>
+                    <div><span>UDP 连接</span><strong>{status.udpCount}</strong></div>
+                    <div><span>系统负载</span><strong>{status.loads.slice(0, 3).join(' / ')}</strong></div>
                   </div>
                 </section>
               </div>

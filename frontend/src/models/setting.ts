@@ -11,6 +11,7 @@ export class AllSetting {
   trustedProxyCIDRs = '127.0.0.1/32,::1/128';
   panelProxy = '';
   serverProvider = '';
+  serverProviderURL = '';
   serverProviderVEID = '';
   serverProviderAPIKey = '';
   pageSize = 25;

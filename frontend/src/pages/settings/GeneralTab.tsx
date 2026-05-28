@@ -186,13 +186,24 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 style={{ width: '100%' }}
                 options={[
                   { value: '', label: '不启用' },
-                  { value: '64clouds', label: '自定义' },
+                  { value: 'custom', label: '自定义' },
                 ]}
               />
             </SettingListItem>
 
-            {allSetting.serverProvider === '64clouds' && (
+            {(allSetting.serverProvider === 'custom' || allSetting.serverProvider === '64clouds') && (
               <>
+                <SettingListItem
+                  paddings="small"
+                  title="自定义拉取链接"
+                  description="填写服务器商的信息接口；会自动附加 veid 和 api_key，也支持 {veid}、{api_key}、{apiKey} 占位符。"
+                >
+                  <Input
+                    value={allSetting.serverProviderURL}
+                    placeholder="https://api.example.com/getServiceInfo"
+                    onChange={(e) => updateSetting({ serverProviderURL: e.target.value })}
+                  />
+                </SettingListItem>
                 <SettingListItem paddings="small" title="自定义 VEID">
                   <Input
                     value={allSetting.serverProviderVEID}

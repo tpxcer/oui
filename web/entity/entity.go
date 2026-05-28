@@ -33,6 +33,7 @@ type AllSetting struct {
 
 	// Server provider settings
 	ServerProvider       string `json:"serverProvider" form:"serverProvider"`
+	ServerProviderURL    string `json:"serverProviderURL" form:"serverProviderURL"`
 	ServerProviderVEID   string `json:"serverProviderVEID" form:"serverProviderVEID"`
 	ServerProviderAPIKey string `json:"serverProviderAPIKey" form:"serverProviderAPIKey"`
 

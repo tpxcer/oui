@@ -339,6 +339,8 @@ type cloud64ServiceInfo struct {
 	Error            json.RawMessage   `json:"error"`
 }
 
+const defaultServerProviderURL = "https://api.64clouds.com/v1/getServiceInfo"
+
 func getPublicIP(url string) string {
 	client := &http.Client{
 		Timeout: 3 * time.Second,
@@ -727,18 +729,28 @@ func (s *ServerService) applyConfiguredServerProvider(status *Status) {
 	if provider == "" {
 		return
 	}
-	if provider != "64clouds" {
+	if provider != "custom" && provider != "64clouds" {
 		status.ServerInfo.Provider = provider
 		status.ServerInfo.Error = "暂不支持该服务器商"
 		return
 	}
 
-	status.ServerInfo.Source = "64clouds"
+	status.ServerInfo.Source = "custom"
 	status.ServerInfo.Provider = "自定义"
+	providerURL, _ := s.settingService.GetServerProviderURL()
 	veid, _ := s.settingService.GetServerProviderVEID()
 	apiKey, _ := s.settingService.GetServerProviderAPIKey()
+	providerURL = strings.TrimSpace(providerURL)
 	veid = strings.TrimSpace(veid)
 	apiKey = strings.TrimSpace(apiKey)
+	if providerURL == "" {
+		if provider == "64clouds" {
+			providerURL = defaultServerProviderURL
+		} else {
+			status.ServerInfo.Error = "请在设置中填写自定义拉取链接"
+			return
+		}
+	}
 	if veid == "" || apiKey == "" {
 		status.ServerInfo.Error = "请在设置中填写自定义 VEID 和自定义 API KEY"
 		return
@@ -746,7 +758,7 @@ func (s *ServerService) applyConfiguredServerProvider(status *Status) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	info, err := s.get64CloudsServiceInfo(ctx, veid, apiKey)
+	info, err := s.getServerProviderServiceInfo(ctx, providerURL, veid, apiKey)
 	if err != nil {
 		status.ServerInfo.Error = err.Error()
 		return
@@ -773,8 +785,8 @@ func (s *ServerService) applyConfiguredServerProvider(status *Status) {
 	status.ServerInfo.PTR = info.PTR
 }
 
-func (s *ServerService) get64CloudsServiceInfo(ctx context.Context, veid string, apiKey string) (*cloud64ServiceInfo, error) {
-	cacheKey := veid + ":" + apiKey
+func (s *ServerService) getServerProviderServiceInfo(ctx context.Context, providerURL string, veid string, apiKey string) (*cloud64ServiceInfo, error) {
+	cacheKey := providerURL + ":" + veid + ":" + apiKey
 	now := time.Now()
 
 	s.mu.Lock()
@@ -785,13 +797,12 @@ func (s *ServerService) get64CloudsServiceInfo(ctx context.Context, veid string,
 	}
 	s.mu.Unlock()
 
-	endpoint, _ := url.Parse("https://api.64clouds.com/v1/getServiceInfo")
-	q := endpoint.Query()
-	q.Set("veid", veid)
-	q.Set("api_key", apiKey)
-	endpoint.RawQuery = q.Encode()
+	endpoint, err := buildServerProviderURL(providerURL, veid, apiKey)
+	if err != nil {
+		return nil, err
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -803,25 +814,238 @@ func (s *ServerService) get64CloudsServiceInfo(ctx context.Context, veid string,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("服务器商 API 返回 HTTP %d", resp.StatusCode)
 	}
-	var info cloud64ServiceInfo
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+	var raw map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return nil, err
 	}
+	info := parseServerProviderInfo(raw)
 	if msg := cloud64ErrorMessage(info.Error); msg != "" {
 		return nil, fmt.Errorf("服务器商 API 错误：%s", msg)
 	}
 
 	s.mu.Lock()
 	s.cachedCloud64Key = cacheKey
-	s.cachedCloud64Info = &info
+	s.cachedCloud64Info = info
 	s.cachedCloud64At = time.Now()
 	s.mu.Unlock()
-	return &info, nil
+	return info, nil
+}
+
+func buildServerProviderURL(providerURL string, veid string, apiKey string) (string, error) {
+	providerURL = strings.TrimSpace(providerURL)
+	if providerURL == "" {
+		return "", fmt.Errorf("自定义拉取链接不能为空")
+	}
+	replaced := strings.NewReplacer(
+		"{veid}", url.QueryEscape(veid),
+		"{VEID}", url.QueryEscape(veid),
+		"%7Bveid%7D", url.QueryEscape(veid),
+		"%7BVEID%7D", url.QueryEscape(veid),
+		"{api_key}", url.QueryEscape(apiKey),
+		"{API_KEY}", url.QueryEscape(apiKey),
+		"{apiKey}", url.QueryEscape(apiKey),
+		"{APIKey}", url.QueryEscape(apiKey),
+		"%7Bapi_key%7D", url.QueryEscape(apiKey),
+		"%7BAPI_KEY%7D", url.QueryEscape(apiKey),
+		"%7BapiKey%7D", url.QueryEscape(apiKey),
+		"%7BAPIKey%7D", url.QueryEscape(apiKey),
+	).Replace(providerURL)
+	endpoint, err := url.Parse(replaced)
+	if err != nil {
+		return "", err
+	}
+	if endpoint.Scheme != "http" && endpoint.Scheme != "https" {
+		return "", fmt.Errorf("自定义拉取链接必须以 http:// 或 https:// 开头")
+	}
+	if !hasServerProviderPlaceholder(providerURL, "veid", "VEID") {
+		q := endpoint.Query()
+		q.Set("veid", veid)
+		endpoint.RawQuery = q.Encode()
+	}
+	if !hasServerProviderPlaceholder(providerURL, "api_key", "API_KEY", "apiKey", "APIKey") {
+		q := endpoint.Query()
+		q.Set("api_key", apiKey)
+		endpoint.RawQuery = q.Encode()
+	}
+	return endpoint.String(), nil
+}
+
+func hasServerProviderPlaceholder(providerURL string, names ...string) bool {
+	for _, name := range names {
+		if strings.Contains(providerURL, "{"+name+"}") || strings.Contains(providerURL, "%7B"+name+"%7D") {
+			return true
+		}
+	}
+	return false
+}
+
+func parseServerProviderInfo(raw map[string]json.RawMessage) *cloud64ServiceInfo {
+	infoRaw := raw
+	if nested, ok := raw["data"]; ok {
+		var nestedMap map[string]json.RawMessage
+		if err := json.Unmarshal(nested, &nestedMap); err == nil && len(nestedMap) > 0 {
+			infoRaw = nestedMap
+		}
+	}
+	info := &cloud64ServiceInfo{
+		Hostname:         rawString(infoRaw, "hostname", "hostName"),
+		NodeAlias:        rawString(infoRaw, "node_alias", "nodeAlias", "node"),
+		NodeLocation:     rawString(infoRaw, "node_location", "nodeLocation", "location"),
+		Plan:             rawString(infoRaw, "plan"),
+		PlanMonthlyData:  rawUint64(infoRaw, "plan_monthly_data", "planMonthlyData", "monthly_data", "monthlyData"),
+		PlanDisk:         rawUint64(infoRaw, "plan_disk", "planDisk", "disk"),
+		PlanRAM:          rawUint64(infoRaw, "plan_ram", "planRam", "ram", "memory"),
+		PlanSwap:         rawUint64(infoRaw, "plan_swap", "planSwap", "swap"),
+		OS:               rawString(infoRaw, "os", "operatingSystem"),
+		Email:            rawString(infoRaw, "email"),
+		DataCounter:      rawUint64(infoRaw, "data_counter", "dataCounter", "used_data", "usedData"),
+		DataNextReset:    rawInt64(infoRaw, "data_next_reset", "dataNextReset", "next_reset", "nextReset"),
+		IPAddresses:      rawStringSlice(infoRaw, "ip_addresses", "ipAddresses", "ips"),
+		RDNSAPIAvailable: rawMessage(infoRaw, "rdns_api_available", "rdnsApiAvailable"),
+		PTR:              rawStringMap(infoRaw, "ptr", "rdns"),
+		Error:            rawMessage(raw, "error"),
+	}
+	if len(info.Error) == 0 {
+		info.Error = rawMessage(infoRaw, "error")
+	}
+	if len(info.Error) == 0 {
+		if success, ok := rawBool(raw, "success", "ok"); ok && !success {
+			info.Error = rawMessage(raw, "message", "msg")
+		}
+	}
+	return info
+}
+
+func rawMessage(raw map[string]json.RawMessage, names ...string) json.RawMessage {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func rawString(raw map[string]json.RawMessage, names ...string) string {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var s string
+			if err := json.Unmarshal(value, &s); err == nil {
+				return strings.TrimSpace(s)
+			}
+			var n json.Number
+			if err := json.Unmarshal(value, &n); err == nil {
+				return n.String()
+			}
+		}
+	}
+	return ""
+}
+
+func rawBool(raw map[string]json.RawMessage, names ...string) (bool, bool) {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var b bool
+			if err := json.Unmarshal(value, &b); err == nil {
+				return b, true
+			}
+			s := strings.ToLower(rawString(raw, name))
+			switch s {
+			case "true", "1", "yes", "ok", "success":
+				return true, true
+			case "false", "0", "no", "fail", "failed", "error":
+				return false, true
+			}
+		}
+	}
+	return false, false
+}
+
+func rawUint64(raw map[string]json.RawMessage, names ...string) uint64 {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var n uint64
+			if err := json.Unmarshal(value, &n); err == nil {
+				return n
+			}
+			var f float64
+			if err := json.Unmarshal(value, &f); err == nil && f >= 0 {
+				return uint64(f)
+			}
+			s := rawString(raw, name)
+			if parsed, err := strconv.ParseUint(strings.TrimSpace(s), 10, 64); err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func rawInt64(raw map[string]json.RawMessage, names ...string) int64 {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var n int64
+			if err := json.Unmarshal(value, &n); err == nil {
+				return n
+			}
+			var f float64
+			if err := json.Unmarshal(value, &f); err == nil {
+				return int64(f)
+			}
+			s := rawString(raw, name)
+			if parsed, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func rawStringSlice(raw map[string]json.RawMessage, names ...string) []string {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var list []string
+			if err := json.Unmarshal(value, &list); err == nil {
+				return list
+			}
+			s := rawString(raw, name)
+			if s == "" {
+				continue
+			}
+			parts := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '，' || r == ' ' || r == '\n' })
+			out := []string{}
+			for _, part := range parts {
+				if item := strings.TrimSpace(part); item != "" {
+					out = append(out, item)
+				}
+			}
+			return out
+		}
+	}
+	return nil
+}
+
+func rawStringMap(raw map[string]json.RawMessage, names ...string) map[string]string {
+	for _, name := range names {
+		if value, ok := raw[name]; ok {
+			var out map[string]string
+			if err := json.Unmarshal(value, &out); err == nil {
+				return out
+			}
+		}
+	}
+	return nil
 }
 
 func cloud64ErrorMessage(raw json.RawMessage) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		if !b {
+			return ""
+		}
+		return "true"
 	}
 	var n int
 	if err := json.Unmarshal(raw, &n); err == nil {
