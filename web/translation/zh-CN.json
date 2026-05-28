@@ -100,7 +100,7 @@
     "nodes": "节点",
     "settings": "面板设置",
     "xray": "Xray 设置",
-    "apiDocs": "API 文档",
+    "apiDocs": "信息预览",
     "logout": "退出登录",
     "link": "管理",
     "donate": "捐赠"
@@ -279,6 +279,7 @@
       "updatedAt": "更新时间",
       "resetTraffic": "重置流量",
       "addInbound": "添加入站",
+      "tgOnlineNotify": "TG 上下线提醒",
       "generalActions": "通用操作",
       "modifyInbound": "修改入站",
       "deleteInbound": "删除入站",

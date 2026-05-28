@@ -48,6 +48,7 @@ export const InboundFormBaseSchema = z.object({
   listen: z.string().default(''),
   tag: z.string().default(''),
   expiryTime: z.number().int().default(0),
+  tgOnlineNotify: z.boolean().default(false),
   clientStats: z.string().optional(),
   sniffing: SniffingSchema.default({
     enabled: false,

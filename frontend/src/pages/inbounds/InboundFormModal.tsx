@@ -895,6 +895,10 @@ export default function InboundFormModal({
         <Switch />
       </Form.Item>
 
+      <Form.Item name="tgOnlineNotify" label={t('pages.inbounds.tgOnlineNotify')} valuePropName="checked">
+        <Switch />
+      </Form.Item>
+
       <Form.Item name="remark" label={t('pages.inbounds.remark')}>
         <Input />
       </Form.Item>

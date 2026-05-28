@@ -1,17 +1,58 @@
-import { useMemo } from 'react';
-import { ConfigProvider, Layout } from 'antd';
-import SwaggerUI from 'swagger-ui-react';
-import 'swagger-ui-react/swagger-ui.css';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Button,
+  ConfigProvider,
+  Input,
+  Layout,
+  Progress,
+  Spin,
+  Statistic,
+  Tag,
+  message,
+} from 'antd';
+import {
+  AimOutlined,
+  CloudServerOutlined,
+  EnvironmentOutlined,
+  ReloadOutlined,
+  SwapOutlined,
+} from '@ant-design/icons';
 
+import { useStatusQuery } from '@/api/queries/useStatusQuery';
+import { HttpUtil, SizeFormatter, TimeFormatter } from '@/utils';
 import { useTheme } from '@/hooks/useTheme';
 import AppSidebar from '@/components/AppSidebar';
+import type { NodeGeoLocation } from '@/models/status';
 import './ApiDocsPage.css';
 
-const basePath = window.X_UI_BASE_PATH || '';
-const openApiUrl = `${basePath}panel/api/openapi.json`;
+function percent(current: number, total: number) {
+  if (!total) return 0;
+  return Math.min(100, Math.max(0, Number(((current / total) * 100).toFixed(1))));
+}
+
+function geoLine(geo?: Partial<NodeGeoLocation> | null) {
+  if (!geo || geo.error) return geo?.error || '-';
+  return geo.location || geo.detail || [geo.country, geo.province, geo.city, geo.district].filter(Boolean).join('') || '-';
+}
 
 export default function ApiDocsPage() {
+  const { t } = useTranslation();
   const { isDark, isUltra, antdThemeConfig } = useTheme();
+  const { status, fetched, refresh } = useStatusQuery();
+  const [traceIp, setTraceIp] = useState('');
+  const [traceGeo, setTraceGeo] = useState<Partial<NodeGeoLocation> | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [messageApi, contextHolder] = message.useMessage();
+
+  const publicIPv4 = String(status.publicIP.ipv4 || '').replace(/^0$/, '');
+
+  useEffect(() => {
+    if (!traceIp && publicIPv4 && publicIPv4 !== 'N/A') {
+      setTraceIp(publicIPv4);
+      setTraceGeo(status.serverInfo.geo);
+    }
+  }, [publicIPv4, status.serverInfo.geo, traceIp]);
 
   const pageClass = useMemo(() => {
     const classes = ['api-docs-page'];
@@ -20,20 +61,119 @@ export default function ApiDocsPage() {
     return classes.join(' ');
   }, [isDark, isUltra]);
 
+  const lookupGeo = async (ip = traceIp) => {
+    const value = ip.trim();
+    if (!value) return;
+    setTraceLoading(true);
+    try {
+      const msg = await HttpUtil.get(`/panel/api/server/geoIp/${encodeURIComponent(value)}`, undefined, { silent: true });
+      if (msg?.success) {
+        setTraceGeo(msg.obj as NodeGeoLocation);
+      } else {
+        messageApi.error(msg?.msg || 'Lookup failed');
+      }
+    } finally {
+      setTraceLoading(false);
+    }
+  };
+
+  const trafficTotal = status.netTraffic.sent + status.netTraffic.recv;
+
   return (
     <ConfigProvider theme={antdThemeConfig}>
       <Layout className={pageClass}>
+        {contextHolder}
         <AppSidebar />
 
         <Layout className="content-shell">
           <Layout.Content className="content-area">
-            <div className="docs-wrapper">
-              <SwaggerUI
-                url={openApiUrl}
-                docExpansion="list"
-                deepLinking={false}
-                tryItOutEnabled
-              />
+            <div className="preview-shell">
+              <div className="preview-header">
+                <div>
+                  <h1>{t('menu.apiDocs')}</h1>
+                  <div className="preview-subtitle">
+                    <Tag color={status.xray.color}>{status.xray.state}</Tag>
+                    <span>Xray {status.xray.version || '-'}</span>
+                    <span>{status.serverInfo.hostname || '-'}</span>
+                  </div>
+                </div>
+                <Button icon={<ReloadOutlined />} onClick={refresh} loading={!fetched}>
+                  {t('refresh')}
+                </Button>
+              </div>
+
+              <div className="preview-grid">
+                <section className="preview-panel trace-panel">
+                  <div className="panel-title">
+                    <EnvironmentOutlined />
+                    <span>VPN 溯源</span>
+                  </div>
+                  <div className="trace-search">
+                    <Input.Search
+                      value={traceIp}
+                      onChange={(e) => setTraceIp(e.target.value)}
+                      onSearch={lookupGeo}
+                      enterButton="查询"
+                      loading={traceLoading}
+                      placeholder="IPv4"
+                    />
+                  </div>
+                  <Spin spinning={traceLoading}>
+                    <div className="trace-result">
+                      <strong>{geoLine(traceGeo)}</strong>
+                      <span>{traceGeo?.ip || traceIp || '-'}</span>
+                      <span>{traceGeo?.latitude && traceGeo?.longitude ? `${traceGeo.latitude.toFixed(5)}, ${traceGeo.longitude.toFixed(5)}` : '-'}</span>
+                    </div>
+                  </Spin>
+                </section>
+
+                <section className="preview-panel server-panel">
+                  <div className="panel-title">
+                    <CloudServerOutlined />
+                    <span>服务器</span>
+                  </div>
+                  <div className="server-list">
+                    <div><span>系统</span><strong>{status.serverInfo.os || '-'}</strong></div>
+                    <div><span>虚拟化</span><strong>{status.serverInfo.vmType || '-'}</strong></div>
+                    <div><span>运行</span><strong>{TimeFormatter.formatSecond(status.uptime)}</strong></div>
+                    <div><span>公网 IPv4</span><strong>{publicIPv4 || '-'}</strong></div>
+                  </div>
+                </section>
+
+                <section className="preview-panel usage-panel">
+                  <div className="panel-title">
+                    <SwapOutlined />
+                    <span>流量使用情况</span>
+                  </div>
+                  <div className="traffic-strip">
+                    <Statistic title="实时上行" value={SizeFormatter.sizeFormat(status.netIO.up)} />
+                    <Statistic title="实时下行" value={SizeFormatter.sizeFormat(status.netIO.down)} />
+                    <Statistic title="累计流量" value={SizeFormatter.sizeFormat(trafficTotal)} />
+                  </div>
+                  <div className="traffic-bars">
+                    <div>
+                      <span>已发送 {SizeFormatter.sizeFormat(status.netTraffic.sent)}</span>
+                      <Progress percent={trafficTotal ? percent(status.netTraffic.sent, trafficTotal) : 0} showInfo={false} />
+                    </div>
+                    <div>
+                      <span>已接收 {SizeFormatter.sizeFormat(status.netTraffic.recv)}</span>
+                      <Progress percent={trafficTotal ? percent(status.netTraffic.recv, trafficTotal) : 0} showInfo={false} strokeColor="#22a06b" />
+                    </div>
+                  </div>
+                </section>
+
+                <section className="preview-panel resource-panel">
+                  <div className="panel-title">
+                    <AimOutlined />
+                    <span>资源</span>
+                  </div>
+                  <div className="resource-grid">
+                    <div><Progress type="dashboard" percent={status.cpu.percent} size={96} /><span>CPU</span></div>
+                    <div><Progress type="dashboard" percent={status.mem.percent} size={96} strokeColor="#22a06b" /><span>内存</span></div>
+                    <div><Progress type="dashboard" percent={status.disk.percent} size={96} strokeColor="#d97706" /><span>磁盘</span></div>
+                  </div>
+                </section>
+              </div>
             </div>
           </Layout.Content>
         </Layout>

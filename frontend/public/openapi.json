@@ -1623,6 +1623,55 @@
         }
       }
     },
+    "/panel/api/server/geoIp/{ip}": {
+      "get": {
+        "tags": [
+          "Server"
+        ],
+        "summary": "Look up an IPv4 address with the panel VPN tracing provider and return the resolved location.",
+        "operationId": "get_panel_api_server_geoIp_ip",
+        "parameters": [
+          {
+            "name": "ip",
+            "in": "path",
+            "required": true,
+            "description": "IPv4 address to trace.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "ip": "8.8.8.8",
+                    "location": "United States",
+                    "source": "meituan"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/server/stopXrayService": {
       "post": {
         "tags": [

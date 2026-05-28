@@ -32,6 +32,7 @@ export interface RawInboundRow {
   remark?: string;
   enable?: boolean;
   expiryTime?: number;
+  tgOnlineNotify?: boolean;
   trafficReset?: string;
   lastTrafficResetTime?: number;
   nodeId?: number | null;
@@ -48,6 +49,7 @@ export interface WireInboundPayload {
   remark: string;
   enable: boolean;
   expiryTime: number;
+  tgOnlineNotify: boolean;
   trafficReset: TrafficReset;
   lastTrafficResetTime: number;
   listen: string;
@@ -135,6 +137,7 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     listen: row.listen ?? '',
     tag: row.tag ?? '',
     expiryTime: row.expiryTime ?? 0,
+    tgOnlineNotify: row.tgOnlineNotify ?? false,
     sniffing,
     streamSettings,
     up: row.up ?? 0,
@@ -273,6 +276,7 @@ export function formValuesToWirePayload(values: InboundFormValues): WireInboundP
     remark: values.remark,
     enable: values.enable,
     expiryTime: values.expiryTime,
+    tgOnlineNotify: values.tgOnlineNotify,
     trafficReset: values.trafficReset,
     lastTrafficResetTime: values.lastTrafficResetTime,
     listen: values.listen,

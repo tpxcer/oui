@@ -833,6 +833,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Remark = inbound.Remark
 	oldInbound.Enable = inbound.Enable
 	oldInbound.ExpiryTime = inbound.ExpiryTime
+	oldInbound.TgOnlineNotify = inbound.TgOnlineNotify
 	oldInbound.TrafficReset = inbound.TrafficReset
 	oldInbound.Listen = inbound.Listen
 	oldInbound.Port = inbound.Port

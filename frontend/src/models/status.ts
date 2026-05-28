@@ -43,6 +43,31 @@ export interface PublicIP {
   ipv6: string | number;
 }
 
+export interface NodeGeoLocation {
+  ip: string;
+  location: string;
+  country: string;
+  province: string;
+  city: string;
+  district: string;
+  detail: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+  error: string;
+}
+
+export interface ServerInfo {
+  source: string;
+  provider: string;
+  error: string;
+  hostname: string;
+  nodeLocation: string;
+  vmType: string;
+  os: string;
+  geo: NodeGeoLocation;
+}
+
 export interface AppStats {
   threads: number;
   mem: number;
@@ -67,6 +92,7 @@ interface StatusInput {
   netIO?: NetIO;
   netTraffic?: NetTraffic;
   publicIP?: PublicIP;
+  serverInfo?: Omit<Partial<ServerInfo>, 'geo'> & { geo?: Partial<NodeGeoLocation> };
   swap?: { current?: number; total?: number };
   tcpCount?: number;
   udpCount?: number;
@@ -87,6 +113,28 @@ export class Status {
   netIO: NetIO = { up: 0, down: 0 };
   netTraffic: NetTraffic = { sent: 0, recv: 0 };
   publicIP: PublicIP = { ipv4: 0, ipv6: 0 };
+  serverInfo: ServerInfo = {
+    source: '',
+    provider: '',
+    error: '',
+    hostname: '',
+    nodeLocation: '',
+    vmType: '',
+    os: '',
+    geo: {
+      ip: '',
+      location: '',
+      country: '',
+      province: '',
+      city: '',
+      district: '',
+      detail: '',
+      latitude: 0,
+      longitude: 0,
+      source: '',
+      error: '',
+    },
+  };
   swap: CurTotal = new CurTotal(0, 0);
   tcpCount = 0;
   udpCount = 0;
@@ -108,6 +156,9 @@ export class Status {
     this.netIO = data.netIO ?? this.netIO;
     this.netTraffic = data.netTraffic ?? this.netTraffic;
     this.publicIP = data.publicIP ?? this.publicIP;
+    const { geo, ...serverInfo } = data.serverInfo || {};
+    this.serverInfo = { ...this.serverInfo, ...serverInfo };
+    this.serverInfo.geo = { ...this.serverInfo.geo, ...(geo || {}) };
     this.swap = new CurTotal(data.swap?.current ?? 0, data.swap?.total ?? 0);
     this.tcpCount = data.tcpCount ?? 0;
     this.udpCount = data.udpCount ?? 0;

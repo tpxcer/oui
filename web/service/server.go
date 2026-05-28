@@ -4,11 +4,14 @@ import (
 	"archive/zip"
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,6 +91,16 @@ type Status struct {
 		IPv4 string `json:"ipv4"`
 		IPv6 string `json:"ipv6"`
 	} `json:"publicIP"`
+	ServerInfo struct {
+		Source       string          `json:"source"`
+		Provider     string          `json:"provider"`
+		Error        string          `json:"error"`
+		Hostname     string          `json:"hostname"`
+		NodeLocation string          `json:"nodeLocation"`
+		VMType       string          `json:"vmType"`
+		OS           string          `json:"os"`
+		Geo          NodeGeoLocation `json:"geo"`
+	} `json:"serverInfo"`
 	AppStats struct {
 		Threads uint32 `json:"threads"`
 		Mem     uint64 `json:"mem"`
@@ -116,6 +129,10 @@ type ServerService struct {
 	emaCPU             float64
 	cachedCpuSpeedMhz  float64
 	lastCpuInfoAttempt time.Time
+	cachedGeoIP        string
+	cachedGeoLocation  NodeGeoLocation
+	lastGeoAttempt     time.Time
+	ipGeoCache         map[string]cachedIPGeo
 
 	lastStatusMu sync.RWMutex
 	lastStatus   *Status
@@ -269,6 +286,25 @@ type LogEntry struct {
 	Event       int
 }
 
+type NodeGeoLocation struct {
+	IP        string  `json:"ip"`
+	Location  string  `json:"location"`
+	Country   string  `json:"country"`
+	Province  string  `json:"province"`
+	City      string  `json:"city"`
+	District  string  `json:"district"`
+	Detail    string  `json:"detail"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Source    string  `json:"source"`
+	Error     string  `json:"error"`
+}
+
+type cachedIPGeo struct {
+	location NodeGeoLocation
+	at       time.Time
+}
+
 func getPublicIP(url string) string {
 	client := &http.Client{
 		Timeout: 3 * time.Second,
@@ -299,6 +335,115 @@ func getPublicIP(url string) string {
 	}
 
 	return ipString
+}
+
+func (s *ServerService) LookupIPGeo(ctx context.Context, ip string) NodeGeoLocation {
+	ip = strings.TrimSpace(ip)
+	result := NodeGeoLocation{IP: ip, Source: "meituan"}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || !addr.Is4() {
+		result.Error = fmt.Sprintf("invalid ipv4: %s", ip)
+		return result
+	}
+
+	now := time.Now()
+	s.mu.Lock()
+	if s.ipGeoCache == nil {
+		s.ipGeoCache = make(map[string]cachedIPGeo)
+	}
+	if cached, ok := s.ipGeoCache[ip]; ok && now.Sub(cached.at) < 24*time.Hour {
+		s.mu.Unlock()
+		return cached.location
+	}
+	s.mu.Unlock()
+
+	geo, err := fetchMeituanNodeGeo(ctx, ip)
+	if err != nil {
+		geo = NodeGeoLocation{IP: ip, Source: "meituan", Error: err.Error()}
+	}
+	s.mu.Lock()
+	s.ipGeoCache[ip] = cachedIPGeo{location: geo, at: time.Now()}
+	s.mu.Unlock()
+	return geo
+}
+
+func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
+	result := NodeGeoLocation{IP: ip, Source: "meituan"}
+	client := &http.Client{Timeout: 5 * time.Second}
+	locReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://apimobile.meituan.com/locate/v2/ip/loc?rgeo=true&ip="+url.QueryEscape(ip), nil)
+	if err != nil {
+		return result, err
+	}
+	locRespHTTP, err := client.Do(locReq)
+	if err != nil {
+		return result, err
+	}
+	defer locRespHTTP.Body.Close()
+	if locRespHTTP.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("meituan locate status %d", locRespHTTP.StatusCode)
+	}
+	var locResp struct {
+		Code int `json:"code"`
+		Data struct {
+			Lat  float64 `json:"lat"`
+			Lng  float64 `json:"lng"`
+			RGeo struct {
+				Country  string `json:"country"`
+				Province string `json:"province"`
+				City     string `json:"city"`
+				District string `json:"district"`
+			} `json:"rgeo"`
+		} `json:"data"`
+		Msg string `json:"msg"`
+	}
+	if err := json.NewDecoder(locRespHTTP.Body).Decode(&locResp); err != nil {
+		return result, err
+	}
+	if locResp.Code != 0 {
+		return result, fmt.Errorf("meituan locate code %d %s", locResp.Code, locResp.Msg)
+	}
+	result.Latitude = locResp.Data.Lat
+	result.Longitude = locResp.Data.Lng
+	result.Country = strings.TrimSpace(locResp.Data.RGeo.Country)
+	result.Province = strings.TrimSpace(locResp.Data.RGeo.Province)
+	result.City = strings.TrimSpace(locResp.Data.RGeo.City)
+	result.District = strings.TrimSpace(locResp.Data.RGeo.District)
+	parts := []string{}
+	for _, p := range []string{result.Country, result.Province, result.City, result.District} {
+		if p != "" && !slices.Contains(parts, p) {
+			parts = append(parts, p)
+		}
+	}
+	result.Location = strings.Join(parts, "")
+
+	if result.Latitude == 0 && result.Longitude == 0 {
+		return result, nil
+	}
+	groupURL := fmt.Sprintf("https://apimobile.meituan.com/group/v1/city/latlng/%f,%f?tag=0", result.Latitude, result.Longitude)
+	groupReq, err := http.NewRequestWithContext(ctx, http.MethodGet, groupURL, nil)
+	if err != nil {
+		return result, nil
+	}
+	groupRespHTTP, err := client.Do(groupReq)
+	if err != nil {
+		return result, nil
+	}
+	defer groupRespHTTP.Body.Close()
+	if groupRespHTTP.StatusCode != http.StatusOK {
+		return result, nil
+	}
+	var groupResp struct {
+		Data struct {
+			Detail string `json:"detail"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(groupRespHTTP.Body).Decode(&groupResp); err == nil {
+		result.Detail = strings.TrimSpace(groupResp.Data.Detail)
+		if result.Detail != "" {
+			result.Location = result.Detail
+		}
+	}
+	return result, nil
 }
 
 func (s *ServerService) GetStatus(lastStatus *Status) *Status {
@@ -469,6 +614,8 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 
 	status.PublicIP.IPv4 = s.cachedIPv4
 	status.PublicIP.IPv6 = s.cachedIPv6
+	s.applySystemServerInfo(status)
+	s.applyNodeGeoLocation(status, now)
 
 	// Xray status
 	if s.xrayService.IsXrayRunning() {
@@ -498,6 +645,68 @@ func (s *ServerService) GetStatus(lastStatus *Status) *Status {
 	}
 
 	return status
+}
+
+func (s *ServerService) applySystemServerInfo(status *Status) {
+	status.ServerInfo.Source = "system"
+	status.ServerInfo.Provider = "本机系统"
+	if hostname, err := os.Hostname(); err == nil {
+		status.ServerInfo.Hostname = hostname
+	}
+	if info, err := host.Info(); err == nil {
+		if status.ServerInfo.Hostname == "" {
+			status.ServerInfo.Hostname = info.Hostname
+		}
+		status.ServerInfo.VMType = strings.ToUpper(strings.TrimSpace(info.VirtualizationSystem))
+		osLabel := strings.TrimSpace(info.Platform)
+		if info.PlatformVersion != "" {
+			osLabel = strings.TrimSpace(osLabel + " " + info.PlatformVersion)
+		}
+		status.ServerInfo.OS = osLabel
+	}
+	if status.ServerInfo.VMType == "" {
+		status.ServerInfo.VMType = "物理/未知"
+	}
+	if status.ServerInfo.OS == "" {
+		status.ServerInfo.OS = runtime.GOOS
+	}
+}
+
+func (s *ServerService) applyNodeGeoLocation(status *Status, now time.Time) {
+	ip := strings.TrimSpace(status.PublicIP.IPv4)
+	if ip == "" || ip == "N/A" {
+		status.ServerInfo.Geo = NodeGeoLocation{IP: ip, Source: "meituan", Error: "no public IPv4"}
+		return
+	}
+
+	s.mu.Lock()
+	if s.cachedGeoIP == ip && !s.lastGeoAttempt.IsZero() && now.Sub(s.lastGeoAttempt) < 6*time.Hour {
+		status.ServerInfo.Geo = s.cachedGeoLocation
+		s.mu.Unlock()
+		return
+	}
+	if s.cachedGeoIP == ip && !s.lastGeoAttempt.IsZero() && now.Sub(s.lastGeoAttempt) < 30*time.Second {
+		status.ServerInfo.Geo = s.cachedGeoLocation
+		s.mu.Unlock()
+		return
+	}
+	s.cachedGeoIP = ip
+	s.lastGeoAttempt = now
+	s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	geo, err := fetchMeituanNodeGeo(ctx, ip)
+	if err != nil {
+		geo = NodeGeoLocation{IP: ip, Source: "meituan", Error: err.Error()}
+	}
+
+	s.mu.Lock()
+	s.cachedGeoIP = ip
+	s.cachedGeoLocation = geo
+	s.lastGeoAttempt = time.Now()
+	s.mu.Unlock()
+	status.ServerInfo.Geo = geo
 }
 
 // AppendCpuSample is preserved for callers that only have the CPU number.

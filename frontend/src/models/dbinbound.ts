@@ -29,6 +29,7 @@ export type DBInboundInit = Partial<{
     remark: string;
     enable: boolean;
     expiryTime: number;
+    tgOnlineNotify: boolean;
     trafficReset: string;
     lastTrafficResetTime: number;
     listen: string;
@@ -71,6 +72,7 @@ export class DBInbound {
     remark: string;
     enable: boolean;
     expiryTime: number;
+    tgOnlineNotify: boolean;
     trafficReset: string;
     lastTrafficResetTime: number;
 
@@ -96,6 +98,7 @@ export class DBInbound {
         this.remark = "";
         this.enable = true;
         this.expiryTime = 0;
+        this.tgOnlineNotify = false;
         this.trafficReset = "never";
         this.lastTrafficResetTime = 0;
 

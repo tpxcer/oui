@@ -31,6 +31,7 @@ export const InboundCoreSchema = z.object({
   remark: z.string().default(''),
   enable: z.boolean().default(true),
   expiryTime: z.number().int().default(0),
+  tgOnlineNotify: z.boolean().optional(),
   listen: z.string().default(''),
   port: PortSchema,
   tag: z.string().default(''),

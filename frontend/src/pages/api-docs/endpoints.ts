@@ -331,6 +331,15 @@ export const sections: readonly Section[] = [
         response: '{\n  "success": true,\n  "obj": {\n    "auths": [\n      { "id": 0, "label": "Auth #0", "encryption": "aes-256-gcm", "decryption": "" }\n    ]\n  }\n}',
       },
       {
+        method: 'GET',
+        path: '/panel/api/server/geoIp/:ip',
+        summary: 'Look up an IPv4 address with the panel VPN tracing provider and return the resolved location.',
+        params: [
+          { name: 'ip', in: 'path', type: 'string', desc: 'IPv4 address to trace.' },
+        ],
+        response: '{\n  "success": true,\n  "obj": {\n    "ip": "8.8.8.8",\n    "location": "United States",\n    "source": "meituan"\n  }\n}',
+      },
+      {
         method: 'POST',
         path: '/panel/api/server/stopXrayService',
         summary: 'Stop the Xray binary. All proxies go offline immediately.',

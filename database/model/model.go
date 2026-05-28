@@ -41,17 +41,18 @@ type User struct {
 
 // Inbound represents an Xray inbound configuration with traffic statistics and settings.
 type Inbound struct {
-	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                    // Unique identifier
-	UserId               int                  `json:"-"`                                                                                               // Associated user ID
-	Up                   int64                `json:"up" form:"up"`                                                                                    // Upload traffic in bytes
-	Down                 int64                `json:"down" form:"down"`                                                                                // Download traffic in bytes
-	Total                int64                `json:"total" form:"total"`                                                                              // Total traffic limit in bytes
-	Remark               string               `json:"remark" form:"remark"`                                                                            // Human-readable remark
-	Enable               bool                 `json:"enable" form:"enable" gorm:"index:idx_enable_traffic_reset,priority:1"`                           // Whether the inbound is enabled
-	ExpiryTime           int64                `json:"expiryTime" form:"expiryTime"`                                                                    // Expiration timestamp
+	Id                   int                  `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`                                                                                                                 // Unique identifier
+	UserId               int                  `json:"-"`                                                                                                                                                            // Associated user ID
+	Up                   int64                `json:"up" form:"up"`                                                                                                                                                 // Upload traffic in bytes
+	Down                 int64                `json:"down" form:"down"`                                                                                                                                             // Download traffic in bytes
+	Total                int64                `json:"total" form:"total"`                                                                                                                                           // Total traffic limit in bytes
+	Remark               string               `json:"remark" form:"remark"`                                                                                                                                         // Human-readable remark
+	Enable               bool                 `json:"enable" form:"enable" gorm:"index:idx_enable_traffic_reset,priority:1"`                                                                                        // Whether the inbound is enabled
+	ExpiryTime           int64                `json:"expiryTime" form:"expiryTime"`                                                                                                                                 // Expiration timestamp
+	TgOnlineNotify       bool                 `json:"tgOnlineNotify" form:"tgOnlineNotify" gorm:"default:false"`                                                                                                    // Telegram online/offline notifications
 	TrafficReset         string               `json:"trafficReset" form:"trafficReset" gorm:"default:never;index:idx_enable_traffic_reset,priority:2" validate:"omitempty,oneof=never hourly daily weekly monthly"` // Traffic reset schedule
-	LastTrafficResetTime int64                `json:"lastTrafficResetTime" form:"lastTrafficResetTime" gorm:"default:0"`                               // Last traffic reset timestamp
-	ClientStats          []xray.ClientTraffic `gorm:"foreignKey:InboundId;references:Id" json:"clientStats" form:"clientStats"`                        // Client traffic statistics
+	LastTrafficResetTime int64                `json:"lastTrafficResetTime" form:"lastTrafficResetTime" gorm:"default:0"`                                                                                            // Last traffic reset timestamp
+	ClientStats          []xray.ClientTraffic `gorm:"foreignKey:InboundId;references:Id" json:"clientStats" form:"clientStats"`                                                                                     // Client traffic statistics
 
 	// Xray configuration fields
 	Listen         string   `json:"listen" form:"listen"`
@@ -307,6 +308,7 @@ func StripVlessInboundEncryption(settings string) (string, bool) {
 //     inbound with "users must have empty method" when a client carries
 //     one — strip stale entries left over from a switch off a legacy
 //     cipher.
+//
 // Returns the rewritten settings string and true when anything changed.
 func HealShadowsocksClientMethods(settings string) (string, bool) {
 	if settings == "" {

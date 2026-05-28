@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -56,6 +57,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.GET("/getNewmldsa65", a.getNewmldsa65)
 	g.GET("/getNewmlkem768", a.getNewmlkem768)
 	g.GET("/getNewVlessEnc", a.getNewVlessEnc)
+	g.GET("/geoIp/:ip", a.getGeoIP)
 
 	g.POST("/stopXrayService", a.stopXrayService)
 	g.POST("/restartXrayService", a.restartXrayService)
@@ -87,6 +89,17 @@ func (a *ServerController) startTask() {
 
 // status returns the current server status information.
 func (a *ServerController) status(c *gin.Context) { jsonObj(c, a.serverService.LastStatus(), nil) }
+
+func (a *ServerController) getGeoIP(c *gin.Context) {
+	ctx, cancel := contextWithGinTimeout(c, 5*time.Second)
+	defer cancel()
+	geo := a.serverService.LookupIPGeo(ctx, c.Param("ip"))
+	jsonObj(c, geo, nil)
+}
+
+func contextWithGinTimeout(c *gin.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(c.Request.Context(), timeout)
+}
 
 func parseHistoryBucket(c *gin.Context) (int, bool) {
 	bucket, err := strconv.Atoi(c.Param("bucket"))

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strconv"
@@ -29,8 +30,10 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/util/common"
 	"github.com/mhsanaei/3x-ui/v3/web/global"
 	"github.com/mhsanaei/3x-ui/v3/web/locale"
+	"github.com/mhsanaei/3x-ui/v3/web/websocket"
 	"github.com/mhsanaei/3x-ui/v3/xray"
 
+	"github.com/google/uuid"
 	"github.com/mymmrac/telego"
 	th "github.com/mymmrac/telego/telegohandler"
 	tu "github.com/mymmrac/telego/telegoutil"
@@ -699,6 +702,527 @@ func (t *Tgbot) randomLowerAndNum(length int) string {
 	return string(bytes)
 }
 
+const (
+	tgQuickPortMin = 55000
+	tgQuickPortMax = 65535
+)
+
+type tgQuickPreset struct {
+	Key         string
+	Label       string
+	Remark      string
+	Protocol    model.Protocol
+	EmailPrefix string
+	NeedTLSCert bool
+	Transport   string
+}
+
+var tgQuickPresets = map[string]tgQuickPreset{
+	"hysteria2": {
+		Key:         "hysteria2",
+		Label:       "Hysteria2",
+		Remark:      "Hysteria2 一键节点",
+		Protocol:    model.Hysteria,
+		EmailPrefix: "hy2",
+		NeedTLSCert: true,
+		Transport:   "udp",
+	},
+	"vlessReality": {
+		Key:         "vlessReality",
+		Label:       "VLESS Reality Vision",
+		Remark:      "VLESS Reality Vision 一键节点",
+		Protocol:    model.VLESS,
+		EmailPrefix: "vless",
+		Transport:   "tcp",
+	},
+	"vlessXhttpTls": {
+		Key:         "vlessXhttpTls",
+		Label:       "VLESS XHTTP TLS",
+		Remark:      "VLESS Encryption XHTTP TLS 一键节点",
+		Protocol:    model.VLESS,
+		EmailPrefix: "xhttp",
+		NeedTLSCert: true,
+		Transport:   "tcp",
+	},
+	"vlessXhttpReality": {
+		Key:         "vlessXhttpReality",
+		Label:       "VLESS XHTTP Reality",
+		Remark:      "VLESS XHTTP Reality 一键节点",
+		Protocol:    model.VLESS,
+		EmailPrefix: "xhttp-r",
+		Transport:   "tcp",
+	},
+}
+
+func (t *Tgbot) randomQuickPort(transport string) (int, error) {
+	inbounds, err := t.inboundService.GetAllInbounds()
+	if err != nil {
+		return 0, err
+	}
+	used := make(map[int]struct{}, len(inbounds))
+	for _, inbound := range inbounds {
+		if inbound != nil {
+			used[inbound.Port] = struct{}{}
+		}
+	}
+	for range 80 {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(tgQuickPortMax-tgQuickPortMin+1)))
+		if err != nil {
+			return 0, err
+		}
+		port := tgQuickPortMin + int(n.Int64())
+		if _, exists := used[port]; exists {
+			continue
+		}
+		if !portLooksFree(port, transport) {
+			continue
+		}
+		return port, nil
+	}
+	return 0, common.NewError("no free high port found")
+}
+
+func portLooksFree(port int, transport string) bool {
+	addr := fmt.Sprintf(":%d", port)
+	if transport != "udp" {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			return false
+		}
+		_ = ln.Close()
+		return true
+	}
+	pc, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		return false
+	}
+	_ = pc.Close()
+	return true
+}
+
+func (t *Tgbot) defaultQuickSNI() string {
+	if d, err := t.settingService.GetWebDomain(); err == nil && strings.TrimSpace(d) != "" {
+		return normalizeQuickLinkHost(d)
+	}
+	if cert, err := t.settingService.GetCertFile(); err == nil {
+		if domain := certPathDomain(cert); domain != "" {
+			return domain
+		}
+	}
+	if !isInternalQuickHost(hostname) {
+		return hostname
+	}
+	return "www.microsoft.com"
+}
+
+func normalizeQuickLinkHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	if host, _, err := net.SplitHostPort(raw); err == nil {
+		return strings.Trim(host, "[]")
+	}
+	return strings.Trim(raw, "[]")
+}
+
+func isInternalQuickHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" || strings.Contains(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast())
+}
+
+func certPathDomain(path string) string {
+	parts := strings.Split(strings.TrimSpace(path), "/")
+	for i := len(parts) - 2; i >= 0; i-- {
+		part := strings.TrimSuffix(strings.TrimSpace(parts[i]), "_ecc")
+		if strings.Contains(part, ".") && !strings.Contains(part, "*") {
+			return part
+		}
+	}
+	return ""
+}
+
+func marshalString(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func quickClient(emailPrefix string, id string, auth string, flow string) model.Client {
+	return model.Client{
+		ID:         id,
+		Flow:       flow,
+		Auth:       auth,
+		Email:      fmt.Sprintf("%s-%s", emailPrefix, randomStringFromCrypto(6)),
+		LimitIP:    0,
+		TotalGB:    0,
+		ExpiryTime: 0,
+		Enable:     true,
+		TgID:       0,
+		SubID:      randomStringFromCrypto(16),
+		Reset:      0,
+	}
+}
+
+func randomStringFromCrypto(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	buf := make([]byte, length)
+	for i := range buf {
+		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			buf[i] = charset[0]
+			continue
+		}
+		buf[i] = charset[idx.Int64()]
+	}
+	return string(buf)
+}
+
+func (t *Tgbot) quickTLSSettings(sni string) (map[string]any, error) {
+	certFile, err := t.settingService.GetCertFile()
+	if err != nil {
+		return nil, err
+	}
+	keyFile, err := t.settingService.GetKeyFile()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(certFile) == "" || strings.TrimSpace(keyFile) == "" || strings.TrimSpace(sni) == "" {
+		return nil, common.NewError("一键 TLS 节点需要先在面板设置里配置 Web 证书、密钥和域名/SNI")
+	}
+	return map[string]any{
+		"serverName":              sni,
+		"minVersion":              "1.2",
+		"maxVersion":              "1.3",
+		"cipherSuites":            "",
+		"rejectUnknownSni":        false,
+		"disableSystemRoot":       false,
+		"enableSessionResumption": false,
+		"certificates": []map[string]any{{
+			"certificateFile": certFile,
+			"keyFile":         keyFile,
+			"oneTimeLoading":  false,
+			"usage":           "encipherment",
+			"buildChain":      false,
+		}},
+		"alpn":          []string{"h2", "http/1.1"},
+		"echServerKeys": "",
+		"settings": map[string]any{
+			"fingerprint":   "chrome",
+			"echConfigList": "",
+		},
+	}, nil
+}
+
+func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
+	cert, err := t.serverService.GetNewX25519Cert()
+	if err != nil {
+		return nil, err
+	}
+	certMap, ok := cert.(map[string]any)
+	if !ok {
+		return nil, common.NewError("invalid x25519 cert")
+	}
+	privateKey, _ := certMap["privateKey"].(string)
+	publicKey, _ := certMap["publicKey"].(string)
+	if privateKey == "" || publicKey == "" {
+		return nil, common.NewError("invalid x25519 cert")
+	}
+	serverName := "www.microsoft.com"
+	return map[string]any{
+		"show":         false,
+		"xver":         0,
+		"target":       serverName + ":443",
+		"serverNames":  []string{serverName},
+		"privateKey":   privateKey,
+		"minClientVer": "",
+		"maxClientVer": "",
+		"maxTimediff":  0,
+		"shortIds":     []string{t.randomLowerAndNum(8)},
+		"mldsa65Seed":  "",
+		"settings": map[string]any{
+			"publicKey":     publicKey,
+			"fingerprint":   "chrome",
+			"serverName":    serverName,
+			"spiderX":       "/",
+			"mldsa65Verify": "",
+		},
+	}, nil
+}
+
+func (t *Tgbot) quickVlessEncryption() (string, string) {
+	out, err := t.serverService.GetNewVlessEnc()
+	if err != nil {
+		return "none", "none"
+	}
+	root, ok := out.(map[string]any)
+	if !ok {
+		return "none", "none"
+	}
+	auths, ok := root["auths"].([]map[string]string)
+	if !ok {
+		return "none", "none"
+	}
+	for _, auth := range auths {
+		label := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(auth["label"], "-", ""), " ", ""))
+		if strings.Contains(label, "x25519") && auth["decryption"] != "" && auth["encryption"] != "" {
+			return auth["decryption"], auth["encryption"]
+		}
+	}
+	if len(auths) > 0 && auths[0]["decryption"] != "" && auths[0]["encryption"] != "" {
+		return auths[0]["decryption"], auths[0]["encryption"]
+	}
+	return "none", "none"
+}
+
+func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
+	preset, ok := tgQuickPresets[key]
+	if !ok {
+		return nil, "", common.NewError("unknown quick preset:", key)
+	}
+	port, err := t.randomQuickPort(preset.Transport)
+	if err != nil {
+		return nil, "", err
+	}
+	sni := t.defaultQuickSNI()
+	sniffing, err := marshalString(map[string]any{
+		"enabled":      false,
+		"destOverride": []string{"http", "tls", "quic", "fakedns"},
+		"metadataOnly": false,
+		"routeOnly":    false,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	var settings map[string]any
+	var stream map[string]any
+	var email string
+
+	switch key {
+	case "hysteria2":
+		tlsSettings, err := t.quickTLSSettings(sni)
+		if err != nil {
+			return nil, "", err
+		}
+		tlsSettings["alpn"] = []string{"h3"}
+		auth := t.randomLowerAndNum(16)
+		client := quickClient(preset.EmailPrefix, "", auth, "")
+		email = client.Email
+		settings = map[string]any{
+			"version": 2,
+			"clients": []model.Client{client},
+		}
+		stream = map[string]any{
+			"network":          "hysteria",
+			"security":         "tls",
+			"tlsSettings":      tlsSettings,
+			"hysteriaSettings": map[string]any{"version": 2, "auth": auth, "udpIdleTimeout": 60},
+		}
+	case "vlessReality":
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "xtls-rprx-vision")
+		email = client.Email
+		realitySettings, err := t.quickRealitySettings()
+		if err != nil {
+			return nil, "", err
+		}
+		settings = map[string]any{
+			"clients":    []model.Client{client},
+			"decryption": "none",
+			"encryption": "none",
+		}
+		stream = map[string]any{
+			"network":         "tcp",
+			"security":        "reality",
+			"realitySettings": realitySettings,
+			"tcpSettings":     map[string]any{"acceptProxyProtocol": false, "header": map[string]any{"type": "none"}},
+		}
+	case "vlessXhttpTls":
+		tlsSettings, err := t.quickTLSSettings(sni)
+		if err != nil {
+			return nil, "", err
+		}
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "")
+		email = client.Email
+		decryption, encryption := t.quickVlessEncryption()
+		settings = map[string]any{
+			"clients":    []model.Client{client},
+			"decryption": decryption,
+			"encryption": encryption,
+		}
+		stream = map[string]any{
+			"network":     "xhttp",
+			"security":    "tls",
+			"tlsSettings": tlsSettings,
+			"xhttpSettings": map[string]any{
+				"path":                 "/" + t.randomLowerAndNum(8),
+				"host":                 sni,
+				"mode":                 "auto",
+				"xPaddingBytes":        "100-1000",
+				"xPaddingObfsMode":     false,
+				"scMaxEachPostBytes":   "1000000",
+				"noSSEHeader":          false,
+				"scMaxBufferedPosts":   30,
+				"scStreamUpServerSecs": "20-80",
+				"serverMaxHeaderBytes": 0,
+				"headers":              map[string]string{},
+			},
+		}
+	case "vlessXhttpReality":
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "")
+		email = client.Email
+		realitySettings, err := t.quickRealitySettings()
+		if err != nil {
+			return nil, "", err
+		}
+		settings = map[string]any{
+			"clients":    []model.Client{client},
+			"decryption": "none",
+			"encryption": "none",
+		}
+		stream = map[string]any{
+			"network":         "xhttp",
+			"security":        "reality",
+			"realitySettings": realitySettings,
+			"xhttpSettings": map[string]any{
+				"path":                 "/" + t.randomLowerAndNum(8),
+				"host":                 "www.microsoft.com",
+				"mode":                 "auto",
+				"xPaddingBytes":        "100-1000",
+				"xPaddingObfsMode":     false,
+				"scMaxEachPostBytes":   "1000000",
+				"noSSEHeader":          false,
+				"scMaxBufferedPosts":   30,
+				"scStreamUpServerSecs": "20-80",
+				"serverMaxHeaderBytes": 0,
+				"headers":              map[string]string{},
+			},
+		}
+	default:
+		return nil, "", common.NewError("unknown quick preset:", key)
+	}
+
+	settingsJSON, err := marshalString(settings)
+	if err != nil {
+		return nil, "", err
+	}
+	streamJSON, err := marshalString(stream)
+	if err != nil {
+		return nil, "", err
+	}
+	return &model.Inbound{
+		Up:             0,
+		Down:           0,
+		Total:          0,
+		Remark:         preset.Remark,
+		Enable:         true,
+		ExpiryTime:     0,
+		TgOnlineNotify: false,
+		Listen:         "",
+		Port:           port,
+		Protocol:       preset.Protocol,
+		Settings:       settingsJSON,
+		StreamSettings: streamJSON,
+		Sniffing:       sniffing,
+		Tag:            fmt.Sprintf("inbound-%d", port),
+	}, email, nil
+}
+
+func (t *Tgbot) quickConfigKeyboard() *telego.InlineKeyboardMarkup {
+	return tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("Hysteria2").WithCallbackData(t.encodeQuery("quick_create hysteria2")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("VLESS XHTTP Reality").WithCallbackData(t.encodeQuery("quick_create vlessXhttpReality")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("VLESS XHTTP TLS").WithCallbackData(t.encodeQuery("quick_create vlessXhttpTls")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("VLESS Reality Vision").WithCallbackData(t.encodeQuery("quick_create vlessReality")),
+		),
+	)
+}
+
+func (t *Tgbot) createQuickConfig(chatId int64, key string) {
+	inbound, email, err := t.buildQuickInbound(key)
+	if err != nil {
+		t.SendMsgToTgbot(chatId, "❗ 一键配置失败：\r\n"+err.Error())
+		return
+	}
+	created, needRestart, err := t.inboundService.AddInbound(inbound)
+	if err != nil {
+		t.SendMsgToTgbot(chatId, "❗ 一键配置失败：\r\n"+err.Error())
+		return
+	}
+	if needRestart {
+		t.xrayService.SetToNeedRestart()
+	}
+	websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
+	firewallMsg := allowInboundPort(created.Port, tgQuickPresets[key].Transport)
+	t.SendMsgToTgbot(chatId, fmt.Sprintf(
+		"✅ 一键配置完成\r\n节点：<code>%s</code>\r\n端口：<code>%d</code>\r\n客户端：<code>%s</code>\r\n防火墙：<code>%s</code>",
+		html.EscapeString(created.Remark),
+		created.Port,
+		html.EscapeString(email),
+		html.EscapeString(firewallMsg),
+	))
+	t.sendClientSubLinks(chatId, email)
+	t.sendClientIndividualLinks(chatId, email)
+	t.sendClientQRLinks(chatId, email)
+}
+
+func allowInboundPort(port int, transport string) string {
+	protocols := []string{"tcp"}
+	if transport == "udp" {
+		protocols = []string{"udp"}
+	}
+	if path, err := exec.LookPath("ufw"); err == nil {
+		var errs []string
+		for _, proto := range protocols {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d/%s", port, proto)).Run()
+			cancel()
+			if err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if len(errs) == 0 {
+			return "ufw 已放行"
+		}
+		return "ufw 放行失败：" + strings.Join(errs, "; ")
+	}
+	if path, err := exec.LookPath("firewall-cmd"); err == nil {
+		var errs []string
+		for _, proto := range protocols {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", fmt.Sprintf("%d/%s", port, proto)).Run()
+			cancel()
+			if err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if len(errs) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = exec.CommandContext(ctx, path, "--reload").Run()
+			cancel()
+			return "firewalld 已放行"
+		}
+		return "firewalld 放行失败：" + strings.Join(errs, "; ")
+	}
+	return "未检测到 ufw/firewalld，请手动放行端口"
+}
+
 // answerCallback processes callback queries from inline keyboards.
 func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool) {
 	chatId := callbackQuery.Message.GetChat().ID
@@ -765,6 +1289,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				return
 			case "client_qr_links":
 				t.sendClientQRLinks(chatId, email)
+				return
+			case "quick_create":
+				t.sendCallbackAnswerTgBot(callbackQuery.ID, "开始创建一键节点")
+				t.createQuickConfig(chatId, email)
 				return
 			case "client_get_usage":
 				t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.messages.email", "Email=="+email))
@@ -1546,6 +2074,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					return
 				}
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseInbound"), inbounds)
+			case "quick_config":
+				t.sendCallbackAnswerTgBot(callbackQuery.ID, "一键配置")
+				t.SendMsgToTgbot(chatId, "选择一个一键节点配置：", t.quickConfigKeyboard())
 			}
 
 		}
@@ -2090,6 +2621,9 @@ func (t *Tgbot) SendAnswer(chatId int64, msg string, isAdmin bool) {
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton(t.I18nBot("tgbot.buttons.allClients")).WithCallbackData(t.encodeQuery("get_inbounds")),
 			tu.InlineKeyboardButton(t.I18nBot("tgbot.buttons.addClient")).WithCallbackData(t.encodeQuery("add_client")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("⚡ 一键配置").WithCallbackData(t.encodeQuery("quick_config")),
 		),
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton(t.I18nBot("pages.settings.subSettings")).WithCallbackData(t.encodeQuery("admin_client_sub_links")),

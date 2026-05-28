@@ -20,6 +20,31 @@ export const PublicIPSchema = z.object({
   ipv6: z.union([z.string(), z.number()]),
 });
 
+export const NodeGeoLocationSchema = z.object({
+  ip: z.string().optional(),
+  location: z.string().optional(),
+  country: z.string().optional(),
+  province: z.string().optional(),
+  city: z.string().optional(),
+  district: z.string().optional(),
+  detail: z.string().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  source: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const ServerInfoSchema = z.object({
+  source: z.string().optional(),
+  provider: z.string().optional(),
+  error: z.string().optional(),
+  hostname: z.string().optional(),
+  nodeLocation: z.string().optional(),
+  vmType: z.string().optional(),
+  os: z.string().optional(),
+  geo: NodeGeoLocationSchema.optional(),
+});
+
 export const AppStatsSchema = z.object({
   threads: z.number(),
   mem: z.number(),
@@ -44,6 +69,7 @@ export const StatusSchema = z.object({
   netIO: NetIOSchema.optional(),
   netTraffic: NetTrafficSchema.optional(),
   publicIP: PublicIPSchema.optional(),
+  serverInfo: ServerInfoSchema.optional(),
   swap: CurTotalInputSchema.optional(),
   tcpCount: z.number().optional(),
   udpCount: z.number().optional(),
