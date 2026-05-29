@@ -1277,12 +1277,16 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil {
+					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_sub")
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_sub_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "get_clients_for_individual":
 				inboundId := dataArray[1]
@@ -1291,12 +1295,16 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil {
+					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_individual")
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_individual_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "get_clients_for_qr":
 				inboundId := dataArray[1]
@@ -1305,12 +1313,16 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
+				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				if err != nil {
+					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_qr")
+					return
+				}
 				clientsKB, err := t.getInboundClientsFor(inboundIdInt, "client_qr_links")
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, _ := t.inboundService.GetInbound(inboundIdInt)
 				t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.chooseClient", "Inbound=="+inbound.Remark), clientsKB)
 			case "client_sub_links":
 				t.sendClientSubLinks(chatId, email)
@@ -2017,7 +2029,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				}
 				inbound, err := t.inboundService.GetInbound(inboundIdInt)
 				if err != nil {
-					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
+					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "")
 					return
 				}
 				clients, err := t.getInboundClients(inboundIdInt)
@@ -2041,6 +2053,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				inboundIdInt, err := strconv.Atoi(inboundId)
 				if err != nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
+					return
+				}
+				if _, err := t.inboundService.GetInbound(inboundIdInt); err != nil {
+					t.refreshAddClientInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID)
 					return
 				}
 				receiver_inbound_ID = inboundIdInt
@@ -3337,6 +3353,24 @@ func (t *Tgbot) getInboundsFor(nextAction string) (*telego.InlineKeyboardMarkup,
 	return keyboard, nil
 }
 
+func (t *Tgbot) refreshInboundPickerMessage(chatId int64, messageID int, callbackID string, nextAction string) {
+	var (
+		keyboard *telego.InlineKeyboardMarkup
+		err      error
+	)
+	if nextAction == "" {
+		keyboard, err = t.getInbounds()
+	} else {
+		keyboard, err = t.getInboundsFor(nextAction)
+	}
+	if err != nil {
+		t.sendCallbackAnswerTgBot(callbackID, err.Error())
+		return
+	}
+	t.sendCallbackAnswerTgBot(callbackID, "入站列表已刷新，旧按钮已失效")
+	t.editMessageTgBot(chatId, messageID, t.I18nBot("tgbot.answers.chooseInbound")+"\n\n入站列表已刷新，请使用当前按钮。", keyboard)
+}
+
 // getInboundClientsFor lists clients of an inbound with a specific action prefix to be appended with email
 func (t *Tgbot) getInboundClientsFor(inboundID int, action string) (*telego.InlineKeyboardMarkup, error) {
 	inbound, err := t.inboundService.GetInbound(inboundID)
@@ -3413,6 +3447,16 @@ func (t *Tgbot) getInboundsAddClient() (*telego.InlineKeyboardMarkup, error) {
 
 	keyboard := tu.InlineKeyboardGrid(tu.InlineKeyboardCols(cols, buttons...))
 	return keyboard, nil
+}
+
+func (t *Tgbot) refreshAddClientInboundPickerMessage(chatId int64, messageID int, callbackID string) {
+	keyboard, err := t.getInboundsAddClient()
+	if err != nil {
+		t.sendCallbackAnswerTgBot(callbackID, err.Error())
+		return
+	}
+	t.sendCallbackAnswerTgBot(callbackID, "入站列表已刷新，旧按钮已失效")
+	t.editMessageTgBot(chatId, messageID, t.I18nBot("tgbot.answers.chooseInbound")+"\n\n入站列表已刷新，请使用当前按钮。", keyboard)
 }
 
 // getInboundsAttachPicker builds a toggle picker over multi-client inbounds

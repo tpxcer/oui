@@ -98,8 +98,8 @@ function SidebarUpdateButton({
 }) {
   const updateAvailable = !!info?.updateAvailable;
   const nextVersion = info?.latestVersion || '';
-  const title = updateAvailable && nextVersion ? `一键更新到 ${nextVersion}` : updateAvailable ? '一键更新' : '检测并自动更新';
-  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新 ${nextVersion}` : updateAvailable ? '一键更新' : '检测更新';
+  const title = updateAvailable && nextVersion ? `更新到 ${nextVersion}` : updateAvailable ? '更新到最新版' : '检测更新';
+  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新到 ${nextVersion}` : updateAvailable ? '更新到最新版' : '检测更新';
   const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
   const safeProgress = Math.max(0, Math.min(100, progress));
   return (
@@ -194,8 +194,7 @@ export default function AppSidebar() {
         setUpdateInfo(msg.obj);
         setLivePanelVersion(msg.obj.currentVersion || window.X_UI_CUR_VER || '');
         if (msg.obj.updateAvailable) {
-          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}，开始自动更新` : '发现新版本，开始自动更新');
-          await updatePanel(msg.obj);
+          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}，点击按钮更新` : '发现新版本，点击按钮更新');
         } else {
           message.success('当前已是最新版');
         }
@@ -205,7 +204,7 @@ export default function AppSidebar() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [updatePanel]);
+  }, []);
 
   useEffect(() => {
     if (!updatingPanel) return undefined;
