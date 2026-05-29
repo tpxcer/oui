@@ -280,6 +280,82 @@ func (s *ClientService) DetachInbound(tx *gorm.DB, inboundId int) error {
 	return tx.Where("inbound_id = ?", inboundId).Delete(&model.ClientInbound{}).Error
 }
 
+func (s *ClientService) DeleteOrphanedClientsByEmail(tx *gorm.DB, emails []string, keepTraffic bool) (int, error) {
+	if tx == nil {
+		tx = database.GetDB()
+	}
+	cleanEmails := uniqueNonEmptyStrings(emails)
+	if len(cleanEmails) == 0 {
+		return 0, nil
+	}
+
+	var records []model.ClientRecord
+	if err := tx.Where("email IN ?", cleanEmails).Find(&records).Error; err != nil {
+		return 0, err
+	}
+	if len(records) == 0 {
+		return 0, nil
+	}
+
+	ids := make([]int, 0, len(records))
+	emailByID := make(map[int]string, len(records))
+	for i := range records {
+		ids = append(ids, records[i].Id)
+		emailByID[records[i].Id] = records[i].Email
+	}
+
+	var linkedIDs []int
+	if err := tx.Model(&model.ClientInbound{}).
+		Where("client_id IN ?", ids).
+		Distinct("client_id").
+		Pluck("client_id", &linkedIDs).Error; err != nil {
+		return 0, err
+	}
+	linked := make(map[int]struct{}, len(linkedIDs))
+	for _, id := range linkedIDs {
+		linked[id] = struct{}{}
+	}
+
+	orphanIDs := make([]int, 0, len(records))
+	orphanEmails := make([]string, 0, len(records))
+	for _, id := range ids {
+		if _, ok := linked[id]; ok {
+			continue
+		}
+		orphanIDs = append(orphanIDs, id)
+		if email := emailByID[id]; email != "" {
+			orphanEmails = append(orphanEmails, email)
+			tombstoneClientEmail(email)
+		}
+	}
+	if len(orphanIDs) == 0 {
+		return 0, nil
+	}
+
+	for _, batch := range chunkInts(orphanIDs, sqliteMaxVars) {
+		if err := tx.Where("client_id IN ?", batch).Delete(&model.ClientInbound{}).Error; err != nil {
+			return 0, err
+		}
+	}
+	if !keepTraffic && len(orphanEmails) > 0 {
+		for _, batch := range chunkStrings(orphanEmails, sqliteMaxVars) {
+			if err := tx.Where("email IN ?", batch).Delete(&xray.ClientTraffic{}).Error; err != nil {
+				return 0, err
+			}
+			if err := tx.Where("client_email IN ?", batch).Delete(&model.InboundClientIps{}).Error; err != nil {
+				return 0, err
+			}
+		}
+	}
+	for _, batch := range chunkInts(orphanIDs, sqliteMaxVars) {
+		if err := tx.Where("id IN ?", batch).Delete(&model.ClientRecord{}).Error; err != nil {
+			return 0, err
+		}
+	}
+
+	return len(orphanIDs), nil
+}
+
 func (s *ClientService) ListForInbound(tx *gorm.DB, inboundId int) ([]model.Client, error) {
 	if tx == nil {
 		tx = database.GetDB()

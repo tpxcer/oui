@@ -781,6 +781,15 @@ export default function ClientsPage() {
                           <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>
                             {!isMobile && t('pages.clients.addClients')}
                           </Button>
+                          <Button icon={<UsergroupAddOutlined />} onClick={() => setBulkAddOpen(true)}>
+                            {!isMobile && t('pages.clients.bulk')}
+                          </Button>
+                          <Button icon={<RetweetOutlined />} onClick={onResetAllTraffics}>
+                            {!isMobile && t('pages.clients.resetAllTraffics')}
+                          </Button>
+                          <Button danger icon={<RestOutlined />} onClick={onDelDepleted}>
+                            {!isMobile && t('pages.clients.delDepleted')}
+                          </Button>
                           {selectedRowKeys.length > 0 && (
                             <>
                               <Button icon={<ClockCircleOutlined />} onClick={() => setBulkAdjustOpen(true)}>
@@ -797,37 +806,6 @@ export default function ClientsPage() {
                               </Button>
                             </>
                           )}
-                          <Dropdown
-                            trigger={['click']}
-                            placement="bottomRight"
-                            menu={{
-                              items: [
-                                {
-                                  key: 'bulk',
-                                  icon: <UsergroupAddOutlined />,
-                                  label: t('pages.clients.bulk'),
-                                  onClick: () => setBulkAddOpen(true),
-                                },
-                                {
-                                  key: 'resetAll',
-                                  icon: <RetweetOutlined />,
-                                  label: t('pages.clients.resetAllTraffics'),
-                                  onClick: onResetAllTraffics,
-                                },
-                                {
-                                  key: 'delDepleted',
-                                  icon: <RestOutlined />,
-                                  label: t('pages.clients.delDepleted'),
-                                  danger: true,
-                                  onClick: onDelDepleted,
-                                },
-                              ],
-                            }}
-                          >
-                            <Button icon={<MoreOutlined />}>
-                              {!isMobile && t('more')}
-                            </Button>
-                          </Dropdown>
                         </div>
                       }
                     >

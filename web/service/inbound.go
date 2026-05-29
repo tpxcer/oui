@@ -626,38 +626,28 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		logger.Debug("DelInbound: inbound not found, id:", id)
 	}
 
-	// Delete client traffics of inbounds
-	err := db.Where("inbound_id = ?", id).Delete(xray.ClientTraffic{}).Error
-	if err != nil {
-		return false, err
+	var inboundClients []model.Client
+	if loadErr == nil {
+		clients, err := s.GetClients(&ib)
+		if err != nil {
+			return false, err
+		}
+		inboundClients = clients
 	}
+
 	if err := s.clientService.DetachInbound(db, id); err != nil {
 		return false, err
 	}
-	inbound, err := s.GetInbound(id)
-	if err != nil {
-		return false, err
-	}
-	clients, err := s.GetClients(inbound)
-	if err != nil {
-		return false, err
-	}
-	// Bulk-delete client IPs for every email in this inbound. The previous
-	// per-client loop fired one DELETE per row — at 7k+ clients that meant
-	// thousands of synchronous SQL roundtrips and a multi-second freeze.
-	// Chunked to stay under SQLite's bind-variable limit on huge inbounds.
-	if len(clients) > 0 {
-		emails := make([]string, 0, len(clients))
-		for i := range clients {
-			if clients[i].Email != "" {
-				emails = append(emails, clients[i].Email)
+
+	if len(inboundClients) > 0 {
+		emails := make([]string, 0, len(inboundClients))
+		for i := range inboundClients {
+			if inboundClients[i].Email != "" {
+				emails = append(emails, inboundClients[i].Email)
 			}
 		}
-		for _, batch := range chunkStrings(uniqueNonEmptyStrings(emails), sqliteMaxVars) {
-			if err := db.Where("client_email IN ?", batch).
-				Delete(model.InboundClientIps{}).Error; err != nil {
-				return false, err
-			}
+		if _, err := s.clientService.DeleteOrphanedClientsByEmail(db, emails, false); err != nil {
+			return false, err
 		}
 	}
 

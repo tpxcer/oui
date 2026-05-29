@@ -150,6 +150,12 @@ export default function SettingsPage() {
   }
 
   async function onSave() {
+    if (allSetting.tgBotEnable && allSetting.tgBotToken.trim() === '') {
+      setActiveTabKey('3');
+      messageApi.error('请输入 Telegram 机器人API');
+      return;
+    }
+
     const result = AllSettingSchema.safeParse(allSetting);
     if (!result.success) {
       const issue = result.error.issues[0];

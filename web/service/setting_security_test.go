@@ -48,7 +48,7 @@ func TestGetAllSettingViewRedactsSecrets(t *testing.T) {
 	}
 }
 
-func TestUpdateAllSettingPreservesRedactedSecrets(t *testing.T) {
+func TestUpdateAllSettingClearsTelegramTokenAndPreservesOtherRedactedSecrets(t *testing.T) {
 	setupSettingTestDB(t)
 	s := &SettingService{}
 	if err := s.saveSetting("tgBotToken", "telegram-secret"); err != nil {
@@ -72,14 +72,37 @@ func TestUpdateAllSettingPreservesRedactedSecrets(t *testing.T) {
 	if err := s.UpdateAllSetting(settings); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s.GetTgBotToken(); got != "telegram-secret" {
-		t.Fatalf("tg token = %q, want preserved secret", got)
+	if got, _ := s.GetTgBotToken(); got != "" {
+		t.Fatalf("tg token = %q, want cleared secret", got)
 	}
 	if got, _ := s.GetLdapPassword(); got != "ldap-secret" {
 		t.Fatalf("ldap password = %q, want preserved secret", got)
 	}
 	if got, _ := s.GetTwoFactorToken(); got != "totp-secret" {
 		t.Fatalf("2fa token = %q, want preserved secret", got)
+	}
+}
+
+func TestUpdateAllSettingRequiresTelegramTokenWhenEnabled(t *testing.T) {
+	setupSettingTestDB(t)
+	s := &SettingService{}
+	if err := s.saveSetting("tgBotToken", "telegram-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := s.GetAllSettingView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := &view.AllSetting
+	settings.TgBotEnable = true
+	settings.TgBotToken = ""
+
+	if err := s.UpdateAllSetting(settings); err == nil {
+		t.Fatal("expected empty Telegram token to be rejected when bot is enabled")
+	}
+	if got, _ := s.GetTgBotToken(); got != "telegram-secret" {
+		t.Fatalf("tg token = %q, want unchanged secret", got)
 	}
 }
 
