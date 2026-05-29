@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Collapse, Input, InputNumber, Select, Switch } from 'antd';
+import { Alert, Collapse, Input, InputNumber, Select, Switch } from 'antd';
 import { LanguageManager } from '@/utils';
 import type { AllSetting } from '@/models/setting';
 import SettingListItem from '@/components/SettingListItem';
@@ -40,47 +40,53 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
               <Switch checked={allSetting.tgBotEnable} onChange={(v) => updateSetting({ tgBotEnable: v })} />
             </SettingListItem>
 
-            <SettingListItem
-              paddings="small"
-              title="输入 Telegram 机器人API"
-              description="启用 Telegram 机器人时，机器人API和聊天 ID 必填；已保存过机器人API时可留空沿用。"
-            >
-              <Input.Password
-                value={tgBotTokenDraft}
-                status={tgTokenRequired ? 'error' : undefined}
-                placeholder="输入 Telegram 机器人API"
-                onChange={(e) => {
-                  setTgBotTokenDraft(e.target.value);
-                  updateSetting({ tgBotToken: e.target.value });
-                }}
-              />
-            </SettingListItem>
+            {!allSetting.tgBotEnable ? (
+              <Alert className="mt-12" type="info" showIcon message="Telegram 机器人未启用，相关配置已隐藏。" />
+            ) : (
+              <>
+                <SettingListItem
+                  paddings="small"
+                  title="输入 Telegram 机器人API"
+                  description="启用 Telegram 机器人时，机器人API和聊天 ID 必填；已保存过机器人API时可留空沿用。"
+                >
+                  <Input.Password
+                    value={tgBotTokenDraft}
+                    status={tgTokenRequired ? 'error' : undefined}
+                    placeholder="输入 Telegram 机器人API"
+                    onChange={(e) => {
+                      setTgBotTokenDraft(e.target.value);
+                      updateSetting({ tgBotToken: e.target.value });
+                    }}
+                  />
+                </SettingListItem>
 
-            <SettingListItem paddings="small" title={t('pages.settings.telegramChatId')} description={t('pages.settings.telegramChatIdDesc')}>
-              <Input
-                value={allSetting.tgBotChatId}
-                status={tgChatIdRequired ? 'error' : undefined}
-                onChange={(e) => updateSetting({ tgBotChatId: e.target.value })}
-              />
-            </SettingListItem>
+                <SettingListItem paddings="small" title={t('pages.settings.telegramChatId')} description={t('pages.settings.telegramChatIdDesc')}>
+                  <Input
+                    value={allSetting.tgBotChatId}
+                    status={tgChatIdRequired ? 'error' : undefined}
+                    onChange={(e) => updateSetting({ tgBotChatId: e.target.value })}
+                  />
+                </SettingListItem>
 
-            <SettingListItem paddings="small" title={t('pages.settings.telegramBotLanguage')}>
-              <Select
-                value={allSetting.tgLang}
-                onChange={(v) => updateSetting({ tgLang: v })}
-                style={{ width: '100%' }}
-                options={langOptions}
-              />
-            </SettingListItem>
+                <SettingListItem paddings="small" title={t('pages.settings.telegramBotLanguage')}>
+                  <Select
+                    value={allSetting.tgLang}
+                    onChange={(v) => updateSetting({ tgLang: v })}
+                    style={{ width: '100%' }}
+                    options={langOptions}
+                  />
+                </SettingListItem>
 
-            <SettingListItem paddings="small" title={t('pages.settings.telegramAPIServer')} description={t('pages.settings.telegramAPIServerDesc')}>
-              <Input value={allSetting.tgBotAPIServer} placeholder="https://api.example.com"
-                onChange={(e) => updateSetting({ tgBotAPIServer: e.target.value })} />
-            </SettingListItem>
+                <SettingListItem paddings="small" title={t('pages.settings.telegramAPIServer')} description={t('pages.settings.telegramAPIServerDesc')}>
+                  <Input value={allSetting.tgBotAPIServer} placeholder="https://api.example.com"
+                    onChange={(e) => updateSetting({ tgBotAPIServer: e.target.value })} />
+                </SettingListItem>
+              </>
+            )}
           </>
         ),
       },
-      {
+      allSetting.tgBotEnable ? {
         key: '2',
         label: t('pages.settings.notifications'),
         children: (
@@ -100,7 +106,7 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
             </SettingListItem>
           </>
         ),
-      },
-    ]} />
+      } : null,
+    ].filter((item): item is NonNullable<typeof item> => item !== null)} />
   );
 }

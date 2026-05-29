@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/logger"
 	"github.com/mhsanaei/3x-ui/v3/util/crypto"
 	"github.com/mhsanaei/3x-ui/v3/web/entity"
 	"github.com/mhsanaei/3x-ui/v3/web/middleware"
@@ -28,6 +29,7 @@ type SettingController struct {
 	userService     service.UserService
 	panelService    service.PanelService
 	apiTokenService service.ApiTokenService
+	tgbotService    service.Tgbot
 }
 
 // NewSettingController creates a new SettingController and initializes its routes.
@@ -84,6 +86,17 @@ func (a *SettingController) updateSetting(c *gin.Context) {
 	if err == nil && twoFactorErr == nil && !oldTwoFactor && allSetting.TwoFactorEnable {
 		if bumpErr := a.userService.BumpLoginEpoch(); bumpErr != nil {
 			err = bumpErr
+		}
+	}
+	if err == nil {
+		if allSetting.TgBotEnable {
+			go func() {
+				if startErr := a.tgbotService.StartConfigured(); startErr != nil {
+					logger.Warning("Telegram bot reload after settings save failed:", startErr)
+				}
+			}()
+		} else {
+			a.tgbotService.Stop()
 		}
 	}
 	jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)

@@ -186,7 +186,11 @@ func (t *Tgbot) Start(i18nFS embed.FS) error {
 	if err != nil {
 		return err
 	}
+	return t.StartConfigured()
+}
 
+// StartConfigured starts or reloads the Telegram bot using already-loaded panel settings.
+func (t *Tgbot) StartConfigured() error {
 	// If Start is called again (e.g. during reload), ensure any previous long-polling
 	// loop is stopped before creating a new bot / receiver.
 	StopBot()

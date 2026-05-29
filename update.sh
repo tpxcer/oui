@@ -130,6 +130,40 @@ load_xui_env() {
     fi
 }
 
+verify_installed_version() {
+    local expected="$1"
+    local actual
+    actual="$(${xui_folder}/x-ui -v 2> /dev/null | tr -d '[:space:]')"
+    if [[ -z "$actual" ]]; then
+        _fail "错误：无法读取已安装的 OUI 版本。"
+    fi
+    if [[ "$actual" != "$expected" ]]; then
+        _fail "错误：安装校验失败，目标版本 ${expected}，实际安装版本 ${actual}。"
+    fi
+    echo -e "${green}安装校验通过：OUI ${actual}${plain}"
+}
+
+start_xui_service_checked() {
+    if [[ $release == "alpine" ]]; then
+        if ! rc-service x-ui start > /dev/null 2>&1; then
+            _fail "错误：OUI 服务启动失败，请运行 rc-service x-ui status 查看原因。"
+        fi
+        return
+    fi
+
+    systemctl daemon-reload > /dev/null 2>&1
+    systemctl enable x-ui > /dev/null 2>&1
+    if ! systemctl start x-ui > /dev/null 2>&1; then
+        journalctl -u x-ui -n 50 --no-pager 2> /dev/null || true
+        _fail "错误：OUI 服务启动失败，以上是最近的 systemd 日志。"
+    fi
+    sleep 2
+    if ! systemctl is-active --quiet x-ui; then
+        journalctl -u x-ui -n 50 --no-pager 2> /dev/null || true
+        _fail "错误：OUI 服务未保持运行，以上是最近的 systemd 日志。"
+    fi
+}
+
 install_base() {
     echo -e "${green}Updating and install dependency packages...${plain}"
     case "${release}" in
@@ -924,7 +958,8 @@ update_x-ui() {
         chmod +x /etc/init.d/x-ui > /dev/null 2>&1
         chown root:root /etc/init.d/x-ui > /dev/null 2>&1
         rc-update add x-ui > /dev/null 2>&1
-        rc-service x-ui start > /dev/null 2>&1
+        verify_installed_version "$tag_version"
+        start_xui_service_checked
     else
         if [ -f "x-ui.service" ]; then
             echo -e "${green}正在安装 systemd 服务单元...${plain}"
@@ -988,9 +1023,8 @@ update_x-ui() {
         fi
         chown root:root ${xui_service}/x-ui.service > /dev/null 2>&1
         chmod 644 ${xui_service}/x-ui.service > /dev/null 2>&1
-        systemctl daemon-reload > /dev/null 2>&1
-        systemctl enable x-ui > /dev/null 2>&1
-        systemctl start x-ui > /dev/null 2>&1
+        verify_installed_version "$tag_version"
+        start_xui_service_checked
     fi
 
     config_after_update
