@@ -39,6 +39,10 @@ interface PanelUpdateInfo {
   updateAvailable: boolean;
 }
 
+interface PanelStatus {
+  panelVersion?: string;
+}
+
 const iconByName: Record<IconName, ComponentType> = {
   dashboard: DashboardOutlined,
   inbound: ImportOutlined,
@@ -155,12 +159,12 @@ export default function AppSidebar() {
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
   const panelVersion = window.X_UI_CUR_VER || '';
 
-  const pollUntilBack = useCallback(async (): Promise<boolean> => {
+  const pollUntilUpdated = useCallback(async (targetVersion: string): Promise<boolean> => {
     await PromiseUtil.sleep(5000);
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      const msg = await HttpUtil.get('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
-      if (msg?.success) return true;
+      const msg = await HttpUtil.get<PanelStatus>('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
+      if (msg?.success && msg.obj?.panelVersion === targetVersion) return true;
       await PromiseUtil.sleep(2000);
     }
     return false;
@@ -180,9 +184,9 @@ export default function AppSidebar() {
       const result = await HttpUtil.post('/panel/api/server/updatePanel');
       if (result?.success) {
         message.success(info?.latestVersion ? `已开始后台更新到 ${info.latestVersion}` : '已开始后台更新');
-        const back = await pollUntilBack();
+        const updated = info?.latestVersion ? await pollUntilUpdated(info.latestVersion) : false;
         setUpdateProgress(100);
-        if (back) {
+        if (updated) {
           await PromiseUtil.sleep(800);
           reloadPanelPage();
           return;
@@ -197,7 +201,7 @@ export default function AppSidebar() {
       message.error(error instanceof Error ? error.message : '启动后台更新失败');
       setUpdatingPanel(false);
     }
-  }, [pollUntilBack, reloadPanelPage]);
+  }, [pollUntilUpdated, reloadPanelPage]);
 
   const checkPanelUpdate = useCallback(async () => {
     setCheckingUpdate(true);

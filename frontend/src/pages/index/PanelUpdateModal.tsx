@@ -23,16 +23,20 @@ interface PanelUpdateModalProps {
   onBusy: (e: BusyEvent) => void;
 }
 
+interface PanelStatus {
+  panelVersion?: string;
+}
+
 export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelUpdateModalProps) {
   const { t } = useTranslation();
   const [modal, contextHolder] = Modal.useModal();
 
-  async function pollUntilBack(): Promise<boolean> {
+  async function pollUntilUpdated(targetVersion: string): Promise<boolean> {
     await PromiseUtil.sleep(5000);
     const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      const msg = await HttpUtil.get('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
-      if (msg?.success) return true;
+      const msg = await HttpUtil.get<PanelStatus>('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
+      if (msg?.success && msg.obj?.panelVersion === targetVersion) return true;
       await PromiseUtil.sleep(2000);
     }
     return false;
@@ -60,9 +64,13 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
           onBusy({ busy: false });
           return;
         }
-        const back = await pollUntilBack();
-        if (back) await PromiseUtil.sleep(800);
-        reloadPanelPage();
+        const updated = await pollUntilUpdated(info.latestVersion);
+        if (updated) {
+          await PromiseUtil.sleep(800);
+          reloadPanelPage();
+        } else {
+          onBusy({ busy: false });
+        }
       },
     });
   }
