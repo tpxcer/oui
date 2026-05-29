@@ -835,13 +835,16 @@ func (s *SettingService) GetLdapDefaultLimitIP() (int, error) {
 }
 
 func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
-	if allSetting.TgBotEnable && strings.TrimSpace(allSetting.TgBotToken) == "" {
-		return common.NewError("请输入 Telegram 机器人API")
-	}
-
 	if err := s.preserveRedactedSecrets(allSetting); err != nil {
 		return err
 	}
+	if allSetting.TgBotEnable && strings.TrimSpace(allSetting.TgBotToken) == "" {
+		return common.NewError("请输入 Telegram 机器人API")
+	}
+	if allSetting.TgBotEnable && strings.TrimSpace(allSetting.TgBotChatId) == "" {
+		return common.NewError("请输入 Telegram 聊天 ID")
+	}
+
 	if err := validateSettingsURLs(allSetting); err != nil {
 		return err
 	}
@@ -866,6 +869,13 @@ func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting) error {
 }
 
 func (s *SettingService) preserveRedactedSecrets(allSetting *entity.AllSetting) error {
+	if strings.TrimSpace(allSetting.TgBotToken) == "" {
+		value, err := s.GetTgBotToken()
+		if err != nil {
+			return err
+		}
+		allSetting.TgBotToken = value
+	}
 	if strings.TrimSpace(allSetting.LdapPassword) == "" {
 		value, err := s.GetLdapPassword()
 		if err != nil {

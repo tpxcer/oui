@@ -150,9 +150,14 @@ export default function SettingsPage() {
   }
 
   async function onSave() {
-    if (allSetting.tgBotEnable && allSetting.tgBotToken.trim() === '') {
+    if (allSetting.tgBotEnable && !allSetting.hasTgBotToken && allSetting.tgBotToken.trim() === '') {
       setActiveTabKey('3');
       messageApi.error('请输入 Telegram 机器人API');
+      return;
+    }
+    if (allSetting.tgBotEnable && allSetting.tgBotChatId.trim() === '') {
+      setActiveTabKey('3');
+      messageApi.error('请输入 Telegram 聊天 ID');
       return;
     }
 

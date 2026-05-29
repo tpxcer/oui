@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Modal, Tag } from 'antd';
 import { CloudDownloadOutlined } from '@ant-design/icons';
-import axios from 'axios';
 
 import { HttpUtil, PromiseUtil } from '@/utils';
 import './PanelUpdateModal.css';
@@ -30,17 +29,19 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
 
   async function pollUntilBack(): Promise<boolean> {
     await PromiseUtil.sleep(5000);
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      try {
-        const r = await axios.get('/panel/api/server/status', { timeout: 2000 });
-        if (r?.data?.success) return true;
-      } catch {
-        /* still restarting */
-      }
+      const msg = await HttpUtil.get('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
+      if (msg?.success) return true;
       await PromiseUtil.sleep(2000);
     }
     return false;
+  }
+
+  function reloadPanelPage() {
+    const url = new URL(window.location.href);
+    url.searchParams.set('_ouiUpdated', String(Date.now()));
+    window.location.replace(url.toString());
   }
 
   function updatePanel() {
@@ -61,7 +62,7 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
         }
         const back = await pollUntilBack();
         if (back) await PromiseUtil.sleep(800);
-        window.location.reload();
+        reloadPanelPage();
       },
     });
   }

@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Drawer, Layout, Menu, message } from 'antd';
 import type { MenuProps } from 'antd';
-import axios from 'axios';
 import {
   ApiOutlined,
   CloudDownloadOutlined,
@@ -158,17 +157,19 @@ export default function AppSidebar() {
 
   const pollUntilBack = useCallback(async (): Promise<boolean> => {
     await PromiseUtil.sleep(5000);
-    const deadline = Date.now() + 120_000;
+    const deadline = Date.now() + 180_000;
     while (Date.now() < deadline) {
-      try {
-        const r = await axios.get('/panel/api/server/status', { timeout: 2000 });
-        if (r?.data?.success) return true;
-      } catch {
-        /* panel is still restarting */
-      }
+      const msg = await HttpUtil.get('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
+      if (msg?.success) return true;
       await PromiseUtil.sleep(2000);
     }
     return false;
+  }, []);
+
+  const reloadPanelPage = useCallback(() => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('_ouiUpdated', String(Date.now()));
+    window.location.replace(url.toString());
   }, []);
 
   const updatePanel = useCallback(async (info?: PanelUpdateInfo | null) => {
@@ -183,7 +184,7 @@ export default function AppSidebar() {
         setUpdateProgress(100);
         if (back) {
           await PromiseUtil.sleep(800);
-          window.location.reload();
+          reloadPanelPage();
           return;
         }
         message.info('后台更新仍在执行，请稍后手动刷新页面');
@@ -196,7 +197,7 @@ export default function AppSidebar() {
       message.error(error instanceof Error ? error.message : '启动后台更新失败');
       setUpdatingPanel(false);
     }
-  }, [pollUntilBack]);
+  }, [pollUntilBack, reloadPanelPage]);
 
   const checkPanelUpdate = useCallback(async () => {
     setCheckingUpdate(true);

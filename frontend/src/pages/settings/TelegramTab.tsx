@@ -13,7 +13,8 @@ interface TelegramTabProps {
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {
   const { t } = useTranslation();
   const [tgBotTokenDraft, setTgBotTokenDraft] = useState('');
-  const tgTokenRequired = allSetting.tgBotEnable && tgBotTokenDraft.trim() === '';
+  const tgTokenRequired = allSetting.tgBotEnable && !allSetting.hasTgBotToken && tgBotTokenDraft.trim() === '';
+  const tgChatIdRequired = allSetting.tgBotEnable && allSetting.tgBotChatId.trim() === '';
 
   const langOptions = useMemo(
     () => LanguageManager.supportedLanguages.map((l: { value: string; name: string; icon: string }) => ({
@@ -42,7 +43,7 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
             <SettingListItem
               paddings="small"
               title="输入 Telegram 机器人API"
-              description="启用 Telegram 机器人时必填；关闭后留空保存会清空当前令牌。"
+              description="启用 Telegram 机器人时，机器人API和聊天 ID 必填；已保存过机器人API时可留空沿用。"
             >
               <Input.Password
                 value={tgBotTokenDraft}
@@ -56,7 +57,11 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
             </SettingListItem>
 
             <SettingListItem paddings="small" title={t('pages.settings.telegramChatId')} description={t('pages.settings.telegramChatIdDesc')}>
-              <Input value={allSetting.tgBotChatId} onChange={(e) => updateSetting({ tgBotChatId: e.target.value })} />
+              <Input
+                value={allSetting.tgBotChatId}
+                status={tgChatIdRequired ? 'error' : undefined}
+                onChange={(e) => updateSetting({ tgBotChatId: e.target.value })}
+              />
             </SettingListItem>
 
             <SettingListItem paddings="small" title={t('pages.settings.telegramBotLanguage')}>
