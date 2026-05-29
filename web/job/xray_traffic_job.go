@@ -26,12 +26,14 @@ type XrayTrafficJob struct {
 }
 
 type onlineNotifySession struct {
-	remark       string
-	start        time.Time
-	lastTotal    int64
-	up           int64
-	down         int64
-	idleNotified bool
+	remark          string
+	start           time.Time
+	idleWindowStart time.Time
+	idleWindowTotal int64
+	lastTotal       int64
+	up              int64
+	down            int64
+	idleNotified    bool
 }
 
 type onlineNotifyInbound struct {
@@ -44,7 +46,8 @@ var (
 )
 
 const (
-	onlineNotifyIdleGrace = 15 * time.Minute
+	onlineNotifyIdleGrace               = 15 * time.Minute
+	onlineNotifyLowTrafficThresholdByte = 5 * 1024 * 1024
 )
 
 // NewXrayTrafficJob creates a new traffic collection job instance.
@@ -199,7 +202,9 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 			session.up = st.Up
 			session.down = st.Down
 			session.lastTotal = st.Up + st.Down
+			session.idleWindowTotal = session.lastTotal
 		}
+		session.idleWindowStart = now
 		onlineNotifySessions[email] = session
 		j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
 			"💎 <b>OUI 用户通知</b>\n"+
@@ -231,8 +236,23 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 		if hasTrafficChange {
 			session.lastTotal = currentTotal
 		}
-		if !session.idleNotified && now.Sub(session.start) >= onlineNotifyIdleGrace {
-			j.sendInboundKeepAliveNotify(email, session, st, now)
+		if session.idleWindowStart.IsZero() {
+			session.idleWindowStart = now
+			session.idleWindowTotal = currentTotal
+		}
+		windowTraffic := currentTotal - session.idleWindowTotal
+		if windowTraffic < 0 {
+			session.idleWindowStart = now
+			session.idleWindowTotal = currentTotal
+			windowTraffic = 0
+			session.idleNotified = false
+		}
+		if windowTraffic >= onlineNotifyLowTrafficThresholdByte {
+			session.idleWindowStart = now
+			session.idleWindowTotal = currentTotal
+			session.idleNotified = false
+		} else if !session.idleNotified && now.Sub(session.idleWindowStart) >= onlineNotifyIdleGrace {
+			j.sendInboundKeepAliveNotify(email, session, windowTraffic, st, now)
 			session.idleNotified = true
 		}
 		onlineNotifySessions[email] = session
@@ -259,7 +279,7 @@ func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNo
 	))
 }
 
-func (j *XrayTrafficJob) sendInboundKeepAliveNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
+func (j *XrayTrafficJob) sendInboundKeepAliveNotify(email string, session onlineNotifySession, windowTraffic int64, st *xray.ClientTraffic, now time.Time) {
 	up, down := sessionDelta(session, st)
 	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
 		"💎 <b>OUI 用户通知</b>\n"+
@@ -268,11 +288,14 @@ func (j *XrayTrafficJob) sendInboundKeepAliveNotify(email string, session online
 			"🧩 节点名称：<code>%s</code>\n"+
 			"⏱ 在线时长：<code>%s</code>\n"+
 			"⏰ 检测时间：<code>%s</code>\n"+
+			"📊 15分钟流量：<code>%s / 阈值 %s</code>\n"+
 			"📈 本次累计：<code>↑%s / ↓%s / 合计%s</code>",
 		html.EscapeString(email),
 		html.EscapeString(session.remark),
 		formatOnlineDuration(now.Sub(session.start)),
 		now.Format("2006-01-02 15:04:05"),
+		common.FormatTraffic(windowTraffic),
+		common.FormatTraffic(onlineNotifyLowTrafficThresholdByte),
 		common.FormatTraffic(up),
 		common.FormatTraffic(down),
 		common.FormatTraffic(up+down),
