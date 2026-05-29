@@ -248,6 +248,9 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 			session.idleNotified = false
 		}
 		if windowTraffic >= onlineNotifyLowTrafficThresholdByte {
+			if session.idleNotified {
+				j.sendInboundActiveNotify(email, session, windowTraffic, st, now)
+			}
 			session.idleWindowStart = now
 			session.idleWindowTotal = currentTotal
 			session.idleNotified = false
@@ -257,6 +260,29 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 		}
 		onlineNotifySessions[email] = session
 	}
+}
+
+func (j *XrayTrafficJob) sendInboundActiveNotify(email string, session onlineNotifySession, windowTraffic int64, st *xray.ClientTraffic, now time.Time) {
+	up, down := sessionDelta(session, st)
+	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
+		"💎 <b>OUI 用户通知</b>\n"+
+			"🔵 <b>已恢复使用在线中</b>\n"+
+			"📧 用户/节点：<code>%s</code>\n"+
+			"🧩 节点名称：<code>%s</code>\n"+
+			"⏱ 在线时长：<code>%s</code>\n"+
+			"⏰ 恢复时间：<code>%s</code>\n"+
+			"📊 当前窗口流量：<code>%s / 阈值 %s</code>\n"+
+			"📈 本次累计：<code>↑%s / ↓%s / 合计%s</code>",
+		html.EscapeString(email),
+		html.EscapeString(session.remark),
+		formatOnlineDuration(now.Sub(session.start)),
+		now.Format("2006-01-02 15:04:05"),
+		common.FormatTraffic(windowTraffic),
+		common.FormatTraffic(onlineNotifyLowTrafficThresholdByte),
+		common.FormatTraffic(up),
+		common.FormatTraffic(down),
+		common.FormatTraffic(up+down),
+	))
 }
 
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
