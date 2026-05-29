@@ -37,6 +37,7 @@ import (
 	"github.com/skip2/go-qrcode"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpproxy"
+	"gorm.io/gorm"
 )
 
 var (
@@ -455,6 +456,245 @@ func (t *Tgbot) decodeQuery(query string) (string, error) {
 	}
 
 	return decoded, nil
+}
+
+func (t *Tgbot) panelUserID() int {
+	db := database.GetDB()
+	var user model.User
+	if err := db.Model(model.User{}).Order("id ASC").First(&user).Error; err == nil && user.Id > 0 {
+		return user.Id
+	}
+	return 1
+}
+
+func (t *Tgbot) getPanelInbounds() ([]*model.Inbound, error) {
+	return t.inboundService.GetInbounds(t.panelUserID())
+}
+
+func (t *Tgbot) getPanelInbound(id int) (*model.Inbound, error) {
+	inbound, err := t.inboundService.GetInbound(id)
+	if err != nil {
+		return nil, err
+	}
+	if inbound.UserId != t.panelUserID() {
+		return nil, common.NewError("inbound does not belong to panel user")
+	}
+	return inbound, nil
+}
+
+func (t *Tgbot) getPanelInboundIDSet() (map[int]struct{}, error) {
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, err
+	}
+	ids := make(map[int]struct{}, len(inbounds))
+	for _, inbound := range inbounds {
+		if inbound != nil {
+			ids[inbound.Id] = struct{}{}
+		}
+	}
+	return ids, nil
+}
+
+func (t *Tgbot) panelTrafficForClient(inboundID int, client model.Client) *xray.ClientTraffic {
+	db := database.GetDB()
+	var traffic xray.ClientTraffic
+	err := db.Model(xray.ClientTraffic{}).
+		Where("email = ? AND inbound_id = ?", client.Email, inboundID).
+		First(&traffic).Error
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			logger.Warningf("get panel client traffic failed for %s: %v", client.Email, err)
+		}
+		traffic = xray.ClientTraffic{
+			InboundId:  inboundID,
+			Email:      client.Email,
+			Enable:     client.Enable,
+			ExpiryTime: client.ExpiryTime,
+			Total:      client.TotalGB,
+			Reset:      client.Reset,
+		}
+	}
+	traffic.Enable = client.Enable
+	traffic.UUID = client.ID
+	traffic.SubId = client.SubID
+	if traffic.ExpiryTime == 0 {
+		traffic.ExpiryTime = client.ExpiryTime
+	}
+	if traffic.Total == 0 {
+		traffic.Total = client.TotalGB
+	}
+	return &traffic
+}
+
+func (t *Tgbot) getPanelClientByEmail(email string) (*xray.ClientTraffic, *model.Client, error) {
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, inbound := range inbounds {
+		if inbound == nil {
+			continue
+		}
+		clients, err := t.inboundService.GetClients(inbound)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, client := range clients {
+			if client.Email != email {
+				continue
+			}
+			clientCopy := client
+			return t.panelTrafficForClient(inbound.Id, clientCopy), &clientCopy, nil
+		}
+	}
+	return nil, nil, nil
+}
+
+func (t *Tgbot) getPanelClientTrafficByEmail(email string) (*xray.ClientTraffic, error) {
+	traffic, _, err := t.getPanelClientByEmail(email)
+	return traffic, err
+}
+
+func (t *Tgbot) getPanelClientTrafficsTgBot(tgID int64) ([]*xray.ClientTraffic, error) {
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	traffics := make([]*xray.ClientTraffic, 0)
+	for _, inbound := range inbounds {
+		if inbound == nil {
+			continue
+		}
+		clients, err := t.inboundService.GetClients(inbound)
+		if err != nil {
+			return nil, err
+		}
+		for _, client := range clients {
+			if client.TgID != tgID || client.Email == "" {
+				continue
+			}
+			key := strings.ToLower(client.Email)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			traffics = append(traffics, t.panelTrafficForClient(inbound.Id, client))
+		}
+	}
+	return traffics, nil
+}
+
+func (t *Tgbot) getPanelClientEmails() ([]string, error) {
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{})
+	emails := make([]string, 0)
+	for _, inbound := range inbounds {
+		if inbound == nil {
+			continue
+		}
+		clients, err := t.inboundService.GetClients(inbound)
+		if err != nil {
+			return nil, err
+		}
+		for _, client := range clients {
+			if client.Email == "" {
+				continue
+			}
+			key := strings.ToLower(client.Email)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			emails = append(emails, client.Email)
+		}
+	}
+	return emails, nil
+}
+
+func (t *Tgbot) getPanelClientInboundIDs(email string) ([]int, error) {
+	panelIDs, err := t.getPanelInboundIDSet()
+	if err != nil {
+		return nil, err
+	}
+	ids, err := t.clientService.GetInboundIdsForEmail(nil, email)
+	filtered := make([]int, 0, len(ids))
+	if err == nil {
+		seen := make(map[int]struct{}, len(ids))
+		for _, id := range ids {
+			if _, ok := panelIDs[id]; !ok {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			filtered = append(filtered, id)
+		}
+		if len(filtered) > 0 {
+			return filtered, nil
+		}
+	}
+	traffic, err := t.getPanelClientTrafficByEmail(email)
+	if err != nil || traffic == nil {
+		return filtered, err
+	}
+	if _, ok := panelIDs[traffic.InboundId]; ok {
+		filtered = append(filtered, traffic.InboundId)
+	}
+	return filtered, nil
+}
+
+func (t *Tgbot) getPanelClientLinks(host string, email string) ([]string, error) {
+	if email == "" {
+		return nil, common.NewError("client email is required")
+	}
+	if registeredSubLinkProvider == nil {
+		return nil, common.NewError("sub link provider not registered")
+	}
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, err
+	}
+	links := make([]string, 0)
+	for _, inbound := range inbounds {
+		if inbound == nil {
+			continue
+		}
+		clients, err := t.inboundService.GetClients(inbound)
+		if err != nil {
+			return nil, err
+		}
+		for _, client := range clients {
+			if client.Email == email {
+				links = append(links, registeredSubLinkProvider.LinksForClient(host, inbound, email)...)
+				break
+			}
+		}
+	}
+	return links, nil
+}
+
+func (t *Tgbot) searchPanelInbounds(remark string) ([]*model.Inbound, error) {
+	inbounds, err := t.getPanelInbounds()
+	if err != nil {
+		return nil, err
+	}
+	query := strings.ToLower(strings.TrimSpace(remark))
+	if query == "" {
+		return inbounds, nil
+	}
+	filtered := make([]*model.Inbound, 0, len(inbounds))
+	for _, inbound := range inbounds {
+		if inbound != nil && strings.Contains(strings.ToLower(inbound.Remark), query) {
+			filtered = append(filtered, inbound)
+		}
+	}
+	return filtered, nil
 }
 
 // OnReceive starts the message receiving loop for the Telegram bot.
@@ -1156,6 +1396,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		return nil, "", err
 	}
 	return &model.Inbound{
+		UserId:         t.panelUserID(),
 		Up:             0,
 		Down:           0,
 		Total:          0,
@@ -1277,7 +1518,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				inbound, err := t.getPanelInbound(inboundIdInt)
 				if err != nil {
 					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_sub")
 					return
@@ -1295,7 +1536,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				inbound, err := t.getPanelInbound(inboundIdInt)
 				if err != nil {
 					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_individual")
 					return
@@ -1313,7 +1554,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				inbound, err := t.getPanelInbound(inboundIdInt)
 				if err != nil {
 					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "get_clients_for_qr")
 					return
@@ -1369,6 +1610,11 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "reset_traffic_c":
+				if traffic, err := t.getPanelClientTrafficByEmail(email); err != nil || traffic == nil {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					t.searchClient(chatId, email, callbackQuery.Message.GetMessageID())
+					return
+				}
 				err := t.inboundService.ResetClientTrafficByEmail(email)
 				if err == nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.resetTrafficSuccess", "Email=="+email))
@@ -1411,6 +1657,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				if len(dataArray) == 3 {
 					limitTraffic, err := strconv.Atoi(dataArray[2])
 					if err == nil {
+						if traffic, err := t.getPanelClientTrafficByEmail(email); err != nil || traffic == nil {
+							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+							return
+						}
 						needRestart, err := t.clientService.ResetClientTrafficLimitByEmail(&t.inboundService, email, limitTraffic)
 						if needRestart {
 							t.xrayService.SetToNeedRestart()
@@ -1587,7 +1837,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					if err == nil {
 						var date int64
 						if days > 0 {
-							traffic, err := t.inboundService.GetClientTrafficByEmail(email)
+							traffic, err := t.getPanelClientTrafficByEmail(email)
 							if err != nil {
 								logger.Warning(err)
 								msg := t.I18nBot("tgbot.wentWrong")
@@ -1799,6 +2049,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				if len(dataArray) == 3 {
 					count, err := strconv.Atoi(dataArray[2])
 					if err == nil {
+						if traffic, err := t.getPanelClientTrafficByEmail(email); err != nil || traffic == nil {
+							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+							return
+						}
 						needRestart, err := t.clientService.ResetClientIpLimitByEmail(&t.inboundService, email, count)
 						if needRestart {
 							t.xrayService.SetToNeedRestart()
@@ -1956,6 +2210,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "clear_ips_c":
+				if traffic, err := t.getPanelClientTrafficByEmail(email); err != nil || traffic == nil {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
 				err := t.inboundService.ClearClientIps(email)
 				if err == nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.clearIpSuccess", "Email=="+email))
@@ -1980,7 +2238,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "tgid_remove_c":
-				traffic, err := t.inboundService.GetClientTrafficByEmail(email)
+				traffic, err := t.getPanelClientTrafficByEmail(email)
 				if err != nil || traffic == nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
 					return
@@ -2006,6 +2264,10 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				)
 				t.editMessageCallbackTgBot(chatId, callbackQuery.Message.GetMessageID(), inlineKeyboard)
 			case "toggle_enable_c":
+				if traffic, err := t.getPanelClientTrafficByEmail(email); err != nil || traffic == nil {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
 				enabled, needRestart, err := t.clientService.ToggleClientEnableByEmail(&t.inboundService, email)
 				if needRestart {
 					t.xrayService.SetToNeedRestart()
@@ -2027,7 +2289,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				inbound, err := t.inboundService.GetInbound(inboundIdInt)
+				inbound, err := t.getPanelInbound(inboundIdInt)
 				if err != nil {
 					t.refreshInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID, "")
 					return
@@ -2055,7 +2317,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, err.Error())
 					return
 				}
-				if _, err := t.inboundService.GetInbound(inboundIdInt); err != nil {
+				if _, err := t.getPanelInbound(inboundIdInt); err != nil {
 					t.refreshAddClientInboundPickerMessage(chatId, callbackQuery.Message.GetMessageID(), callbackQuery.ID)
 					return
 				}
@@ -2158,7 +2420,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_sub_links":
 		// show user's own clients to choose one for sub links
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
+		traffics, err := t.getPanelClientTrafficsTgBot(tgUserID)
 		if err != nil {
 			// fallback to message
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
@@ -2181,7 +2443,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_individual_links":
 		// show user's clients to choose for individual links
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
+		traffics, err := t.getPanelClientTrafficsTgBot(tgUserID)
 		if err != nil {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 			return
@@ -2203,7 +2465,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 	case "client_qr_links":
 		// show user's clients to choose for QR codes
 		tgUserID := callbackQuery.From.ID
-		traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
+		traffics, err := t.getPanelClientTrafficsTgBot(tgUserID)
 		if err != nil {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOccurred")+"\r\n"+err.Error())
 			return
@@ -2451,7 +2713,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.messages.AreYouSure"), inlineKeyboard)
 	case "reset_all_traffics_c":
 		t.deleteMessageTgBot(chatId, callbackQuery.Message.GetMessageID())
-		emails, err := t.inboundService.getAllEmails()
+		emails, err := t.getPanelClientEmails()
 		if err != nil {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation"), tu.ReplyKeyboardRemove())
 			return
@@ -2471,7 +2733,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.messages.FinishProcess"), tu.ReplyKeyboardRemove())
 	case "get_sorted_traffic_usage_report":
 		t.deleteMessageTgBot(chatId, callbackQuery.Message.GetMessageID())
-		emails, err := t.inboundService.getAllEmails()
+		emails, err := t.getPanelClientEmails()
 
 		if err != nil {
 			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation"), tu.ReplyKeyboardRemove())
@@ -2484,7 +2746,7 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 		}
 
 		for _, valid_emails := range valid_emails {
-			traffic, err := t.inboundService.GetClientTrafficByEmail(valid_emails)
+			traffic, err := t.getPanelClientTrafficByEmail(valid_emails)
 			if err != nil {
 				logger.Warning(err)
 				msg := t.I18nBot("tgbot.wentWrong")
@@ -2592,7 +2854,7 @@ func (t *Tgbot) describeAttachedInbounds(ids []int) string {
 	}
 	parts := make([]string, 0, len(ids))
 	for _, id := range ids {
-		ib, err := t.inboundService.GetInbound(id)
+		ib, err := t.getPanelInbound(id)
 		if err != nil || ib == nil {
 			parts = append(parts, fmt.Sprintf("#%d", id))
 			continue
@@ -2872,7 +3134,7 @@ func cleanTelegramLinks(links []string) []string {
 // buildSubscriptionURLs builds the HTML sub page URL and JSON subscription URL for a client email
 func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
 	// Resolve subId from client email
-	traffic, client, err := t.inboundService.GetClientByEmail(email)
+	traffic, client, err := t.getPanelClientByEmail(email)
 	_ = traffic
 	if err != nil || client == nil {
 		return "", "", errors.New("client not found")
@@ -2985,7 +3247,7 @@ func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 		return
 	}
-	links, err := t.inboundService.GetAllClientLinks(host, email)
+	links, err := t.getPanelClientLinks(host, email)
 	if err != nil {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 		return
@@ -3060,7 +3322,7 @@ func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
 	if err != nil {
 		return
 	}
-	links, err := t.inboundService.GetAllClientLinks(host, email)
+	links, err := t.getPanelClientLinks(host, email)
 	if err != nil {
 		return
 	}
@@ -3263,7 +3525,7 @@ func (t *Tgbot) UserLoginNotify(attempt LoginAttempt) {
 // getInboundUsages retrieves and formats inbound usage information.
 func (t *Tgbot) getInboundUsages() string {
 	var info strings.Builder
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("GetAllInbounds run failed:", err)
 		info.WriteString(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3291,7 +3553,7 @@ func (t *Tgbot) getInboundUsages() string {
 
 // getInbounds creates an inline keyboard with all inbounds.
 func (t *Tgbot) getInbounds() (*telego.InlineKeyboardMarkup, error) {
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("GetAllInbounds run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3323,7 +3585,7 @@ func (t *Tgbot) getInbounds() (*telego.InlineKeyboardMarkup, error) {
 
 // getInboundsFor builds an inline keyboard of inbounds for a custom next action.
 func (t *Tgbot) getInboundsFor(nextAction string) (*telego.InlineKeyboardMarkup, error) {
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("GetAllInbounds run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3373,7 +3635,7 @@ func (t *Tgbot) refreshInboundPickerMessage(chatId int64, messageID int, callbac
 
 // getInboundClientsFor lists clients of an inbound with a specific action prefix to be appended with email
 func (t *Tgbot) getInboundClientsFor(inboundID int, action string) (*telego.InlineKeyboardMarkup, error) {
-	inbound, err := t.inboundService.GetInbound(inboundID)
+	inbound, err := t.getPanelInbound(inboundID)
 	if err != nil {
 		logger.Warning("getInboundClientsFor run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3408,7 +3670,7 @@ func (t *Tgbot) getInboundClientsFor(inboundID int, action string) (*telego.Inli
 
 // getInboundsAddClient creates an inline keyboard for adding clients to inbounds.
 func (t *Tgbot) getInboundsAddClient() (*telego.InlineKeyboardMarkup, error) {
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("GetAllInbounds run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3465,7 +3727,7 @@ func (t *Tgbot) refreshAddClientInboundPickerMessage(chatId int64, messageID int
 // add_client_toggle_attach <id> which flips it and re-renders. A final
 // "Done" button (add_client_attach_done) returns to the field-edit screen.
 func (t *Tgbot) getInboundsAttachPicker() (*telego.InlineKeyboardMarkup, error) {
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("GetAllInbounds run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3509,7 +3771,7 @@ func (t *Tgbot) getInboundsAttachPicker() (*telego.InlineKeyboardMarkup, error) 
 
 // getInboundClients creates an inline keyboard with clients of a specific inbound.
 func (t *Tgbot) getInboundClients(id int) (*telego.InlineKeyboardMarkup, error) {
-	inbound, err := t.inboundService.GetInbound(id)
+	inbound, err := t.getPanelInbound(id)
 	if err != nil {
 		logger.Warning("getIboundClients run failed:", err)
 		return nil, errors.New(t.I18nBot("tgbot.answers.getInboundsFailed"))
@@ -3620,7 +3882,7 @@ func (t *Tgbot) clientInfoMsg(
 
 	output := ""
 	output += t.I18nBot("tgbot.messages.email", "Email=="+traffic.Email)
-	if attachIds, err := t.clientService.GetInboundIdsForEmail(nil, traffic.Email); err == nil && len(attachIds) > 0 {
+	if attachIds, err := t.getPanelClientInboundIDs(traffic.Email); err == nil && len(attachIds) > 0 {
 		output += fmt.Sprintf("🔗 Inbounds: %s\r\n", t.describeAttachedInbounds(attachIds))
 	}
 	if printEnabled {
@@ -3656,7 +3918,7 @@ func (t *Tgbot) clientInfoMsg(
 
 // getClientUsage retrieves and sends client usage information to the chat.
 func (t *Tgbot) getClientUsage(chatId int64, tgUserID int64, email ...string) {
-	traffics, err := t.inboundService.GetClientTrafficTgBot(tgUserID)
+	traffics, err := t.getPanelClientTrafficsTgBot(tgUserID)
 	if err != nil {
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
@@ -3699,6 +3961,17 @@ func (t *Tgbot) getClientUsage(chatId int64, tgUserID int64, email ...string) {
 
 // searchClientIps searches and sends client IP addresses for the given email.
 func (t *Tgbot) searchClientIps(chatId int64, email string, messageID ...int) {
+	traffic, err := t.getPanelClientTrafficByEmail(email)
+	if err != nil || traffic == nil {
+		msg := t.I18nBot("tgbot.noResult")
+		if len(messageID) > 0 {
+			t.editMessageTgBot(chatId, messageID[0], msg)
+		} else {
+			t.SendMsgToTgbot(chatId, msg)
+		}
+		return
+	}
+
 	ips, err := t.inboundService.GetInboundClientIps(email)
 	if err != nil || len(ips) == 0 {
 		ips = t.I18nBot("tgbot.noIpRecord")
@@ -3759,7 +4032,7 @@ func (t *Tgbot) searchClientIps(chatId int64, email string, messageID ...int) {
 
 // clientTelegramUserInfo retrieves and sends Telegram user info for the client.
 func (t *Tgbot) clientTelegramUserInfo(chatId int64, email string, messageID ...int) {
-	traffic, client, err := t.inboundService.GetClientByEmail(email)
+	traffic, client, err := t.getPanelClientByEmail(email)
 	if err != nil {
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
@@ -3812,7 +4085,7 @@ func (t *Tgbot) clientTelegramUserInfo(chatId int64, email string, messageID ...
 
 // searchClient searches for a client by email and sends the information.
 func (t *Tgbot) searchClient(chatId int64, email string, messageID ...int) {
-	traffic, err := t.inboundService.GetClientTrafficByEmail(email)
+	traffic, err := t.getPanelClientTrafficByEmail(email)
 	if err != nil {
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
@@ -3900,7 +4173,7 @@ func (t *Tgbot) addClient(chatId int64, msg string, messageID ...int) {
 
 // searchInbound searches for inbounds by remark and sends the results.
 func (t *Tgbot) searchInbound(chatId int64, remark string) {
-	inbounds, err := t.inboundService.SearchInbounds(remark)
+	inbounds, err := t.searchPanelInbounds(remark)
 	if err != nil {
 		logger.Warning(err)
 		msg := t.I18nBot("tgbot.wentWrong")
@@ -3954,7 +4227,7 @@ func (t *Tgbot) getExhausted(chatId int64) {
 	if err == nil && ExpireThreshold > 0 {
 		exDiff = int64(ExpireThreshold) * 86400000
 	}
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("Unable to load Inbounds", err)
 	}
@@ -4047,7 +4320,7 @@ func (t *Tgbot) notifyExhausted() {
 	if err == nil && ExpireThreshold > 0 {
 		exDiff = int64(ExpireThreshold) * 86400000
 	}
-	inbounds, err := t.inboundService.GetAllInbounds()
+	inbounds, err := t.getPanelInbounds()
 	if err != nil {
 		logger.Warning("Unable to load Inbounds", err)
 	}
@@ -4064,7 +4337,7 @@ func (t *Tgbot) notifyExhausted() {
 							if !int64Contains(chatIDsDone, chatID) && !checkAdmin(chatID) {
 								var disabledClients []xray.ClientTraffic
 								var exhaustedClients []xray.ClientTraffic
-								traffics, err := t.inboundService.GetClientTrafficTgBot(client.TgID)
+								traffics, err := t.getPanelClientTrafficsTgBot(client.TgID)
 								if err == nil && len(traffics) > 0 {
 									var output strings.Builder
 									output.WriteString(t.I18nBot("tgbot.messages.exhaustedCount", "Type=="+t.I18nBot("tgbot.clients")))
