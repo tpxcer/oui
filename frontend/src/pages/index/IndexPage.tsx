@@ -42,9 +42,10 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import AppSidebar from '@/components/AppSidebar';
 import LazyMount from '@/components/LazyMount';
 import { setMessageInstance } from '@/utils/messageBus';
+import type { PanelUpdateInfo } from '@/lib/panelUpdate';
+import { getPanelUpdateInfoNoCache } from '@/lib/panelUpdate';
 import StatusCard from './StatusCard';
 import XrayStatusCard from './XrayStatusCard';
-import type { PanelUpdateInfo } from './PanelUpdateModal';
 const JsonEditor = lazy(() => import('@/components/JsonEditor'));
 const PanelUpdateModal = lazy(() => import('./PanelUpdateModal'));
 const LogModal = lazy(() => import('./LogModal'));
@@ -89,7 +90,7 @@ export default function IndexPage() {
     HttpUtil.post<{ ipLimitEnable?: boolean }>('/panel/setting/defaultSettings').then((msg) => {
       if (msg?.success && msg.obj) setIpLimitEnable(!!msg.obj.ipLimitEnable);
     });
-    HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo').then((msg) => {
+    getPanelUpdateInfoNoCache().then((msg) => {
       if (msg?.success && msg.obj) setPanelUpdateInfo(msg.obj);
     });
   }, []);

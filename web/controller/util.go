@@ -122,6 +122,12 @@ func jsonMsg(c *gin.Context, msg string, err error) {
 	jsonMsgObj(c, msg, nil, err)
 }
 
+func noStoreJSON(c *gin.Context) {
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
 // jsonObj sends a JSON response with an object and error status.
 func jsonObj(c *gin.Context, obj any, err error) {
 	jsonMsgObj(c, "", obj, err)
@@ -179,11 +185,13 @@ func jsonMsgObj(c *gin.Context, msg string, obj any, err error) {
 			logger.Warningf("%s %s %s", ctx, m.Msg, fail)
 		}
 	}
+	noStoreJSON(c)
 	c.JSON(http.StatusOK, m)
 }
 
 // pureJsonMsg sends a pure JSON message response with custom status code.
 func pureJsonMsg(c *gin.Context, statusCode int, success bool, msg string) {
+	noStoreJSON(c)
 	c.JSON(statusCode, entity.Msg{
 		Success: success,
 		Msg:     msg,

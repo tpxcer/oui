@@ -3,13 +3,9 @@ import { Alert, Button, Modal, Tag } from 'antd';
 import { CloudDownloadOutlined } from '@ant-design/icons';
 
 import { HttpUtil, PromiseUtil } from '@/utils';
+import type { PanelUpdateInfo } from '@/lib/panelUpdate';
+import { reloadPanelPage, waitForUpdatedPanel } from '@/lib/panelUpdate';
 import './PanelUpdateModal.css';
-
-export interface PanelUpdateInfo {
-  currentVersion: string;
-  latestVersion: string;
-  updateAvailable: boolean;
-}
 
 interface BusyEvent {
   busy: boolean;
@@ -23,30 +19,9 @@ interface PanelUpdateModalProps {
   onBusy: (e: BusyEvent) => void;
 }
 
-interface PanelStatus {
-  panelVersion?: string;
-}
-
 export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelUpdateModalProps) {
   const { t } = useTranslation();
   const [modal, contextHolder] = Modal.useModal();
-
-  async function pollUntilUpdated(targetVersion: string): Promise<boolean> {
-    await PromiseUtil.sleep(5000);
-    const deadline = Date.now() + 180_000;
-    while (Date.now() < deadline) {
-      const msg = await HttpUtil.get<PanelStatus>('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
-      if (msg?.success && msg.obj?.panelVersion === targetVersion) return true;
-      await PromiseUtil.sleep(2000);
-    }
-    return false;
-  }
-
-  function reloadPanelPage() {
-    const url = new URL(window.location.href);
-    url.searchParams.set('_ouiUpdated', String(Date.now()));
-    window.location.replace(url.toString());
-  }
 
   function updatePanel() {
     modal.confirm({
@@ -64,10 +39,10 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
           onBusy({ busy: false });
           return;
         }
-        const updated = await pollUntilUpdated(info.latestVersion);
+        const updated = await waitForUpdatedPanel(info.latestVersion);
         if (updated) {
           await PromiseUtil.sleep(800);
-          reloadPanelPage();
+          reloadPanelPage(info.latestVersion);
         } else {
           onBusy({ busy: false });
         }

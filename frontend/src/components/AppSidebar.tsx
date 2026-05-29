@@ -25,6 +25,15 @@ import {
 
 import { HttpUtil, PromiseUtil } from '@/utils';
 import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
+import type { PanelUpdateInfo } from '@/lib/panelUpdate';
+import {
+  clearPanelUpdateTarget,
+  fetchFreshPanelShellVersion,
+  getLivePanelStatus,
+  getPanelUpdateInfoNoCache,
+  reloadPanelPage,
+  waitForUpdatedPanel,
+} from '@/lib/panelUpdate';
 import './AppSidebar.css';
 
 const SIDEBAR_COLLAPSED_KEY = 'isSidebarCollapsed';
@@ -32,16 +41,6 @@ const REPO_URL = 'https://github.com/tpxcer/oui';
 const LOGOUT_KEY = '__logout__';
 
 type IconName = 'dashboard' | 'inbound' | 'team' | 'setting' | 'tool' | 'cluster' | 'logout' | 'apidocs';
-
-interface PanelUpdateInfo {
-  currentVersion: string;
-  latestVersion: string;
-  updateAvailable: boolean;
-}
-
-interface PanelStatus {
-  panelVersion?: string;
-}
 
 const iconByName: Record<IconName, ComponentType> = {
   dashboard: DashboardOutlined,
@@ -155,26 +154,10 @@ export default function AppSidebar() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updatingPanel, setUpdatingPanel] = useState(false);
   const [updateProgress, setUpdateProgress] = useState(0);
+  const [livePanelVersion, setLivePanelVersion] = useState(window.X_UI_CUR_VER || '');
 
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
-  const panelVersion = window.X_UI_CUR_VER || '';
-
-  const pollUntilUpdated = useCallback(async (targetVersion: string): Promise<boolean> => {
-    await PromiseUtil.sleep(5000);
-    const deadline = Date.now() + 180_000;
-    while (Date.now() < deadline) {
-      const msg = await HttpUtil.get<PanelStatus>('/panel/api/server/status', undefined, { timeout: 2000, silent: true });
-      if (msg?.success && msg.obj?.panelVersion === targetVersion) return true;
-      await PromiseUtil.sleep(2000);
-    }
-    return false;
-  }, []);
-
-  const reloadPanelPage = useCallback(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('_ouiUpdated', String(Date.now()));
-    window.location.replace(url.toString());
-  }, []);
+  const panelVersion = updateInfo?.currentVersion || livePanelVersion || window.X_UI_CUR_VER || '';
 
   const updatePanel = useCallback(async (info?: PanelUpdateInfo | null) => {
     if (info) setUpdateInfo(info);
@@ -184,11 +167,11 @@ export default function AppSidebar() {
       const result = await HttpUtil.post('/panel/api/server/updatePanel');
       if (result?.success) {
         message.success(info?.latestVersion ? `已开始后台更新到 ${info.latestVersion}` : '已开始后台更新');
-        const updated = info?.latestVersion ? await pollUntilUpdated(info.latestVersion) : false;
+        const updated = info?.latestVersion ? await waitForUpdatedPanel(info.latestVersion) : false;
         setUpdateProgress(100);
         if (updated) {
           await PromiseUtil.sleep(800);
-          reloadPanelPage();
+          reloadPanelPage(info?.latestVersion);
           return;
         }
         message.info('后台更新仍在执行，请稍后手动刷新页面');
@@ -201,14 +184,15 @@ export default function AppSidebar() {
       message.error(error instanceof Error ? error.message : '启动后台更新失败');
       setUpdatingPanel(false);
     }
-  }, [pollUntilUpdated, reloadPanelPage]);
+  }, []);
 
   const checkPanelUpdate = useCallback(async () => {
     setCheckingUpdate(true);
     try {
-      const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo', undefined, { silent: true });
+      const msg = await getPanelUpdateInfoNoCache();
       if (msg?.success && msg.obj) {
         setUpdateInfo(msg.obj);
+        setLivePanelVersion(msg.obj.currentVersion || window.X_UI_CUR_VER || '');
         if (msg.obj.updateAvailable) {
           message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}，开始自动更新` : '发现新版本，开始自动更新');
           await updatePanel(msg.obj);
@@ -245,10 +229,40 @@ export default function AppSidebar() {
     (async () => {
       setCheckingUpdate(true);
       try {
-        const msg = await HttpUtil.get<PanelUpdateInfo>('/panel/api/server/getPanelUpdateInfo', undefined, { silent: true });
-        if (!cancelled && msg?.success && msg.obj) setUpdateInfo(msg.obj);
+        const msg = await getPanelUpdateInfoNoCache();
+        if (!cancelled && msg?.success && msg.obj) {
+          setUpdateInfo(msg.obj);
+          setLivePanelVersion(msg.obj.currentVersion || window.X_UI_CUR_VER || '');
+          const target = new URLSearchParams(window.location.search).get('_ouiTarget');
+          if (target && msg.obj.currentVersion === target) clearPanelUpdateTarget();
+        }
       } finally {
         if (!cancelled) setCheckingUpdate(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const target = new URLSearchParams(window.location.search).get('_ouiTarget');
+      if (!target) return;
+
+      const status = await getLivePanelStatus(3000);
+      if (cancelled) return;
+      if (status?.success && status.obj?.panelVersion) {
+        setLivePanelVersion(status.obj.panelVersion);
+        if (status.obj.panelVersion === target) {
+          clearPanelUpdateTarget();
+          return;
+        }
+      }
+
+      const shellVersion = await fetchFreshPanelShellVersion();
+      if (!cancelled && shellVersion === target) {
+        clearPanelUpdateTarget();
+        reloadPanelPage(target);
       }
     })();
     return () => { cancelled = true; };
