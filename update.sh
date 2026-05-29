@@ -810,12 +810,17 @@ update_x-ui() {
 
     echo -e "${green}正在下载新的 x-ui 版本...${plain}"
 
-    tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-    if [[ ! -n "$tag_version" ]]; then
-        echo -e "${yellow}正在尝试使用 IPv4 获取版本...${plain}"
-        tag_version=$(${curl_bin} -4 -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    tag_version="$1"
+    if [[ -n "$tag_version" ]]; then
+        echo -e "使用指定 OUI 版本：${tag_version}"
+    else
+        tag_version=$(${curl_bin} -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$tag_version" ]]; then
-            _fail "错误：获取 x-ui 版本失败，可能是 GitHub API 限制，请稍后重试。"
+            echo -e "${yellow}正在尝试使用 IPv4 获取版本...${plain}"
+            tag_version=$(${curl_bin} -4 -Ls "https://api.github.com/repos/tpxcer/oui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+            if [[ ! -n "$tag_version" ]]; then
+                _fail "错误：获取 x-ui 版本失败，可能是 GitHub API 限制，请稍后重试。"
+            fi
         fi
     fi
     echo -e "已获取 OUI 最新版本：${tag_version}，开始下载更新包..."

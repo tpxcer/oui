@@ -77,6 +77,14 @@ func (s *PanelService) StartUpdate() error {
 		return fmt.Errorf("面板网页更新仅支持 Linux 安装环境")
 	}
 
+	latest, err := fetchLatestPanelVersion()
+	if err != nil {
+		return fmt.Errorf("检查最新版本失败: %w", err)
+	}
+	if !isNewerVersion(latest, config.GetVersion()) {
+		return fmt.Errorf("当前已是最新版本: %s", config.GetVersion())
+	}
+
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		return fmt.Errorf("运行面板更新器需要 bash: %w", err)
@@ -88,7 +96,7 @@ func (s *PanelService) StartUpdate() error {
 	}
 
 	mainFolder, serviceFolder := resolveUpdateFolders()
-	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath))
+	updateScript := fmt.Sprintf("set -e; trap 'rm -f %s' EXIT; %s %s %s", shellQuote(scriptPath), shellQuote(bash), shellQuote(scriptPath), shellQuote(latest))
 
 	if systemdRun, err := exec.LookPath("systemd-run"); err == nil {
 		unitName := fmt.Sprintf("x-ui-web-update-%d", time.Now().Unix())
@@ -96,7 +104,7 @@ func (s *PanelService) StartUpdate() error {
 			"--unit", unitName,
 			"--setenv", "XUI_MAIN_FOLDER="+mainFolder,
 			"--setenv", "XUI_SERVICE="+serviceFolder,
-			bash, "-lc", updateScript,
+			bash, "-c", updateScript,
 		)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -113,7 +121,7 @@ func (s *PanelService) StartUpdate() error {
 		}
 	}
 
-	cmd := exec.Command(bash, "-lc", updateScript)
+	cmd := exec.Command(bash, "-c", updateScript)
 	cmd.Env = append(os.Environ(),
 		"XUI_MAIN_FOLDER="+mainFolder,
 		"XUI_SERVICE="+serviceFolder,
