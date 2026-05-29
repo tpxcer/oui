@@ -226,25 +226,6 @@ export default function AppSidebar() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setCheckingUpdate(true);
-      try {
-        const msg = await getPanelUpdateInfoNoCache();
-        if (!cancelled && msg?.success && msg.obj) {
-          setUpdateInfo(msg.obj);
-          setLivePanelVersion(msg.obj.currentVersion || window.X_UI_CUR_VER || '');
-          const target = new URLSearchParams(window.location.search).get('_ouiTarget');
-          if (target && msg.obj.currentVersion === target) clearPanelUpdateTarget();
-        }
-      } finally {
-        if (!cancelled) setCheckingUpdate(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
       const target = new URLSearchParams(window.location.search).get('_ouiTarget');
       if (!target) return;
 
