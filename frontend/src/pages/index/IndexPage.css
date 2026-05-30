@@ -28,49 +28,13 @@
   color: var(--ant-color-warning);
 }
 
+.index-page .action-disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .index-page .content-area {
   position: relative;
-}
-
-.index-page .oui-card-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 72px;
-}
-
-.index-page .oui-card-copy {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.index-page .oui-card-version,
-.index-page .oui-card-next {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--ant-color-text-secondary);
-  font-size: 13px;
-}
-
-.index-page .oui-card-version {
-  color: var(--ant-color-text);
-  font-weight: 600;
-}
-
-.index-page .oui-update-button {
-  min-width: 124px;
-}
-
-.index-page .oui-update-button.has-update {
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--ant-color-primary) 22%, transparent);
-}
-
-.index-page .oui-update-progress {
-  grid-column: 1 / -1;
 }
 
 .index-page .index-update-lock {
@@ -127,14 +91,4 @@
 
 .index-page .ip-visible .ant-statistic-content-value {
   filter: none;
-}
-
-@media (max-width: 768px) {
-  .index-page .oui-card-body {
-    grid-template-columns: 1fr;
-  }
-
-  .index-page .oui-update-button {
-    width: 100%;
-  }
 }

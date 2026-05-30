@@ -229,6 +229,15 @@ export default function IndexPage() {
         ? `更新到 ${panelUpdateInfo.latestVersion || '最新版'}`
         : '检测更新';
 
+  const handlePanelUpdateAction = useCallback(() => {
+    if (checkingUpdate || updatingPanel) return;
+    if (panelUpdateInfo.updateAvailable) {
+      startPanelUpdate();
+    } else {
+      checkPanelUpdate();
+    }
+  }, [checkPanelUpdate, checkingUpdate, panelUpdateInfo.updateAvailable, startPanelUpdate, updatingPanel]);
+
   async function openConfig() {
     setLoading(true);
     try {
@@ -334,40 +343,21 @@ export default function IndexPage() {
                         </Space>
                       }
                       hoverable
-                    >
-                      <div className="oui-card-body">
-                        <div className="oui-card-copy">
-                          <div className="oui-card-version">
-                            当前版本 <Tag color="green">{displayVersion}</Tag>
-                          </div>
-                          {panelUpdateInfo.updateAvailable ? (
-                            <div className="oui-card-next">
-                              新版本 <Tag color="orange">{panelUpdateInfo.latestVersion}</Tag>
-                            </div>
-                          ) : (
-                            <div className="oui-card-next">点击按钮后才会联网检测新版本。</div>
-                          )}
-                        </div>
-                        <Button
-                          type={panelUpdateInfo.updateAvailable ? 'primary' : 'default'}
-                          className={panelUpdateInfo.updateAvailable ? 'oui-update-button has-update' : 'oui-update-button'}
-                          icon={panelUpdateInfo.updateAvailable ? <CloudDownloadOutlined /> : <SyncOutlined spin={checkingUpdate} />}
-                          loading={checkingUpdate}
-                          disabled={checkingUpdate || updatingPanel}
-                          onClick={panelUpdateInfo.updateAvailable ? startPanelUpdate : checkPanelUpdate}
+                      actions={[
+                        <Space
+                          key="panel-update"
+                          className={`action ${panelUpdateInfo.updateAvailable ? 'action-update' : ''}${checkingUpdate || updatingPanel ? ' action-disabled' : ''}`}
+                          onClick={handlePanelUpdateAction}
                         >
-                          {panelUpdateButtonLabel}
-                        </Button>
-                        {updatingPanel && (
-                          <Progress
-                            percent={Math.round(updateProgress)}
-                            showInfo={false}
-                            size="small"
-                            className="oui-update-progress"
-                          />
-                        )}
-                      </div>
-                    </Card>
+                          {panelUpdateInfo.updateAvailable ? (
+                            <CloudDownloadOutlined spin={updatingPanel} />
+                          ) : (
+                            <SyncOutlined spin={checkingUpdate} />
+                          )}
+                          {!isMobile && <span>{panelUpdateButtonLabel}</span>}
+                        </Space>,
+                      ]}
+                    />
                   </Col>
 
                   <Col xs={24} lg={12}>
