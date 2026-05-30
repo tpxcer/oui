@@ -63,6 +63,10 @@ function chipPreview(value?: string): string {
   return `${parts[0]} +${parts.length - 1}`;
 }
 
+function isGeneratedInboundTag(tag: string): boolean {
+  return /^inbound-\d+$/.test(tag);
+}
+
 export default function RoutingTab({
   templateSettings,
   setTemplateSettings,
@@ -133,11 +137,20 @@ export default function RoutingTab({
       seen.add(tag);
       out.push(tag);
     };
-    for (const ib of (templateSettings?.inbounds as Array<{ tag?: string }>) || []) push(ib?.tag);
     for (const tag of inboundTags || []) push(tag);
+    const validInboundTags = new Set(inboundTags || []);
+    for (const ib of (templateSettings?.inbounds as Array<{ tag?: string }>) || []) {
+      const tag = ib?.tag;
+      if (!tag) continue;
+      if (tag === 'api' || validInboundTags.has(tag) || !isGeneratedInboundTag(tag)) push(tag);
+    }
     for (const ob of templateSettings?.outbounds || []) {
       const obx = ob as { reverse?: { tag?: string }; settings?: { reverse?: { tag?: string }; inboundTag?: string } };
-      push(obx?.reverse?.tag || obx?.settings?.reverse?.tag || obx?.settings?.inboundTag);
+      push(obx?.reverse?.tag || obx?.settings?.reverse?.tag);
+      const loopbackInboundTag = obx?.settings?.inboundTag;
+      if (loopbackInboundTag && (validInboundTags.has(loopbackInboundTag) || !isGeneratedInboundTag(loopbackInboundTag))) {
+        push(loopbackInboundTag);
+      }
     }
     push((templateSettings?.dns as { tag?: string } | undefined)?.tag);
     for (const s of (templateSettings?.dns as { servers?: Array<{ tag?: string }> } | undefined)?.servers || []) {
@@ -268,14 +281,14 @@ export default function RoutingTab({
 
   function ruleCriteriaChips(rule: RuleRow) {
     const chips: { label: string; value?: string }[] = [];
-    if (rule.domain) chips.push({ label: 'Domain', value: rule.domain });
+    if (rule.domain) chips.push({ label: t('pages.xray.rules.domain'), value: rule.domain });
     if (rule.ip) chips.push({ label: 'IP', value: rule.ip });
-    if (rule.port) chips.push({ label: 'Port', value: rule.port });
-    if (rule.sourceIP) chips.push({ label: 'Src IP', value: rule.sourceIP });
-    if (rule.sourcePort) chips.push({ label: 'Src Port', value: rule.sourcePort });
+    if (rule.port) chips.push({ label: t('pages.xray.rules.port'), value: rule.port });
+    if (rule.sourceIP) chips.push({ label: t('pages.xray.rules.sourceIPs'), value: rule.sourceIP });
+    if (rule.sourcePort) chips.push({ label: t('pages.xray.rules.sourcePort'), value: rule.sourcePort });
     if (rule.network) chips.push({ label: 'L4', value: rule.network });
-    if (rule.protocol) chips.push({ label: 'Protocol', value: rule.protocol });
-    if (rule.user) chips.push({ label: 'User', value: rule.user });
+    if (rule.protocol) chips.push({ label: t('pages.xray.rules.protocol'), value: rule.protocol });
+    if (rule.user) chips.push({ label: t('pages.xray.rules.user'), value: rule.user });
     if (rule.vlessRoute) chips.push({ label: 'VLESS', value: rule.vlessRoute });
     return chips;
   }
@@ -291,7 +304,7 @@ export default function RoutingTab({
           <div className="action-cell">
             <HolderOutlined
               className="drag-handle"
-              title="Drag to reorder"
+              title={t('pages.xray.rules.drag')}
               onPointerDown={(ev: React.PointerEvent) => onHandlePointerDown(index, ev)}
             />
             <span className="row-index">{index + 1}</span>
@@ -324,15 +337,15 @@ export default function RoutingTab({
         ),
       },
       {
-        title: 'Source',
+        title: t('pages.xray.rules.source'),
         align: 'left',
         width: 180,
         key: 'source',
         render: (_v, record) => (
           <div className="criterion-flow">
-            {record.sourceIP && <CriterionRow label="IP" value={record.sourceIP} title={`Source IP: ${record.sourceIP}`} />}
-            {record.sourcePort && <CriterionRow label="Port" value={record.sourcePort} title={`Source port: ${record.sourcePort}`} />}
-            {record.vlessRoute && <CriterionRow label="VLESS" value={record.vlessRoute} title={`VLESS route: ${record.vlessRoute}`} />}
+            {record.sourceIP && <CriterionRow label="IP" value={record.sourceIP} title={`${t('pages.xray.rules.sourceIPs')}: ${record.sourceIP}`} />}
+            {record.sourcePort && <CriterionRow label={t('pages.xray.rules.port')} value={record.sourcePort} title={`${t('pages.xray.rules.sourcePort')}: ${record.sourcePort}`} />}
+            {record.vlessRoute && <CriterionRow label="VLESS" value={record.vlessRoute} title={`${t('pages.xray.rules.vlessRoute')}: ${record.vlessRoute}`} />}
             {!record.sourceIP && !record.sourcePort && !record.vlessRoute && <span className="criterion-empty">—</span>}
           </div>
         ),
@@ -345,21 +358,21 @@ export default function RoutingTab({
         render: (_v, record) => (
           <div className="criterion-flow">
             {record.network && <CriterionRow label="L4" value={record.network} title={`L4: ${record.network}`} />}
-            {record.protocol && <CriterionRow label="Protocol" value={record.protocol} title={`Protocol: ${record.protocol}`} />}
-            {record.attrs && <CriterionRow label="Attrs" value={record.attrs} title={`Attrs: ${record.attrs}`} />}
+            {record.protocol && <CriterionRow label={t('pages.xray.rules.protocol')} value={record.protocol} title={`${t('pages.xray.rules.protocol')}: ${record.protocol}`} />}
+            {record.attrs && <CriterionRow label={t('pages.xray.rules.attributes')} value={record.attrs} title={`${t('pages.xray.rules.attributes')}: ${record.attrs}`} />}
             {!record.network && !record.protocol && !record.attrs && <span className="criterion-empty">—</span>}
           </div>
         ),
       },
       {
-        title: 'Destination',
+        title: t('pages.xray.rules.dest'),
         align: 'left',
         key: 'destination',
         render: (_v, record) => (
           <div className="criterion-flow">
-            {record.ip && <CriterionRow label="IP" value={record.ip} title={`Destination IP: ${record.ip}`} />}
-            {record.domain && <CriterionRow label="Domain" value={record.domain} title={`Domain: ${record.domain}`} />}
-            {record.port && <CriterionRow label="Port" value={record.port} title={`Destination port: ${record.port}`} />}
+            {record.ip && <CriterionRow label="IP" value={record.ip} title={`${t('pages.xray.rules.ip')}: ${record.ip}`} />}
+            {record.domain && <CriterionRow label={t('pages.xray.rules.domain')} value={record.domain} title={`${t('pages.xray.rules.domain')}: ${record.domain}`} />}
+            {record.port && <CriterionRow label={t('pages.xray.rules.port')} value={record.port} title={`${t('pages.xray.rules.port')}: ${record.port}`} />}
             {!record.ip && !record.domain && !record.port && <span className="criterion-empty">—</span>}
           </div>
         ),
@@ -371,8 +384,8 @@ export default function RoutingTab({
         key: 'inbound',
         render: (_v, record) => (
           <div className="criterion-flow">
-            {record.inboundTag && <CriterionRow label="Tag" value={record.inboundTag} title={`Inbound tag: ${record.inboundTag}`} />}
-            {record.user && <CriterionRow label="User" value={record.user} title={`User: ${record.user}`} />}
+            {record.inboundTag && <CriterionRow label={t('pages.xray.rules.tag')} value={record.inboundTag} title={`${t('pages.xray.rules.inboundTags')}: ${record.inboundTag}`} />}
+            {record.user && <CriterionRow label={t('pages.xray.rules.user')} value={record.user} title={`${t('pages.xray.rules.user')}: ${record.user}`} />}
             {!record.inboundTag && !record.user && <span className="criterion-empty">—</span>}
           </div>
         ),
@@ -460,7 +473,7 @@ export default function RoutingTab({
                       {rule.inboundTag ? (
                         <Tag color="blue" className="flow-tag">{chipPreview(rule.inboundTag)}</Tag>
                       ) : (
-                        <span className="criterion-empty">any</span>
+                        <span className="criterion-empty">{t('pages.xray.rules.any')}</span>
                       )}
                     </div>
                     <span className="flow-arrow">→</span>

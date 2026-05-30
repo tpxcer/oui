@@ -71,6 +71,7 @@ interface OutboundFormModalProps {
   open: boolean;
   outbound: Record<string, unknown> | null;
   existingTags: string[];
+  inboundTags: string[];
   onClose: () => void;
   onConfirm: (outbound: Record<string, unknown>) => void;
 }
@@ -178,6 +179,7 @@ export default function OutboundFormModal({
   open,
   outbound: outboundProp,
   existingTags,
+  inboundTags,
   onClose,
   onConfirm,
 }: OutboundFormModalProps) {
@@ -572,8 +574,13 @@ export default function OutboundFormModal({
                     )}
 
                     {protocol === 'loopback' && (
-                      <Form.Item label="Inbound tag" name={['settings', 'inboundTag']}>
-                        <Input placeholder="inbound tag used in routing rules" />
+                      <Form.Item label={t('pages.xray.rules.inboundTags')} name={['settings', 'inboundTag']}>
+                        <Select
+                          allowClear
+                          showSearch
+                          placeholder={t('pages.xray.rules.inboundTags')}
+                          options={(inboundTags || []).map((tag) => ({ value: tag, label: tag }))}
+                        />
                       </Form.Item>
                     )}
 

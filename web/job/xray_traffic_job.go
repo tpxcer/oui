@@ -34,6 +34,7 @@ type onlineNotifySession struct {
 	up              int64
 	down            int64
 	idleNotified    bool
+	offlineSince    time.Time
 }
 
 type onlineNotifyInbound struct {
@@ -47,6 +48,7 @@ var (
 
 const (
 	onlineNotifyIdleGrace               = 15 * time.Minute
+	onlineNotifyOfflineConfirm          = 2 * time.Minute
 	onlineNotifyLowTrafficThresholdByte = 5 * 1024 * 1024
 )
 
@@ -235,6 +237,26 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 
 		if hasTrafficChange {
 			session.lastTotal = currentTotal
+		}
+		if !onlineSet[email] {
+			if hasTrafficChange {
+				session.offlineSince = time.Time{}
+			} else {
+				if session.offlineSince.IsZero() {
+					session.offlineSince = now
+					onlineNotifySessions[email] = session
+					continue
+				}
+				if now.Sub(session.offlineSince) >= onlineNotifyOfflineConfirm {
+					j.sendInboundOfflineNotify(email, session, st, now)
+					delete(onlineNotifySessions, email)
+					continue
+				}
+				onlineNotifySessions[email] = session
+				continue
+			}
+		} else {
+			session.offlineSince = time.Time{}
 		}
 		if session.idleWindowStart.IsZero() {
 			session.idleWindowStart = now

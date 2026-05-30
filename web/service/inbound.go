@@ -2236,7 +2236,11 @@ func (s *InboundService) disableRemoteClients(tx *gorm.DB, inboundID int, emails
 func (s *InboundService) GetInboundTags() (string, error) {
 	db := database.GetDB()
 	var inboundTags []string
-	err := db.Model(model.Inbound{}).Select("tag").Find(&inboundTags).Error
+	err := db.Model(model.Inbound{}).
+		Select("tag").
+		Where("node_id IS NULL AND tag <> ''").
+		Order("id ASC").
+		Find(&inboundTags).Error
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return "", err
 	}

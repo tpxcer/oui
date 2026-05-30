@@ -113,7 +113,7 @@ export default function OutboundsTab({
   outboundsTraffic,
   outboundTestStates,
   testingAll,
-  inboundTags: _inboundTags,
+  inboundTags,
   isMobile,
   onResetTraffic,
   onTest,
@@ -506,6 +506,7 @@ export default function OutboundsTab({
           open={modalOpen}
           outbound={editingOutbound}
           existingTags={existingTags}
+          inboundTags={inboundTags}
           onClose={() => setModalOpen(false)}
           onConfirm={onConfirm}
         />
