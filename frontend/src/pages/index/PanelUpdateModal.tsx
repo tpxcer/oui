@@ -24,16 +24,12 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
   const [modal, contextHolder] = Modal.useModal();
 
   function updatePanel() {
-    modal.confirm({
-      title: t('pages.index.panelUpdateDialog'),
-      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || ''),
-      okText: t('confirm'),
-      cancelText: t('cancel'),
-      onOk: async () => {
-        const baseTip = t('pages.index.dontRefresh');
-        const tip = info.latestVersion ? `${baseTip} (${info.latestVersion})` : baseTip;
-        onClose();
-        onBusy({ busy: true, tip });
+    const runUpdate = async () => {
+      const baseTip = t('pages.index.dontRefresh');
+      const tip = info.latestVersion ? `${baseTip} (${info.latestVersion})` : baseTip;
+      onClose();
+      onBusy({ busy: true, tip });
+      try {
         const result = await HttpUtil.post('/panel/api/server/updatePanel');
         if (!result?.success) {
           onBusy({ busy: false });
@@ -46,6 +42,17 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
         } else {
           onBusy({ busy: false });
         }
+      } catch {
+        onBusy({ busy: false });
+      }
+    };
+    modal.confirm({
+      title: t('pages.index.panelUpdateDialog'),
+      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || ''),
+      okText: t('confirm'),
+      cancelText: t('cancel'),
+      onOk: () => {
+        void runUpdate();
       },
     });
   }

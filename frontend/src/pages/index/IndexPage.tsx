@@ -151,14 +151,10 @@ export default function IndexPage() {
       await checkPanelUpdate();
       return;
     }
-    modal.confirm({
-      title: t('pages.index.panelUpdateDialog'),
-      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '最新版'),
-      okText: t('confirm'),
-      cancelText: t('cancel'),
-      onOk: async () => {
-        setUpdatingPanel(true);
-        setUpdateProgress(8);
+    const runUpdate = async () => {
+      setUpdatingPanel(true);
+      setUpdateProgress(8);
+      try {
         const result = await HttpUtil.post('/panel/api/server/updatePanel', undefined, { silent: true });
         if (!result?.success) {
           messageApi.error(result?.msg || '启动后台更新失败');
@@ -174,7 +170,19 @@ export default function IndexPage() {
           return;
         }
         messageApi.info('后台更新仍在执行，请稍后手动刷新页面');
+      } catch (error) {
+        messageApi.error(error instanceof Error ? error.message : '启动后台更新失败');
+      } finally {
         setUpdatingPanel(false);
+      }
+    };
+    modal.confirm({
+      title: t('pages.index.panelUpdateDialog'),
+      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '最新版'),
+      okText: t('confirm'),
+      cancelText: t('cancel'),
+      onOk: () => {
+        void runUpdate();
       },
     });
   }, [checkPanelUpdate, messageApi, modal, panelUpdateInfo, t]);
