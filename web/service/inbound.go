@@ -1295,12 +1295,11 @@ func (s *InboundService) CopyInboundClients(targetInboundID int, sourceInboundID
 
 const resetGracePeriodMs int64 = 30000
 
-// onlineGracePeriodMs must comfortably exceed the 5s traffic-poll interval —
-// Xray's stats counters often report a zero delta for an active session across
-// a single poll, so a 5s grace would still drop the client on the next tick.
-// ~4 polls of slack keeps idle-but-connected clients visible without lingering
-// long after a real disconnect.
-const onlineGracePeriodMs int64 = 20000
+// onlineGracePeriodMs is the shared online/offline confirmation window used by
+// the page and Telegram notifications. Keeping this at two minutes means a
+// client only disappears after it has had no observed Xray stats for the full
+// confirmation period, and the UI/TG state flips together.
+const onlineGracePeriodMs int64 = int64(2 * time.Minute / time.Millisecond)
 
 func (s *InboundService) SetRemoteTraffic(nodeID int, snap *runtime.TrafficSnapshot) (bool, error) {
 	var structuralChange bool

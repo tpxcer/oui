@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Drawer, Layout, Menu, message } from 'antd';
+import { Drawer, Layout, Menu } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   ApiOutlined,
-  CloudDownloadOutlined,
   ClusterOutlined,
   CloseOutlined,
   DashboardOutlined,
@@ -18,22 +17,12 @@ import {
   MoonOutlined,
   SettingOutlined,
   SunOutlined,
-  SyncOutlined,
   TeamOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 
-import { HttpUtil, PromiseUtil } from '@/utils';
+import { HttpUtil } from '@/utils';
 import { pauseAnimationsUntilLeave, useTheme } from '@/hooks/useTheme';
-import type { PanelUpdateInfo } from '@/lib/panelUpdate';
-import {
-  clearPanelUpdateTarget,
-  fetchFreshPanelShellVersion,
-  getLivePanelStatus,
-  getPanelUpdateInfoNoCache,
-  reloadPanelPage,
-  waitForUpdatedPanel,
-} from '@/lib/panelUpdate';
 import './AppSidebar.css';
 
 const SIDEBAR_COLLAPSED_KEY = 'isSidebarCollapsed';
@@ -79,47 +68,6 @@ function VersionBadge({ version, collapsed }: { version: string; collapsed?: boo
   );
 }
 
-function SidebarUpdateButton({
-  collapsed,
-  info,
-  checking,
-  updating,
-  progress,
-  onCheck,
-  onUpdate,
-}: {
-  collapsed?: boolean;
-  info: PanelUpdateInfo | null;
-  checking: boolean;
-  updating: boolean;
-  progress: number;
-  onCheck: () => void;
-  onUpdate: () => void;
-}) {
-  const updateAvailable = !!info?.updateAvailable;
-  const nextVersion = info?.latestVersion || '';
-  const title = updateAvailable && nextVersion ? `更新到 ${nextVersion}` : updateAvailable ? '更新到最新版' : '检测更新';
-  const label = updating ? `更新 ${Math.round(progress)}%` : checking ? '检测中' : updateAvailable && nextVersion ? `更新到 ${nextVersion}` : updateAvailable ? '更新到最新版' : '检测更新';
-  const Icon = updateAvailable ? CloudDownloadOutlined : SyncOutlined;
-  const safeProgress = Math.max(0, Math.min(100, progress));
-  return (
-    <button
-      type="button"
-      className={`sidebar-update${collapsed ? ' is-collapsed' : ''}${updateAvailable ? ' has-update' : ''}${updating ? ' is-updating' : ''}`}
-      title={title}
-      aria-label={title}
-      disabled={checking || updating}
-      onClick={updateAvailable ? onUpdate : onCheck}
-    >
-      {updating && <span className="sidebar-update-progress" style={{ width: `${safeProgress}%` }} />}
-      <span className="sidebar-update-content">
-        <Icon spin={checking || updating} />
-        {!collapsed && <span>{label}</span>}
-      </span>
-    </button>
-  );
-}
-
 function ThemeCycleButton({ id, isDark, isUltra, onCycle, ariaLabel }: {
   id: string;
   isDark: boolean;
@@ -150,103 +98,9 @@ export default function AppSidebar() {
 
   const [collapsed, setCollapsed] = useState<boolean>(() => readCollapsed());
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<PanelUpdateInfo | null>(null);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updatingPanel, setUpdatingPanel] = useState(false);
-  const [updateProgress, setUpdateProgress] = useState(0);
-  const [livePanelVersion, setLivePanelVersion] = useState(window.X_UI_CUR_VER || '');
 
   const currentTheme: 'light' | 'dark' = isDark ? 'dark' : 'light';
-  const panelVersion = updateInfo?.currentVersion || livePanelVersion || window.X_UI_CUR_VER || '';
-
-  const updatePanel = useCallback(async (info?: PanelUpdateInfo | null) => {
-    if (info) setUpdateInfo(info);
-    setUpdatingPanel(true);
-    setUpdateProgress(8);
-    try {
-      const result = await HttpUtil.post('/panel/api/server/updatePanel');
-      if (result?.success) {
-        message.success(info?.latestVersion ? `已开始后台更新到 ${info.latestVersion}` : '已开始后台更新');
-        const updated = info?.latestVersion ? await waitForUpdatedPanel(info.latestVersion) : false;
-        setUpdateProgress(100);
-        if (updated) {
-          await PromiseUtil.sleep(800);
-          reloadPanelPage(info?.latestVersion);
-          return;
-        }
-        message.info('后台更新仍在执行，请稍后手动刷新页面');
-        setUpdatingPanel(false);
-      } else {
-        message.error(result?.msg || '启动后台更新失败');
-        setUpdatingPanel(false);
-      }
-    } catch (error) {
-      message.error(error instanceof Error ? error.message : '启动后台更新失败');
-      setUpdatingPanel(false);
-    }
-  }, []);
-
-  const checkPanelUpdate = useCallback(async () => {
-    setCheckingUpdate(true);
-    try {
-      const msg = await getPanelUpdateInfoNoCache();
-      if (msg?.success && msg.obj) {
-        setUpdateInfo(msg.obj);
-        setLivePanelVersion(msg.obj.currentVersion || window.X_UI_CUR_VER || '');
-        if (msg.obj.updateAvailable) {
-          message.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}，点击按钮更新` : '发现新版本，点击按钮更新');
-        } else {
-          message.success('当前已是最新版');
-        }
-      } else {
-        message.error(msg?.msg || '版本检测失败，请检查服务器是否可以访问 GitHub');
-      }
-    } finally {
-      setCheckingUpdate(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!updatingPanel) return undefined;
-    const timer = window.setInterval(() => {
-      setUpdateProgress((value) => {
-        if (value >= 95) return value;
-        return Math.min(95, value + Math.max(1, Math.round((95 - value) * 0.12)));
-      });
-    }, 700);
-    return () => window.clearInterval(timer);
-  }, [updatingPanel]);
-
-  useEffect(() => {
-    if (!updatingPanel) {
-      setUpdateProgress(0);
-    }
-  }, [updatingPanel]);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const target = new URLSearchParams(window.location.search).get('_ouiTarget');
-      if (!target) return;
-
-      const status = await getLivePanelStatus(3000);
-      if (cancelled) return;
-      if (status?.success && status.obj?.panelVersion) {
-        setLivePanelVersion(status.obj.panelVersion);
-        if (status.obj.panelVersion === target) {
-          clearPanelUpdateTarget();
-          return;
-        }
-      }
-
-      const shellVersion = await fetchFreshPanelShellVersion();
-      if (!cancelled && shellVersion === target) {
-        clearPanelUpdateTarget();
-        reloadPanelPage(target);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const panelVersion = window.X_UI_CUR_VER || '';
 
   const tabs = useMemo<{ key: string; icon: IconName; title: string }[]>(() => [
     { key: '/', icon: 'dashboard', title: t('menu.dashboard') },
@@ -343,15 +197,6 @@ export default function AppSidebar() {
         />
         <div className="sider-footer">
           <VersionBadge version={panelVersion} collapsed={collapsed} />
-          <SidebarUpdateButton
-            collapsed={collapsed}
-            info={updateInfo}
-            checking={checkingUpdate}
-            updating={updatingPanel}
-            progress={updateProgress}
-            onCheck={checkPanelUpdate}
-            onUpdate={updatePanel}
-          />
         </div>
         <Menu
           theme={currentTheme}
@@ -408,14 +253,6 @@ export default function AppSidebar() {
         />
         <div className="drawer-footer">
           <VersionBadge version={panelVersion} />
-          <SidebarUpdateButton
-            info={updateInfo}
-            checking={checkingUpdate}
-            updating={updatingPanel}
-            progress={updateProgress}
-            onCheck={checkPanelUpdate}
-            onUpdate={updatePanel}
-          />
         </div>
         <Menu
           theme={currentTheme}
@@ -438,18 +275,6 @@ export default function AppSidebar() {
         </button>
       )}
 
-      {updatingPanel && (
-        <div className="panel-update-lock" role="status" aria-live="polite">
-          <div className="panel-update-lock-card">
-            <CloudDownloadOutlined spin />
-            <strong>{updateInfo?.latestVersion ? `正在更新到 ${updateInfo.latestVersion}` : '正在更新到最新版本'}</strong>
-            <div className="panel-update-lock-bar">
-              <span style={{ width: `${Math.max(0, Math.min(100, updateProgress))}%` }} />
-            </div>
-            <small>{Math.round(updateProgress)}%</small>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

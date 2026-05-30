@@ -8,6 +8,7 @@ import {
   Layout,
   message,
   Modal,
+  Progress,
   Row,
   Space,
   Spin,
@@ -33,9 +34,10 @@ import {
   DatabaseOutlined,
   ForkOutlined,
   CopyOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 
-import { HttpUtil, SizeFormatter, TimeFormatter, ClipboardManager, FileManager } from '@/utils';
+import { HttpUtil, SizeFormatter, TimeFormatter, ClipboardManager, FileManager, PromiseUtil } from '@/utils';
 import { useTheme } from '@/hooks/useTheme';
 import { useStatusQuery } from '@/api/queries/useStatusQuery';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -43,11 +45,17 @@ import AppSidebar from '@/components/AppSidebar';
 import LazyMount from '@/components/LazyMount';
 import { setMessageInstance } from '@/utils/messageBus';
 import type { PanelUpdateInfo } from '@/lib/panelUpdate';
-import { getPanelUpdateInfoNoCache } from '@/lib/panelUpdate';
+import {
+  clearPanelUpdateTarget,
+  fetchFreshPanelShellVersion,
+  getLivePanelStatus,
+  getPanelUpdateInfoNoCache,
+  reloadPanelPage,
+  waitForUpdatedPanel,
+} from '@/lib/panelUpdate';
 import StatusCard from './StatusCard';
 import XrayStatusCard from './XrayStatusCard';
 const JsonEditor = lazy(() => import('@/components/JsonEditor'));
-const PanelUpdateModal = lazy(() => import('./PanelUpdateModal'));
 const LogModal = lazy(() => import('./LogModal'));
 const BackupModal = lazy(() => import('./BackupModal'));
 const SystemHistoryModal = lazy(() => import('./SystemHistoryModal'));
@@ -62,6 +70,7 @@ export default function IndexPage() {
   const { status, fetched, refresh } = useStatusQuery();
   const { isMobile } = useMediaQuery();
   const [messageApi, messageContextHolder] = message.useMessage();
+  const [modal, modalContextHolder] = Modal.useModal();
   useEffect(() => { setMessageInstance(messageApi); }, [messageApi]);
 
   const [ipLimitEnable, setIpLimitEnable] = useState(false);
@@ -76,7 +85,6 @@ export default function IndexPage() {
   const [showIp, setShowIp] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
-  const [panelUpdateOpen, setPanelUpdateOpen] = useState(false);
   const [sysHistoryOpen, setSysHistoryOpen] = useState(false);
   const [xrayMetricsOpen, setXrayMetricsOpen] = useState(false);
   const [xrayLogsOpen, setXrayLogsOpen] = useState(false);
@@ -85,13 +93,13 @@ export default function IndexPage() {
   const [configText, setConfigText] = useState('');
   const [loading, setLoading] = useState(false);
   const [loadingTip, setLoadingTip] = useState(t('loading'));
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updatingPanel, setUpdatingPanel] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
 
   useEffect(() => {
     HttpUtil.post<{ ipLimitEnable?: boolean }>('/panel/setting/defaultSettings').then((msg) => {
       if (msg?.success && msg.obj) setIpLimitEnable(!!msg.obj.ipLimitEnable);
-    });
-    getPanelUpdateInfoNoCache().then((msg) => {
-      if (msg?.success && msg.obj) setPanelUpdateInfo(msg.obj);
     });
   }, []);
 
@@ -118,13 +126,108 @@ export default function IndexPage() {
     await refresh();
   }, [refresh]);
 
-  function openPanelVersion() {
-    if (panelUpdateInfo.updateAvailable) {
-      setPanelUpdateOpen(true);
-    } else {
-      window.open('https://github.com/tpxcer/oui/releases', '_blank', 'noopener,noreferrer');
+  const checkPanelUpdate = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      const msg = await getPanelUpdateInfoNoCache();
+      if (msg?.success && msg.obj) {
+        setPanelUpdateInfo(msg.obj);
+        if (msg.obj.updateAvailable) {
+          messageApi.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
+        } else {
+          messageApi.success('当前已是最新版');
+        }
+      } else {
+        messageApi.error(msg?.msg || '版本检测失败，请检查服务器是否可以访问 GitHub');
+      }
+    } finally {
+      setCheckingUpdate(false);
     }
-  }
+  }, [messageApi]);
+
+  const startPanelUpdate = useCallback(async () => {
+    const info = panelUpdateInfo;
+    if (!info.updateAvailable) {
+      await checkPanelUpdate();
+      return;
+    }
+    modal.confirm({
+      title: t('pages.index.panelUpdateDialog'),
+      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '最新版'),
+      okText: t('confirm'),
+      cancelText: t('cancel'),
+      onOk: async () => {
+        setUpdatingPanel(true);
+        setUpdateProgress(8);
+        const result = await HttpUtil.post('/panel/api/server/updatePanel', undefined, { silent: true });
+        if (!result?.success) {
+          messageApi.error(result?.msg || '启动后台更新失败');
+          setUpdatingPanel(false);
+          return;
+        }
+        messageApi.success(info.latestVersion ? `已开始后台更新到 ${info.latestVersion}` : '已开始后台更新');
+        const updated = info.latestVersion ? await waitForUpdatedPanel(info.latestVersion) : false;
+        setUpdateProgress(100);
+        if (updated) {
+          await PromiseUtil.sleep(800);
+          reloadPanelPage(info.latestVersion);
+          return;
+        }
+        messageApi.info('后台更新仍在执行，请稍后手动刷新页面');
+        setUpdatingPanel(false);
+      },
+    });
+  }, [checkPanelUpdate, messageApi, modal, panelUpdateInfo, t]);
+
+  useEffect(() => {
+    if (!updatingPanel) {
+      setUpdateProgress(0);
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      setUpdateProgress((value) => {
+        if (value >= 95) return value;
+        return Math.min(95, value + Math.max(1, Math.round((95 - value) * 0.12)));
+      });
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [updatingPanel]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const target = new URLSearchParams(window.location.search).get('_ouiTarget');
+      if (!target) return;
+
+      const statusMsg = await getLivePanelStatus(3000);
+      if (cancelled) return;
+      if (statusMsg?.success && statusMsg.obj?.panelVersion === target) {
+        clearPanelUpdateTarget();
+        setPanelUpdateInfo((prev) => ({
+          ...prev,
+          currentVersion: target,
+          latestVersion: target,
+          updateAvailable: false,
+        }));
+        return;
+      }
+
+      const shellVersion = await fetchFreshPanelShellVersion();
+      if (!cancelled && shellVersion === target) {
+        clearPanelUpdateTarget();
+        reloadPanelPage(target);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const panelUpdateButtonLabel = updatingPanel
+    ? `更新中 ${Math.round(updateProgress)}%`
+    : checkingUpdate
+      ? '检测中'
+      : panelUpdateInfo.updateAvailable
+        ? `更新到 ${panelUpdateInfo.latestVersion || '最新版'}`
+        : '检测更新';
 
   async function openConfig() {
     setLoading(true);
@@ -152,11 +255,22 @@ export default function IndexPage() {
   return (
     <ConfigProvider theme={antdThemeConfig}>
       {messageContextHolder}
+      {modalContextHolder}
       <Layout className={pageClass}>
         <AppSidebar />
 
         <Layout className="content-shell">
           <Layout.Content className="content-area">
+            {updatingPanel && (
+              <div className="index-update-lock" role="status" aria-live="polite">
+                <div className="index-update-lock-card">
+                  <CloudDownloadOutlined spin />
+                  <strong>{panelUpdateInfo.latestVersion ? `正在更新到 ${panelUpdateInfo.latestVersion}` : '正在更新到最新版本'}</strong>
+                  <Progress percent={Math.round(updateProgress)} showInfo={false} />
+                  <small>{Math.round(updateProgress)}%</small>
+                </div>
+              </div>
+            )}
             <Spin
               spinning={loading || !fetched}
               delay={200}
@@ -220,23 +334,40 @@ export default function IndexPage() {
                         </Space>
                       }
                       hoverable
-                      actions={[
-                        <Space
-                          key="panel-version"
-                          className={`action ${panelUpdateInfo.updateAvailable ? 'action-update' : ''}`}
-                          onClick={openPanelVersion}
-                        >
-                          <CloudDownloadOutlined />
-                          {!isMobile && (
-                            <span>
-                              {panelUpdateInfo.updateAvailable
-                                ? `${t('update')} ${panelUpdateInfo.latestVersion}`
-                                : displayVersion}
-                            </span>
+                    >
+                      <div className="oui-card-body">
+                        <div className="oui-card-copy">
+                          <div className="oui-card-version">
+                            当前版本 <Tag color="green">{displayVersion}</Tag>
+                          </div>
+                          {panelUpdateInfo.updateAvailable ? (
+                            <div className="oui-card-next">
+                              新版本 <Tag color="orange">{panelUpdateInfo.latestVersion}</Tag>
+                            </div>
+                          ) : (
+                            <div className="oui-card-next">点击按钮后才会联网检测新版本。</div>
                           )}
-                        </Space>,
-                      ]}
-                    />
+                        </div>
+                        <Button
+                          type={panelUpdateInfo.updateAvailable ? 'primary' : 'default'}
+                          className={panelUpdateInfo.updateAvailable ? 'oui-update-button has-update' : 'oui-update-button'}
+                          icon={panelUpdateInfo.updateAvailable ? <CloudDownloadOutlined /> : <SyncOutlined spin={checkingUpdate} />}
+                          loading={checkingUpdate}
+                          disabled={checkingUpdate || updatingPanel}
+                          onClick={panelUpdateInfo.updateAvailable ? startPanelUpdate : checkPanelUpdate}
+                        >
+                          {panelUpdateButtonLabel}
+                        </Button>
+                        {updatingPanel && (
+                          <Progress
+                            percent={Math.round(updateProgress)}
+                            showInfo={false}
+                            size="small"
+                            className="oui-update-progress"
+                          />
+                        )}
+                      </div>
+                    </Card>
                   </Col>
 
                   <Col xs={24} lg={12}>
@@ -418,14 +549,6 @@ export default function IndexPage() {
           </Layout.Content>
         </Layout>
 
-        <LazyMount when={panelUpdateOpen}>
-          <PanelUpdateModal
-            open={panelUpdateOpen}
-            info={panelUpdateInfo}
-            onClose={() => setPanelUpdateOpen(false)}
-            onBusy={setBusy}
-          />
-        </LazyMount>
         <LazyMount when={logsOpen}>
           <LogModal open={logsOpen} onClose={() => setLogsOpen(false)} />
         </LazyMount>
