@@ -641,7 +641,7 @@
       "telegramChatId": "管理员聊天 ID",
       "telegramChatIdDesc": "Telegram 管理员聊天 ID (多个以逗号分隔)（可通过 {'@'}userinfobot 获取，或在机器人中使用 '/id' 命令获取）",
       "telegramNotifyTime": "通知时间",
-      "telegramNotifyTimeDesc": "设置周期性的 Telegram 机器人通知时间（使用 crontab 时间格式）",
+      "telegramNotifyTimeDesc": "设置周期性的 Telegram 机器人通知时间",
       "tgNotifyBackup": "数据库备份",
       "tgNotifyBackupDesc": "发送带有报告的数据库备份文件",
       "tgNotifyLogin": "登录通知",

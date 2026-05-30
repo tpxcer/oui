@@ -10,6 +10,13 @@ interface TelegramTabProps {
   updateSetting: (patch: Partial<AllSetting>) => void;
 }
 
+const telegramNotifyTimeOptions = [
+  { value: '@daily', label: '一天' },
+  { value: '@weekly', label: '一周' },
+  { value: '@every 360h', label: '15天' },
+  { value: '@monthly', label: '一月' },
+];
+
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {
   const { t } = useTranslation();
   const [tgBotTokenDraft, setTgBotTokenDraft] = useState('');
@@ -92,7 +99,12 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
         children: (
           <>
             <SettingListItem paddings="small" title={t('pages.settings.telegramNotifyTime')} description={t('pages.settings.telegramNotifyTimeDesc')}>
-              <Input value={allSetting.tgRunTime} onChange={(e) => updateSetting({ tgRunTime: e.target.value })} />
+              <Select
+                value={allSetting.tgRunTime || '@daily'}
+                onChange={(v) => updateSetting({ tgRunTime: v })}
+                style={{ width: '100%' }}
+                options={telegramNotifyTimeOptions}
+              />
             </SettingListItem>
             <SettingListItem paddings="small" title={t('pages.settings.tgNotifyBackup')} description={t('pages.settings.tgNotifyBackupDesc')}>
               <Switch checked={allSetting.tgBotBackup} onChange={(v) => updateSetting({ tgBotBackup: v })} />
