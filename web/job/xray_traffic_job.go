@@ -1,12 +1,20 @@
 package job
 
 import (
+	"bufio"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html"
+	"net"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/database"
+	"github.com/mhsanaei/3x-ui/v3/database/model"
 	"github.com/mhsanaei/3x-ui/v3/logger"
 	"github.com/mhsanaei/3x-ui/v3/util/common"
 	"github.com/mhsanaei/3x-ui/v3/web/service"
@@ -26,21 +34,25 @@ type XrayTrafficJob struct {
 }
 
 type onlineNotifySession struct {
-	remark    string
-	start     time.Time
-	lastTotal int64
-	up        int64
-	down      int64
+	remark       string
+	start        time.Time
+	lastTotal    int64
+	up           int64
+	down         int64
+	missingSince time.Time
 }
 
 type onlineNotifyInbound struct {
 	remark string
+	ports  []int
 }
 
 var (
 	onlineNotifyMu       sync.Mutex
 	onlineNotifySessions = map[string]onlineNotifySession{}
 )
+
+const onlineNotifyOfflineConfirm = 5 * time.Minute
 
 // NewXrayTrafficJob creates a new traffic collection job instance.
 func NewXrayTrafficJob() *XrayTrafficJob {
@@ -159,7 +171,12 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 			if client.Email == "" || !client.Enable {
 				continue
 			}
-			trackable[client.Email] = onlineNotifyInbound{remark: inbound.Remark}
+			meta := trackable[client.Email]
+			meta.remark = inbound.Remark
+			if inbound.Port > 0 {
+				meta.ports = append(meta.ports, inbound.Port)
+			}
+			trackable[client.Email] = meta
 		}
 	}
 
@@ -177,6 +194,13 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 	for _, email := range onlineClients {
 		onlineSet[email] = true
 	}
+	if tcpConnected, err := activeTCPClientEmails(trackable); err == nil {
+		for email := range tcpConnected {
+			onlineSet[email] = true
+		}
+	} else {
+		logger.Debug("tg online notify tcp connection check failed:", err)
+	}
 
 	onlineNotifyMu.Lock()
 	defer onlineNotifyMu.Unlock()
@@ -185,7 +209,10 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 		if !onlineSet[email] {
 			continue
 		}
-		if _, exists := onlineNotifySessions[email]; exists {
+		if session, exists := onlineNotifySessions[email]; exists {
+			session.remark = meta.remark
+			session.missingSince = time.Time{}
+			onlineNotifySessions[email] = session
 			continue
 		}
 		st := trafficByEmail[email]
@@ -210,8 +237,6 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 
 	for email, session := range onlineNotifySessions {
 		if _, ok := trackable[email]; !ok {
-			st := trafficByEmail[email]
-			j.sendInboundOfflineNotify(email, session, st, now)
 			delete(onlineNotifySessions, email)
 			continue
 		}
@@ -227,12 +252,174 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 			session.lastTotal = currentTotal
 		}
 		if !onlineSet[email] {
-			j.sendInboundOfflineNotify(email, session, st, now)
-			delete(onlineNotifySessions, email)
+			if session.missingSince.IsZero() {
+				session.missingSince = now
+				onlineNotifySessions[email] = session
+				continue
+			}
+			if now.Sub(session.missingSince) >= onlineNotifyOfflineConfirm {
+				j.sendInboundOfflineNotify(email, session, st, now)
+				delete(onlineNotifySessions, email)
+				continue
+			}
+			onlineNotifySessions[email] = session
 			continue
 		}
+		session.missingSince = time.Time{}
 		onlineNotifySessions[email] = session
 	}
+}
+
+func activeTCPClientEmails(trackable map[string]onlineNotifyInbound) (map[string]bool, error) {
+	if len(trackable) == 0 {
+		return map[string]bool{}, nil
+	}
+	ports := map[int]struct{}{}
+	for _, meta := range trackable {
+		for _, port := range meta.ports {
+			if port > 0 {
+				ports[port] = struct{}{}
+			}
+		}
+	}
+	if len(ports) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	activeByPort, err := activeTCPRemoteIPsByLocalPort(ports)
+	if err != nil {
+		return nil, err
+	}
+	if len(activeByPort) == 0 {
+		return map[string]bool{}, nil
+	}
+
+	var rows []model.InboundClientIps
+	if err := database.GetDB().Find(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	result := map[string]bool{}
+	for _, row := range rows {
+		meta, ok := trackable[row.ClientEmail]
+		if !ok || row.Ips == "" {
+			continue
+		}
+		var ips []IPWithTimestamp
+		if err := json.Unmarshal([]byte(row.Ips), &ips); err != nil {
+			continue
+		}
+		for _, item := range ips {
+			ip := normalizeIP(item.IP)
+			if ip == "" {
+				continue
+			}
+			for _, port := range meta.ports {
+				if activeByPort[port][ip] {
+					result[row.ClientEmail] = true
+					break
+				}
+			}
+			if result[row.ClientEmail] {
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func activeTCPRemoteIPsByLocalPort(ports map[int]struct{}) (map[int]map[string]bool, error) {
+	result := map[int]map[string]bool{}
+	for _, path := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		if err := readActiveTCPFile(path, ports, result); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func readActiveTCPFile(path string, ports map[int]struct{}, result map[int]map[string]bool) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 4 || fields[0] == "sl" {
+			continue
+		}
+		if fields[3] != "01" {
+			continue
+		}
+		localPort, ok := parseProcTCPPort(fields[1])
+		if !ok {
+			continue
+		}
+		if _, watched := ports[localPort]; !watched {
+			continue
+		}
+		remoteIP := parseProcTCPIP(fields[2])
+		if remoteIP == "" {
+			continue
+		}
+		if result[localPort] == nil {
+			result[localPort] = map[string]bool{}
+		}
+		result[localPort][remoteIP] = true
+	}
+	return sc.Err()
+}
+
+func parseProcTCPPort(addr string) (int, bool) {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return 0, false
+	}
+	port64, err := strconv.ParseInt(parts[1], 16, 32)
+	if err != nil {
+		return 0, false
+	}
+	return int(port64), true
+}
+
+func parseProcTCPIP(addr string) string {
+	parts := strings.Split(addr, ":")
+	if len(parts) != 2 {
+		return ""
+	}
+	raw, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return ""
+	}
+	switch len(raw) {
+	case net.IPv4len:
+		return net.IPv4(raw[3], raw[2], raw[1], raw[0]).String()
+	case net.IPv6len:
+		ip := make(net.IP, net.IPv6len)
+		for i := 0; i < net.IPv6len; i += 4 {
+			ip[i] = raw[i+3]
+			ip[i+1] = raw[i+2]
+			ip[i+2] = raw[i+1]
+			ip[i+3] = raw[i]
+		}
+		return ip.String()
+	default:
+		return ""
+	}
+}
+
+func normalizeIP(value string) string {
+	ip := net.ParseIP(strings.Trim(value, "[]"))
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }
 
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
