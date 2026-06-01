@@ -825,7 +825,9 @@ func (t *Tgbot) OnReceive() {
 							userID := sharedUser.UserID
 							needRestart, err := t.clientService.SetClientTelegramUserID(&t.inboundService, message.UsersShared.RequestID, userID)
 							if needRestart {
-								t.xrayService.SetToNeedRestart()
+								if syncErr := t.xrayService.ApplyConfigChange("tgbot set telegram user id"); syncErr != nil {
+									err = syncErr
+								}
 							}
 							output := ""
 							if err != nil {
@@ -1663,7 +1665,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 						}
 						needRestart, err := t.clientService.ResetClientTrafficLimitByEmail(&t.inboundService, email, limitTraffic)
 						if needRestart {
-							t.xrayService.SetToNeedRestart()
+							if syncErr := t.xrayService.ApplyConfigChange("tgbot reset client traffic limit"); syncErr != nil {
+								err = syncErr
+							}
 						}
 						if err == nil {
 							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.setTrafficLimitSuccess", "Email=="+email))
@@ -1863,7 +1867,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 						}
 						needRestart, err := t.clientService.ResetClientExpiryTimeByEmail(&t.inboundService, email, date)
 						if needRestart {
-							t.xrayService.SetToNeedRestart()
+							if syncErr := t.xrayService.ApplyConfigChange("tgbot reset client expiry"); syncErr != nil {
+								err = syncErr
+							}
 						}
 						if err == nil {
 							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.expireResetSuccess", "Email=="+email))
@@ -2055,7 +2061,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 						}
 						needRestart, err := t.clientService.ResetClientIpLimitByEmail(&t.inboundService, email, count)
 						if needRestart {
-							t.xrayService.SetToNeedRestart()
+							if syncErr := t.xrayService.ApplyConfigChange("tgbot reset client ip limit"); syncErr != nil {
+								err = syncErr
+							}
 						}
 						if err == nil {
 							t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.resetIpSuccess", "Email=="+email, "Count=="+strconv.Itoa(count)))
@@ -2245,7 +2253,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				}
 				needRestart, err := t.clientService.SetClientTelegramUserID(&t.inboundService, traffic.Id, EmptyTelegramUserID)
 				if needRestart {
-					t.xrayService.SetToNeedRestart()
+					if syncErr := t.xrayService.ApplyConfigChange("tgbot remove telegram user id"); syncErr != nil {
+						err = syncErr
+					}
 				}
 				if err == nil {
 					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.removedTGUserSuccess", "Email=="+email))
@@ -2270,7 +2280,9 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 				}
 				enabled, needRestart, err := t.clientService.ToggleClientEnableByEmail(&t.inboundService, email)
 				if needRestart {
-					t.xrayService.SetToNeedRestart()
+					if syncErr := t.xrayService.ApplyConfigChange("tgbot toggle client enable"); syncErr != nil {
+						err = syncErr
+					}
 				}
 				if err == nil {
 					if enabled {

@@ -108,15 +108,15 @@ func (a *ClientController) create(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	needRestart, err := a.clientService.Create(&a.inboundService, &payload)
+	_, err := a.clientService.Create(&a.inboundService, &payload)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientAddSuccess"), nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client add email=%s", payload.Client.Email)) {
+		return
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientAddSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -127,30 +127,30 @@ func (a *ClientController) update(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	needRestart, err := a.clientService.UpdateByEmail(&a.inboundService, email, updated)
+	_, err := a.clientService.UpdateByEmail(&a.inboundService, email, updated)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client update email=%s", email)) {
+		return
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
 	notifyClientsChanged()
 }
 
 func (a *ClientController) delete(c *gin.Context) {
 	email := c.Param("email")
 	keepTraffic := c.Query("keepTraffic") == "1"
-	needRestart, err := a.clientService.DeleteByEmail(&a.inboundService, email, keepTraffic)
+	_, err := a.clientService.DeleteByEmail(&a.inboundService, email, keepTraffic)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client delete email=%s", email)) {
+		return
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -165,15 +165,15 @@ func (a *ClientController) attach(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	needRestart, err := a.clientService.AttachByEmail(&a.inboundService, email, body.InboundIds)
+	_, err := a.clientService.AttachByEmail(&a.inboundService, email, body.InboundIds)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientAddSuccess"), nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client attach email=%s", email)) {
+		return
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientAddSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -183,10 +183,12 @@ func (a *ClientController) resetAllTraffics(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetAllClientTrafficSuccess"), nil)
 	if needRestart {
-		a.xrayService.SetToNeedRestart()
+		if !syncXrayAfterMutation(c, &a.xrayService, "client resetAllTraffics") {
+			return
+		}
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetAllClientTrafficSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -207,10 +209,12 @@ func (a *ClientController) bulkAdjust(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonObj(c, result, nil)
 	if needRestart {
-		a.xrayService.SetToNeedRestart()
+		if !syncXrayAfterMutation(c, &a.xrayService, "client bulkAdjust") {
+			return
+		}
 	}
+	jsonObj(c, result, nil)
 	notifyClientsChanged()
 }
 
@@ -235,8 +239,10 @@ func (a *ClientController) bulkAssignGroup(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	if !syncXrayAfterMutation(c, &a.xrayService, "client bulkAssignGroup") {
+		return
+	}
 	jsonObj(c, gin.H{"affected": affected}, nil)
-	a.xrayService.SetToNeedRestart()
 	notifyClientsChanged()
 }
 
@@ -251,15 +257,15 @@ func (a *ClientController) bulkAttach(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	result, needRestart, err := a.clientService.BulkAttach(&a.inboundService, req.Emails, req.InboundIds)
+	result, _, err := a.clientService.BulkAttach(&a.inboundService, req.Emails, req.InboundIds)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonObj(c, result, nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, "client bulkAttach") {
+		return
 	}
+	jsonObj(c, result, nil)
 	notifyClientsChanged()
 }
 
@@ -269,15 +275,15 @@ func (a *ClientController) bulkDelete(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	result, needRestart, err := a.clientService.BulkDelete(&a.inboundService, req.Emails, req.KeepTraffic)
+	result, _, err := a.clientService.BulkDelete(&a.inboundService, req.Emails, req.KeepTraffic)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonObj(c, result, nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, "client bulkDelete") {
+		return
 	}
+	jsonObj(c, result, nil)
 	notifyClientsChanged()
 }
 
@@ -287,15 +293,15 @@ func (a *ClientController) bulkCreate(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	result, needRestart, err := a.clientService.BulkCreate(&a.inboundService, payloads)
+	result, _, err := a.clientService.BulkCreate(&a.inboundService, payloads)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonObj(c, result, nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, "client bulkCreate") {
+		return
 	}
+	jsonObj(c, result, nil)
 	notifyClientsChanged()
 }
 
@@ -305,10 +311,12 @@ func (a *ClientController) delDepleted(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonObj(c, gin.H{"deleted": deleted}, nil)
 	if needRestart {
-		a.xrayService.SetToNeedRestart()
+		if !syncXrayAfterMutation(c, &a.xrayService, "client delDepleted") {
+			return
+		}
 	}
+	jsonObj(c, gin.H{"deleted": deleted}, nil)
 	notifyClientsChanged()
 }
 
@@ -319,10 +327,12 @@ func (a *ClientController) resetTrafficByEmail(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetInboundClientTrafficSuccess"), nil)
 	if needRestart {
-		a.xrayService.SetToNeedRestart()
+		if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client resetTraffic email=%s", email)) {
+			return
+		}
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.resetInboundClientTrafficSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -435,15 +445,15 @@ func (a *ClientController) detach(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	needRestart, err := a.clientService.DetachByEmailMany(&a.inboundService, email, body.InboundIds)
+	_, err := a.clientService.DetachByEmailMany(&a.inboundService, email, body.InboundIds)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
-	if needRestart {
-		a.xrayService.SetToNeedRestart()
+	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client detach email=%s", email)) {
+		return
 	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientDeleteSuccess"), nil)
 	notifyClientsChanged()
 }
 
@@ -481,8 +491,12 @@ func (a *ClientController) bulkResetTraffic(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
+	if affected > 0 {
+		if !syncXrayAfterMutation(c, &a.xrayService, "client bulkResetTraffic") {
+			return
+		}
+	}
 	jsonObj(c, gin.H{"affected": affected}, nil)
-	a.xrayService.SetToNeedRestart()
 	notifyClientsChanged()
 }
 
@@ -520,7 +534,11 @@ func (a *ClientController) renameGroup(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	a.xrayService.SetToNeedRestart()
+	if affected > 0 {
+		if !syncXrayAfterMutation(c, &a.xrayService, "client group rename") {
+			return
+		}
+	}
 	jsonObj(c, gin.H{"affected": affected}, nil)
 	notifyClientsChanged()
 }
@@ -540,7 +558,11 @@ func (a *ClientController) deleteGroup(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
 	}
-	a.xrayService.SetToNeedRestart()
+	if affected > 0 {
+		if !syncXrayAfterMutation(c, &a.xrayService, "client group delete") {
+			return
+		}
+	}
 	jsonObj(c, gin.H{"affected": affected}, nil)
 	notifyClientsChanged()
 }

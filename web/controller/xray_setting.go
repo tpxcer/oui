@@ -108,6 +108,9 @@ func (a *XraySettingController) updateSetting(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
 		return
 	}
+	if !syncXrayAfterMutation(c, &a.XrayService, "xray setting update") {
+		return
+	}
 	jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), nil)
 }
 

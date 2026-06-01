@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -23,6 +24,15 @@ var (
 	isNeedXrayRestart atomic.Bool // Indicates that restart was requested for Xray
 	isManuallyStopped atomic.Bool // Indicates that Xray was stopped manually from the panel
 	result            string
+)
+
+var (
+	marshalXrayConfig   = xray.MarshalConfig
+	testXrayConfigFile  = xray.TestConfigFile
+	writeXrayConfigFile = xray.WriteConfigFile
+	newXrayProcess      = xray.NewProcess
+	startXrayProcess    = func(proc *xray.Process) error { return proc.Start() }
+	stopXrayProcess     = func(proc *xray.Process) error { return proc.Stop() }
 )
 
 // XrayService provides business logic for Xray process management.
@@ -331,6 +341,23 @@ func (s *XrayService) GetXrayTraffic() ([]*xray.Traffic, []*xray.ClientTraffic, 
 	return traffic, clientTraffic, nil
 }
 
+// ApplyConfigChange synchronously rebuilds, validates, writes and restarts
+// Xray after a successful database mutation. API callers must wait for this
+// method and surface its error; otherwise the panel can report "saved" while
+// the running Xray process still uses the old config.
+func (s *XrayService) ApplyConfigChange(operation string) error {
+	if operation == "" {
+		operation = "config-change"
+	}
+	logger.Infof("xray config sync requested: operation=%s", operation)
+	if err := s.RestartXray(true); err != nil {
+		logger.Errorf("xray config sync failed: operation=%s error=%v", operation, err)
+		return err
+	}
+	logger.Infof("xray config sync succeeded: operation=%s", operation)
+	return nil
+}
+
 // RestartXray restarts the Xray process, optionally forcing a restart even if config unchanged.
 func (s *XrayService) RestartXray(isForce bool) error {
 	lock.Lock()
@@ -342,23 +369,62 @@ func (s *XrayService) RestartXray(isForce bool) error {
 	if err != nil {
 		return err
 	}
+	logger.Infof("xray config generated successfully: inbounds=%d", len(xrayConfig.InboundConfigs))
 
-	if s.IsXrayRunning() {
-		if !isForce && p.GetConfig().Equals(xrayConfig) && !isNeedXrayRestart.Load() {
-			logger.Debug("It does not need to restart Xray")
-			return nil
-		}
-		p.Stop()
-	}
-
-	p = xray.NewProcess(xrayConfig)
-	result = ""
-	s.xrayAPI.StatsLastValues = nil
-	err = p.Start()
+	data, err := marshalXrayConfig(xrayConfig)
 	if err != nil {
+		logger.Errorf("xray config generation failed: %v", err)
 		return err
 	}
 
+	oldProc := p
+	oldRunning := oldProc != nil && oldProc.IsRunning()
+
+	if oldRunning {
+		if !isForce && oldProc.GetConfig().Equals(xrayConfig) && !isNeedXrayRestart.Load() {
+			logger.Debug("It does not need to restart Xray")
+			return nil
+		}
+	}
+
+	if err = testXrayConfigFile(data); err != nil {
+		logger.Errorf("xray config test failed: %v", err)
+		return err
+	}
+	logger.Info("xray config test passed")
+
+	if err = writeXrayConfigFile(xray.GetConfigPath(), data); err != nil {
+		logger.Errorf("xray config write failed: %v", err)
+		return err
+	}
+	logger.Infof("xray config written successfully: path=%s", xray.GetConfigPath())
+
+	if oldRunning {
+		if err = stopXrayProcess(oldProc); err != nil {
+			logger.Errorf("xray stop before restart failed: %v", err)
+			return err
+		}
+	}
+
+	nextProc := newXrayProcess(xrayConfig)
+	p = nextProc
+	result = ""
+	s.xrayAPI.StatsLastValues = nil
+	if err = startXrayProcess(nextProc); err != nil {
+		logger.Errorf("xray restart failed after config validation: %v", err)
+		if oldRunning && oldProc != nil {
+			p = oldProc
+			if rollbackErr := startXrayProcess(oldProc); rollbackErr != nil {
+				return fmt.Errorf("xray restart failed: %w; rollback to previous config also failed: %v", err, rollbackErr)
+			}
+			logger.Warning("xray rollback to previous running config succeeded")
+		}
+		return err
+	}
+
+	isManuallyStopped.Store(false)
+	isNeedXrayRestart.Store(false)
+	logger.Info("xray reload/restart succeeded")
 	return nil
 }
 
@@ -391,9 +457,16 @@ func (s *XrayService) GetXrayAPIPort() int {
 	return p.GetAPIPort()
 }
 
-// IsNeedRestartAndSetFalse checks if restart is needed and resets the flag to false.
+// IsNeedRestart reports whether a deferred Xray restart is pending. The flag is
+// intentionally not cleared here; it is cleared only after RestartXray succeeds.
+func (s *XrayService) IsNeedRestart() bool {
+	return isNeedXrayRestart.Load()
+}
+
+// IsNeedRestartAndSetFalse is kept for older call sites. Prefer
+// IsNeedRestart so a failed restart does not silently drop the pending flag.
 func (s *XrayService) IsNeedRestartAndSetFalse() bool {
-	return isNeedXrayRestart.CompareAndSwap(true, false)
+	return s.IsNeedRestart()
 }
 
 // DidXrayCrash checks if Xray crashed by verifying it's not running and wasn't manually stopped.

@@ -66,12 +66,12 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	}
 	inbound.UserId = userID
 
-	created, needRestart, err := s.inboundService.AddInbound(inbound)
+	created, _, err := s.inboundService.AddInbound(inbound)
 	if err != nil {
 		return nil, err
 	}
-	if needRestart {
-		s.xrayService.SetToNeedRestart()
+	if err := s.xrayService.ApplyConfigChange("quick inbound create"); err != nil {
+		return nil, err
 	}
 	websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
 

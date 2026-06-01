@@ -36,6 +36,61 @@ func GetConfigPath() string {
 	return config.GetBinFolderPath() + "/config.json"
 }
 
+// MarshalConfig serializes an Xray config in the same format used by the
+// runtime config file.
+func MarshalConfig(cfg *Config) ([]byte, error) {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, common.NewErrorf("Failed to generate XRAY configuration files: %v", err)
+	}
+	return data, nil
+}
+
+// WriteConfigFile writes an Xray config JSON file to disk.
+func WriteConfigFile(configPath string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o770); err != nil {
+		return common.NewErrorf("Failed to create configuration folder: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return common.NewErrorf("Failed to write configuration file: %v", err)
+	}
+	return nil
+}
+
+// TestConfigFile validates config data with xray-core before it is used for a
+// live restart. It writes a temporary config next to the real config so
+// relative geo/log paths resolve the same way as production.
+func TestConfigFile(data []byte) error {
+	if err := os.MkdirAll(config.GetBinFolderPath(), 0o770); err != nil {
+		return common.NewErrorf("Failed to create configuration folder for validation: %v", err)
+	}
+	tmp, err := os.CreateTemp(config.GetBinFolderPath(), "xray_config_test_*.json")
+	if err != nil {
+		return common.NewErrorf("Failed to create temporary Xray config for validation: %v", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err = tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return common.NewErrorf("Failed to write temporary Xray config for validation: %v", err)
+	}
+	if err = tmp.Close(); err != nil {
+		return common.NewErrorf("Failed to close temporary Xray config for validation: %v", err)
+	}
+
+	cmd := exec.Command(GetBinaryPath(), "-test", "-c", tmpPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return common.NewErrorf("Xray config test failed: %s", msg)
+	}
+	return nil
+}
+
 // GetGeositePath returns the path to the geosite data file used by Xray.
 func GetGeositePath() string {
 	return config.GetBinFolderPath() + "/geosite.dat"
@@ -324,9 +379,9 @@ func (p *process) Start() (err error) {
 		}
 	}()
 
-	data, err := json.MarshalIndent(p.config, "", "  ")
+	data, err := MarshalConfig(p.config)
 	if err != nil {
-		return common.NewErrorf("Failed to generate XRAY configuration files: %v", err)
+		return err
 	}
 
 	err = os.MkdirAll(config.GetLogFolder(), 0o770)
@@ -338,9 +393,8 @@ func (p *process) Start() (err error) {
 	if p.configPath != "" {
 		configPath = p.configPath
 	}
-	err = os.WriteFile(configPath, data, 0644)
-	if err != nil {
-		return common.NewErrorf("Failed to write configuration file: %v", err)
+	if err = WriteConfigFile(configPath, data); err != nil {
+		return err
 	}
 
 	cmd := exec.Command(GetBinaryPath(), "-c", configPath)
