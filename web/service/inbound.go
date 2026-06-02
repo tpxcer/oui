@@ -1295,10 +1295,10 @@ func (s *InboundService) CopyInboundClients(targetInboundID int, sourceInboundID
 
 const resetGracePeriodMs int64 = 30000
 
-// onlineGracePeriodMs follows upstream 3x-ui's online-list rule. Xray traffic
-// polling updates last_online only when a client reports traffic; a client is
-// considered online while last_online is fresh inside this window.
-const onlineGracePeriodMs int64 = 20000
+// onlineGracePeriodMs keeps the page and Telegram notifications on the same
+// online-list rule. It uses upstream 3x-ui's last_online source, with a longer
+// confirmation window to reduce flapping for low-traffic clients.
+const onlineGracePeriodMs int64 = int64(2 * time.Minute / time.Millisecond)
 
 func (s *InboundService) SetRemoteTraffic(nodeID int, snap *runtime.TrafficSnapshot) (bool, error) {
 	var structuralChange bool

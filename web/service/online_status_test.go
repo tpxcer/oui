@@ -7,7 +7,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/xray"
 )
 
-func TestRefreshOnlineClientsUsesUpstreamTwentySecondWindow(t *testing.T) {
+func TestRefreshOnlineClientsUsesTwoMinuteSharedWindow(t *testing.T) {
 	oldProcess := p
 	p = xray.NewProcess(&xray.Config{})
 	t.Cleanup(func() {
@@ -18,8 +18,8 @@ func TestRefreshOnlineClientsUsesUpstreamTwentySecondWindow(t *testing.T) {
 	now := time.Now().UnixMilli()
 	svc := InboundService{}
 	svc.RefreshOnlineClientsFromMap(map[string]int64{
-		"fresh@example.com": now - int64(19*time.Second/time.Millisecond),
-		"stale@example.com": now - int64(21*time.Second/time.Millisecond),
+		"fresh@example.com": now - int64(90*time.Second/time.Millisecond),
+		"stale@example.com": now - int64(121*time.Second/time.Millisecond),
 	})
 
 	got := svc.GetOnlineClients()
