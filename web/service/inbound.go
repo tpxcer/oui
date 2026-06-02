@@ -1295,11 +1295,10 @@ func (s *InboundService) CopyInboundClients(targetInboundID int, sourceInboundID
 
 const resetGracePeriodMs int64 = 30000
 
-// onlineGracePeriodMs is the shared online/offline confirmation window used by
-// the page and Telegram notifications. Keeping this at two minutes means a
-// client only disappears after it has had no observed Xray stats for the full
-// confirmation period, and the UI/TG state flips together.
-const onlineGracePeriodMs int64 = int64(2 * time.Minute / time.Millisecond)
+// onlineGracePeriodMs follows upstream 3x-ui's online-list rule. Xray traffic
+// polling updates last_online only when a client reports traffic; a client is
+// considered online while last_online is fresh inside this window.
+const onlineGracePeriodMs int64 = 20000
 
 func (s *InboundService) SetRemoteTraffic(nodeID int, snap *runtime.TrafficSnapshot) (bool, error) {
 	var structuralChange bool
