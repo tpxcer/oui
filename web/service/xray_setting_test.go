@@ -203,3 +203,44 @@ func TestEnsureStatsRouting_AcceptsInboundTagAsString(t *testing.T) {
 		t.Fatalf("api rule with string-form inboundTag should hoist to front, got %q\nfull: %s", got, out)
 	}
 }
+
+func TestPruneRoutingInboundTagsKeepsOnlyCurrentPanelTags(t *testing.T) {
+	in := `{
+		"routing": {
+			"rules": [
+				{"type":"field","inboundTag":["api"],"outboundTag":"api"},
+				{"type":"field","inboundTag":["inbound-50001","inbound-57203"],"outboundTag":"direct"},
+				{"type":"field","inboundTag":"inbound-63268","outboundTag":"blocked"}
+			]
+		}
+	}`
+	out, changed, err := PruneRoutingInboundTags(in, []string{"inbound-50001"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected stale inbound tags to be pruned")
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal([]byte(out), &cfg); err != nil {
+		t.Fatalf("unmarshal pruned config: %v", err)
+	}
+	rules := cfg["routing"].(map[string]any)["rules"].([]any)
+
+	first := rules[0].(map[string]any)
+	if tags := first["inboundTag"].([]any); len(tags) != 1 || tags[0] != "api" {
+		t.Fatalf("api inboundTag should be preserved, got %#v", tags)
+	}
+
+	second := rules[1].(map[string]any)
+	tags := second["inboundTag"].([]any)
+	if len(tags) != 1 || tags[0] != "inbound-50001" {
+		t.Fatalf("stale generated tag should be removed, got %#v", tags)
+	}
+
+	third := rules[2].(map[string]any)
+	if _, ok := third["inboundTag"]; ok {
+		t.Fatalf("rule with only stale inboundTag should drop inboundTag, got %#v", third)
+	}
+}

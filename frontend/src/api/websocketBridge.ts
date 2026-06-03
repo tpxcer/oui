@@ -37,6 +37,7 @@ export function useWebSocketBridge() {
         invalidateTimer = null;
         if (p.type === 'inbounds') {
           queryClient.invalidateQueries({ queryKey: ['inbounds'] });
+          queryClient.invalidateQueries({ queryKey: keys.xray.config() });
         } else {
           queryClient.invalidateQueries({ queryKey: ['clients'] });
         }
@@ -55,6 +56,7 @@ export function useWebSocketBridge() {
     const onInbounds: Handler = (payload) => {
       if (!Array.isArray(payload)) return;
       queryClient.setQueryData(keys.inbounds.slim(), payload);
+      queryClient.invalidateQueries({ queryKey: keys.xray.config() });
     };
 
     client.on('invalidate', onInvalidate);

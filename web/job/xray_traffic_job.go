@@ -31,6 +31,7 @@ type onlineNotifySession struct {
 	lastTotal int64
 	up        int64
 	down      int64
+	announced bool
 }
 
 type onlineNotifyInbound struct {
@@ -47,6 +48,11 @@ type onlineNotifyTransition struct {
 var (
 	onlineNotifyMu       sync.Mutex
 	onlineNotifySessions = map[string]onlineNotifySession{}
+)
+
+const (
+	onlineNotifyConfirmWindow = 5 * time.Minute
+	onlineNotifyMinTraffic    = int64(5 * 1024 * 1024)
 )
 
 // NewXrayTrafficJob creates a new traffic collection job instance.
@@ -224,6 +230,19 @@ func reconcileOnlineNotifySessions(
 		}
 		if session, exists := onlineNotifySessions[email]; exists {
 			session.remark = meta.remark
+			st := trafficByEmail[email]
+			if st != nil {
+				session.lastTotal = st.Up + st.Down
+			}
+			if !session.announced && shouldAnnounceOnline(session, now) {
+				session.announced = true
+				onlineTransitions = append(onlineTransitions, onlineNotifyTransition{
+					email:   email,
+					remark:  meta.remark,
+					session: session,
+					traffic: st,
+				})
+			}
 			onlineNotifySessions[email] = session
 			continue
 		}
@@ -235,12 +254,6 @@ func reconcileOnlineNotifySessions(
 			session.lastTotal = st.Up + st.Down
 		}
 		onlineNotifySessions[email] = session
-		onlineTransitions = append(onlineTransitions, onlineNotifyTransition{
-			email:   email,
-			remark:  meta.remark,
-			session: session,
-			traffic: st,
-		})
 	}
 
 	for email, session := range onlineNotifySessions {
@@ -255,6 +268,9 @@ func reconcileOnlineNotifySessions(
 		}
 		if !onlineSet[email] {
 			delete(onlineNotifySessions, email)
+			if !session.announced {
+				continue
+			}
 			offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
 				email:   email,
 				remark:  session.remark,
@@ -267,6 +283,16 @@ func reconcileOnlineNotifySessions(
 	}
 
 	return onlineTransitions, offlineTransitions
+}
+
+func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {
+	if session.announced {
+		return false
+	}
+	if now.Sub(session.start) > onlineNotifyConfirmWindow {
+		return false
+	}
+	return session.lastTotal-session.up-session.down >= onlineNotifyMinTraffic
 }
 
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {

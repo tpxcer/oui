@@ -5,6 +5,7 @@ import (
 
 	"github.com/mhsanaei/3x-ui/v3/util/common"
 	"github.com/mhsanaei/3x-ui/v3/web/service"
+	"github.com/mhsanaei/3x-ui/v3/web/session"
 
 	"github.com/gin-gonic/gin"
 )
@@ -66,10 +67,22 @@ func (a *XraySettingController) getXraySetting(c *gin.Context) {
 			xraySetting = unwrapped
 		}
 	}
-	inboundTags, err := a.InboundService.GetInboundTags()
+	user := session.GetLoginUser(c)
+	inboundTags, err := a.InboundService.GetInboundTags(user.Id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
 		return
+	}
+	var inboundTagList []string
+	if err := json.Unmarshal([]byte(inboundTags), &inboundTagList); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
+		return
+	}
+	if pruned, changed, err := service.PruneRoutingInboundTags(xraySetting, inboundTagList); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
+		return
+	} else if changed {
+		xraySetting = pruned
 	}
 	clientReverseTags, err := a.InboundService.GetClientReverseTags()
 	if err != nil {
@@ -96,6 +109,23 @@ func (a *XraySettingController) getXraySetting(c *gin.Context) {
 // updateSetting updates the Xray configuration settings.
 func (a *XraySettingController) updateSetting(c *gin.Context) {
 	xraySetting := c.PostForm("xraySetting")
+	user := session.GetLoginUser(c)
+	inboundTags, err := a.InboundService.GetInboundTags(user.Id)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
+		return
+	}
+	var inboundTagList []string
+	if err := json.Unmarshal([]byte(inboundTags), &inboundTagList); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
+		return
+	}
+	if pruned, _, err := service.PruneRoutingInboundTags(xraySetting, inboundTagList); err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
+		return
+	} else {
+		xraySetting = pruned
+	}
 	if err := a.XraySettingService.SaveXraySetting(xraySetting); err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.modifySettings"), err)
 		return

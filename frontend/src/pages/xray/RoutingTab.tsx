@@ -63,10 +63,6 @@ function chipPreview(value?: string): string {
   return `${parts[0]} +${parts.length - 1}`;
 }
 
-function isGeneratedInboundTag(tag: string): boolean {
-  return /^inbound-\d+$/.test(tag);
-}
-
 export default function RoutingTab({
   templateSettings,
   setTemplateSettings,
@@ -132,32 +128,13 @@ export default function RoutingTab({
   const inboundTagOptions = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    const push = (tag?: string) => {
-      if (!tag || seen.has(tag)) return;
+    for (const tag of inboundTags || []) {
+      if (!tag || seen.has(tag)) continue;
       seen.add(tag);
       out.push(tag);
-    };
-    for (const tag of inboundTags || []) push(tag);
-    const validInboundTags = new Set(inboundTags || []);
-    for (const ib of (templateSettings?.inbounds as Array<{ tag?: string }>) || []) {
-      const tag = ib?.tag;
-      if (!tag) continue;
-      if (tag === 'api' || validInboundTags.has(tag) || !isGeneratedInboundTag(tag)) push(tag);
-    }
-    for (const ob of templateSettings?.outbounds || []) {
-      const obx = ob as { reverse?: { tag?: string }; settings?: { reverse?: { tag?: string }; inboundTag?: string } };
-      push(obx?.reverse?.tag || obx?.settings?.reverse?.tag);
-      const loopbackInboundTag = obx?.settings?.inboundTag;
-      if (loopbackInboundTag && (validInboundTags.has(loopbackInboundTag) || !isGeneratedInboundTag(loopbackInboundTag))) {
-        push(loopbackInboundTag);
-      }
-    }
-    push((templateSettings?.dns as { tag?: string } | undefined)?.tag);
-    for (const s of (templateSettings?.dns as { servers?: Array<{ tag?: string }> } | undefined)?.servers || []) {
-      if (typeof s === 'object' && s?.tag) push(s.tag);
     }
     return out;
-  }, [templateSettings, inboundTags]);
+  }, [inboundTags]);
 
   const outboundTagOptions = useMemo(() => {
     const out = new Set<string>(['']);

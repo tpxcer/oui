@@ -31,6 +31,114 @@ func (s *XraySettingService) SaveXraySetting(newXraySettings string) error {
 	return s.SettingService.saveSetting("xrayTemplateConfig", newXraySettings)
 }
 
+// PruneRoutingInboundTags removes inboundTag entries that no longer point to
+// an existing panel inbound. The internal "api" inbound is preserved because
+// it is required for panel stats routing and is not shown in the inbound list.
+func PruneRoutingInboundTags(raw string, validTags []string) (string, bool, error) {
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return raw, false, err
+	}
+
+	var routing map[string]json.RawMessage
+	if r, ok := cfg["routing"]; ok && len(r) > 0 {
+		if err := json.Unmarshal(r, &routing); err != nil {
+			return raw, false, err
+		}
+	}
+	if routing == nil {
+		return raw, false, nil
+	}
+
+	var rules []map[string]any
+	if r, ok := routing["rules"]; ok && len(r) > 0 {
+		if err := json.Unmarshal(r, &rules); err != nil {
+			return raw, false, err
+		}
+	}
+	if len(rules) == 0 {
+		return raw, false, nil
+	}
+
+	allowed := map[string]bool{"api": true}
+	for _, tag := range validTags {
+		if tag != "" {
+			allowed[tag] = true
+		}
+	}
+
+	changed := false
+	for _, rule := range rules {
+		rawTags, ok := rule["inboundTag"]
+		if !ok {
+			continue
+		}
+		tags := inboundTagValues(rawTags)
+		if len(tags) == 0 {
+			continue
+		}
+		filtered := make([]string, 0, len(tags))
+		for _, tag := range tags {
+			if allowed[tag] {
+				filtered = append(filtered, tag)
+			}
+		}
+		if len(filtered) != len(tags) {
+			changed = true
+		}
+		if len(filtered) == 0 {
+			delete(rule, "inboundTag")
+			continue
+		}
+		rule["inboundTag"] = filtered
+	}
+	if !changed {
+		return raw, false, nil
+	}
+
+	rulesJSON, err := json.Marshal(rules)
+	if err != nil {
+		return raw, false, err
+	}
+	routing["rules"] = rulesJSON
+	routingJSON, err := json.Marshal(routing)
+	if err != nil {
+		return raw, false, err
+	}
+	cfg["routing"] = routingJSON
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return raw, false, err
+	}
+	return string(out), true, nil
+}
+
+func inboundTagValues(raw any) []string {
+	switch tags := raw.(type) {
+	case []any:
+		out := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if s, ok := t.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		out := make([]string, 0, len(tags))
+		for _, t := range tags {
+			if t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	case string:
+		if tags != "" {
+			return []string{tags}
+		}
+	}
+	return nil
+}
+
 func (s *XraySettingService) CheckXrayConfig(XrayTemplateConfig string) error {
 	xrayConfig := &xray.Config{}
 	err := json.Unmarshal([]byte(XrayTemplateConfig), xrayConfig)
