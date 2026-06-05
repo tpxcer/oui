@@ -12,6 +12,8 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/database"
 	"github.com/mhsanaei/3x-ui/v3/database/model"
 	xuilogger "github.com/mhsanaei/3x-ui/v3/logger"
+	"github.com/mhsanaei/3x-ui/v3/web/service"
+	"github.com/mhsanaei/3x-ui/v3/xray"
 	"github.com/op/go-logging"
 )
 
@@ -60,12 +62,40 @@ func setupIntegrationDB(t *testing.T) {
 // given email and ip limit.
 func seedInboundWithClient(t *testing.T, tag, email string, limitIp int) {
 	t.Helper()
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     tag,
+		Email:   email,
+		LimitIP: limitIp,
+		Enable:  true,
+		Port:    4321,
+	})
+}
+
+type inboundSeedOptions struct {
+	Tag           string
+	Email         string
+	LimitIP       int
+	Enable        bool
+	ClientEnabled bool
+	Port          int
+	NodeID        *int
+}
+
+func seedInboundWithClientOptions(t *testing.T, opts inboundSeedOptions) {
+	t.Helper()
+	if opts.Port == 0 {
+		opts.Port = 4321
+	}
+	clientEnabled := opts.ClientEnabled
+	if !clientEnabled {
+		clientEnabled = true
+	}
 	settings := map[string]any{
 		"clients": []map[string]any{
 			{
-				"email":   email,
-				"limitIp": limitIp,
-				"enable":  true,
+				"email":   opts.Email,
+				"limitIp": opts.LimitIP,
+				"enable":  clientEnabled,
 			},
 		},
 	}
@@ -74,10 +104,11 @@ func seedInboundWithClient(t *testing.T, tag, email string, limitIp int) {
 		t.Fatalf("marshal settings: %v", err)
 	}
 	inbound := &model.Inbound{
-		Tag:      tag,
-		Enable:   true,
+		Tag:      opts.Tag,
+		Enable:   opts.Enable,
 		Protocol: model.VLESS,
-		Port:     4321,
+		Port:     opts.Port,
+		NodeID:   opts.NodeID,
 		Settings: string(settingsJSON),
 	}
 	if err := database.GetDB().Create(inbound).Error; err != nil {
@@ -225,16 +256,131 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	}
 }
 
-// readIpLimitLogPath reads the 3xipl.log path the same way the job
-// does via xray.GetIPLimitLogPath but without importing xray here
-// just for the path helper (which would pull a lot more deps into the
-// test binary). The env-derived log folder is deterministic.
-func readIpLimitLogPath() string {
-	folder := os.Getenv("XUI_LOG_FOLDER")
-	if folder == "" {
-		folder = filepath.Join(".", "log")
+func TestSyncClientIPLimitBans_LimitZeroUnbansImmediately(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "limit-zero"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-limit-zero",
+		Email:   email,
+		LimitIP: 0,
+		Enable:  true,
+		Port:    4321,
+	})
+	seedClientIps(t, email, []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}})
+	writeIPLimitBannedLog(t, "2026/06/05 10:00:00 BAN   [Email] = limit-zero [Port] = 4321 [IP] = 192.0.2.9 exceeded IP limit.\n")
+
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.SyncClientIPLimitBansByEmail(email); err != nil {
+		t.Fatalf("sync bans: %v", err)
 	}
-	return filepath.Join(folder, "3xipl.log")
+
+	body := readIPLimitBannedLog(t)
+	if !contains(body, "UNBAN   [Email] = limit-zero [Port] = 4321 [IP] = 192.0.2.9 automatic IP limit sync.") {
+		t.Fatalf("expected automatic unban after limit=0\nfull log:\n%s", body)
+	}
+}
+
+func TestSyncClientIPLimitBans_OfflineNodeUnbans(t *testing.T) {
+	setupIntegrationDB(t)
+
+	node := &model.Node{
+		Name:     "remote-offline",
+		Address:  "example.com",
+		Port:     443,
+		Scheme:   "https",
+		ApiToken: "token",
+		Enable:   true,
+		Status:   "offline",
+	}
+	if err := database.GetDB().Create(node).Error; err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	const email = "offline-node"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-offline-node",
+		Email:   email,
+		LimitIP: 1,
+		Enable:  true,
+		Port:    4321,
+		NodeID:  &node.Id,
+	})
+	seedClientIps(t, email, []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}})
+	writeIPLimitBannedLog(t, "2026/06/05 10:00:00 BAN   [Email] = offline-node [Port] = 4321 [IP] = 192.0.2.9 exceeded IP limit.\n")
+
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.SyncClientIPLimitBansByEmail(email); err != nil {
+		t.Fatalf("sync bans: %v", err)
+	}
+
+	body := readIPLimitBannedLog(t)
+	if !contains(body, "UNBAN   [Email] = offline-node [Port] = 4321 [IP] = 192.0.2.9 automatic IP limit sync.") {
+		t.Fatalf("expected automatic unban for offline node\nfull log:\n%s", body)
+	}
+}
+
+func TestSyncClientIPLimitBans_LimitIncreaseUnbansByFirstSeenTime(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "limit-increase"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-limit-increase",
+		Email:   email,
+		LimitIP: 2,
+		Enable:  true,
+		Port:    4321,
+	})
+	seedClientIps(t, email, []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}})
+	writeIPLimitLog(t,
+		"2026/06/05 10:00:00 [LIMIT_IP] Email = limit-increase || Port = 4321 || Disconnecting OLD IP = 192.0.2.9 || Timestamp = 1100\n"+
+			"2026/06/05 10:00:01 [LIMIT_IP] Email = limit-increase || Port = 4321 || Disconnecting OLD IP = 192.0.2.10 || Timestamp = 1200\n",
+	)
+
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.SyncClientIPLimitBansByEmail(email); err != nil {
+		t.Fatalf("sync bans: %v", err)
+	}
+
+	body := readIPLimitBannedLog(t)
+	if !contains(body, "UNBAN   [Email] = limit-increase [Port] = 4321 [IP] = 192.0.2.9 automatic IP limit sync.") {
+		t.Fatalf("expected earlier banned IP to be unbanned after limit increase\nfull log:\n%s", body)
+	}
+	if contains(body, "UNBAN   [Email] = limit-increase [Port] = 4321 [IP] = 192.0.2.10 automatic IP limit sync.") {
+		t.Fatalf("newer banned IP should remain blocked while limit=2\nfull log:\n%s", body)
+	}
+}
+
+// readIpLimitLogPath reads the 3xipl.log path the same way the job does.
+func readIpLimitLogPath() string {
+	return xray.GetIPLimitLogPath()
+}
+
+func readIPLimitBannedLogPath() string {
+	return xray.GetIPLimitBannedLogPath()
+}
+
+func writeIPLimitLog(t *testing.T, body string) {
+	t.Helper()
+	if err := os.WriteFile(readIpLimitLogPath(), []byte(body), 0o644); err != nil {
+		t.Fatalf("write 3xipl.log: %v", err)
+	}
+}
+
+func writeIPLimitBannedLog(t *testing.T, body string) {
+	t.Helper()
+	if err := os.WriteFile(readIPLimitBannedLogPath(), []byte(body), 0o644); err != nil {
+		t.Fatalf("write 3xipl-banned.log: %v", err)
+	}
+}
+
+func readIPLimitBannedLog(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile(readIPLimitBannedLogPath())
+	if err != nil {
+		t.Fatalf("read 3xipl-banned.log: %v", err)
+	}
+	return string(body)
 }
 
 func contains(haystack, needle string) bool {

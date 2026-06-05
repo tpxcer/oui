@@ -3165,6 +3165,16 @@ func (s *ClientService) UpdateInboundClient(inboundSvc *InboundService, data *mo
 			tx.Rollback()
 		} else {
 			tx.Commit()
+			if oldEmail != "" && !strings.EqualFold(oldEmail, clients[0].Email) {
+				if syncErr := inboundSvc.UnbanClientIPLimitByEmail(oldEmail); syncErr != nil {
+					logger.Warningf("[LIMIT_IP] failed to release old email bans for %s: %v", oldEmail, syncErr)
+				}
+			}
+			if clients[0].Email != "" {
+				if syncErr := inboundSvc.SyncClientIPLimitBansByEmail(clients[0].Email); syncErr != nil {
+					logger.Warningf("[LIMIT_IP] failed to sync bans after client update for %s: %v", clients[0].Email, syncErr)
+				}
+			}
 		}
 	}()
 

@@ -79,4 +79,10 @@ func (j *NodeHeartbeatJob) probeOne(n *model.Node) {
 	if updErr := j.nodeService.UpdateHeartbeat(n.Id, patch); updErr != nil {
 		logger.Warning("node heartbeat: update node", n.Id, "failed:", updErr)
 	}
+	if patch.Status == "offline" {
+		inboundSvc := service.InboundService{}
+		if err := inboundSvc.UnbanIPLimitBansForNode(n.Id); err != nil {
+			logger.Warning("node heartbeat: release IP limit bans for offline node", n.Id, "failed:", err)
+		}
+	}
 }

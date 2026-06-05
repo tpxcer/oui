@@ -3073,6 +3073,10 @@ func (s *InboundService) UnbanClientIPLimitByEmail(clientEmail string) error {
 }
 
 func (s *InboundService) UnbanClientIPLimitByEmailAndIP(clientEmail, ip string, port int) error {
+	return s.unbanClientIPLimitByEmailAndIP(clientEmail, ip, port, "manual firewall rule")
+}
+
+func (s *InboundService) unbanClientIPLimitByEmailAndIP(clientEmail, ip string, port int, note string) error {
 	if netIP := net.ParseIP(ip); netIP == nil {
 		return fmt.Errorf("invalid IP address: %s", ip)
 	}
@@ -3082,7 +3086,7 @@ func (s *InboundService) UnbanClientIPLimitByEmailAndIP(clientEmail, ip string, 
 	if unbanErr := UnbanIPLimitPort(ip, port); unbanErr != nil {
 		return unbanErr
 	}
-	AppendIPLimitBanLog("UNBAN", clientEmail, ip, port, "manual firewall rule")
+	AppendIPLimitBanLog("UNBAN", clientEmail, ip, port, note)
 
 	if _, err := exec.LookPath("fail2ban-client"); err != nil {
 		return nil
@@ -3131,8 +3135,8 @@ func (s *InboundService) ipLimitBannedTargetsForEmail(clientEmail string) []ipLi
 		}
 	}
 
-	linePort := regexp.MustCompile(`Port\s*=\s*(\d+)`)
-	lineIP := regexp.MustCompile(`(?:Disconnecting OLD IP|IP)\s*=\s*([0-9a-fA-F:.]+)`)
+	linePort := regexp.MustCompile(`\[?Port\]?\s*=\s*(\d+)`)
+	lineIP := regexp.MustCompile(`(?:Disconnecting OLD IP|\[?IP\]?)\s*=\s*([0-9a-fA-F:.]+)`)
 	for _, path := range []string{xray.GetIPLimitLogPath(), xray.GetIPLimitBannedLogPath()} {
 		body, err := os.ReadFile(path)
 		if err != nil || len(body) == 0 {

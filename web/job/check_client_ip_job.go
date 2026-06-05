@@ -70,6 +70,8 @@ func (j *CheckClientIpJob) Run() {
 		j.lastClear = time.Now().Unix()
 	}
 
+	j.syncStoredIPLimitBans()
+
 	shouldClearAccessLog := false
 	iplimitActive := j.hasLimitIp()
 	f2bInstalled := j.checkFail2BanInstalled()
@@ -317,6 +319,33 @@ func selectIPLimitExcess(ipMap map[string]int64, liveIps []IPWithTimestamp, limi
 	return keptLive, bannedLive
 }
 
+func toServiceIPLimitIPs(entries []IPWithTimestamp) []service.IPLimitIPWithTimestamp {
+	out := make([]service.IPLimitIPWithTimestamp, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, service.IPLimitIPWithTimestamp{IP: entry.IP, Timestamp: entry.Timestamp})
+	}
+	return out
+}
+
+func (j *CheckClientIpJob) syncStoredIPLimitBans() {
+	db := database.GetDB()
+	var rows []model.InboundClientIps
+	if err := db.Model(model.InboundClientIps{}).Where("client_email <> ''").Find(&rows).Error; err != nil {
+		logger.Warning("[LIMIT_IP] failed to load stored client IP rows:", err)
+		return
+	}
+	if len(rows) == 0 {
+		return
+	}
+
+	inboundSvc := service.InboundService{}
+	for _, row := range rows {
+		if err := inboundSvc.SyncClientIPLimitBansByEmail(row.ClientEmail); err != nil {
+			logger.Warningf("[LIMIT_IP] failed to sync stored bans for %s: %v", row.ClientEmail, err)
+		}
+	}
+}
+
 func (j *CheckClientIpJob) checkFail2BanInstalled() bool {
 	cmd := "fail2ban-client"
 	args := []string{"-h"}
@@ -402,27 +431,35 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	// Find the client's IP limit
 	var limitIp int
 	var clientFound bool
+	var clientEnabled bool
 	for _, client := range clients {
 		if client.Email == clientEmail {
 			limitIp = client.LimitIP
 			clientFound = true
+			clientEnabled = client.Enable
 			break
 		}
 	}
 
-	if !clientFound || limitIp <= 0 || !inbound.Enable {
+	// Parse old IPs from database before the early-exit path so the sync
+	// step can release bans when the limit is disabled or the inbound/client
+	// goes offline.
+	var oldIpsWithTime []IPWithTimestamp
+	if inboundClientIps.Ips != "" {
+		json.Unmarshal([]byte(inboundClientIps.Ips), &oldIpsWithTime)
+	}
+
+	if !clientFound || limitIp <= 0 || !inbound.Enable || !clientEnabled {
+		inboundSvc := service.InboundService{}
+		if err := inboundSvc.SyncClientIPLimitBansForInbound(clientEmail, inbound, 0, toServiceIPLimitIPs(oldIpsWithTime)); err != nil {
+			logger.Warningf("[LIMIT_IP] failed to release bans for %s: %v", clientEmail, err)
+		}
 		// No limit or inbound disabled, just update and return
 		jsonIps, _ := json.Marshal(newIpsWithTime)
 		inboundClientIps.Ips = string(jsonIps)
 		db := database.GetDB()
 		db.Save(inboundClientIps)
 		return false
-	}
-
-	// Parse old IPs from database
-	var oldIpsWithTime []IPWithTimestamp
-	if inboundClientIps.Ips != "" {
-		json.Unmarshal([]byte(inboundClientIps.Ips), &oldIpsWithTime)
 	}
 
 	// Merge old and new IPs, evicting entries that haven't been
@@ -443,6 +480,10 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	var keptLive []IPWithTimestamp
 	var bannedLive []IPWithTimestamp
 	keptLive, bannedLive = selectIPLimitExcess(ipMap, liveIps, limitIp)
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.SyncClientIPLimitBansForInbound(clientEmail, inbound, limitIp, toServiceIPLimitIPs(sortedIps(ipMap))); err != nil {
+		logger.Warningf("[LIMIT_IP] failed to sync allowed bans for %s: %v", clientEmail, err)
+	}
 	if len(bannedLive) > 0 {
 		shouldCleanLog = true
 
