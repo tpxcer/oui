@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AutoComplete, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tooltip, message } from 'antd';
+import { Alert, AutoComplete, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tooltip, message } from 'antd';
 import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -12,7 +12,8 @@ import { useClients, type InboundOption } from '@/hooks/useClients';
 import { ClientBulkAddFormSchema, type ClientBulkAddFormValues } from '@/schemas/client';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
-const IP_LIMIT_TOOLTIP = 'IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并只针对当前节点端口写入防火墙规则，不会封整台 VPS 或其它节点端口。';
+const IP_LIMIT_ACCESS_LOG_WARNING = '请在 Xray > 基础 > 访问日志选择 ./access.log 后才会生效。';
+const IP_LIMIT_TOOLTIP = `IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并只针对当前节点端口写入防火墙规则，不会封整台 VPS 或其它节点端口。${IP_LIMIT_ACCESS_LOG_WARNING}`;
 
 const MULTI_CLIENT_PROTOCOLS = new Set([
   'shadowsocks', 'vless', 'vmess', 'trojan', 'hysteria',
@@ -311,10 +312,11 @@ export default function ClientBulkAddModal({
             </Form.Item>
           )}
 
-          {ipLimitEnable && (
-            <Form.Item label={ipLimitLabel(t('pages.clients.limitIp'))}>
-              <InputNumber value={form.limitIp} min={0} onChange={(v) => update('limitIp', Number(v) || 0)} />
-            </Form.Item>
+          <Form.Item label={ipLimitLabel(t('pages.clients.limitIp'))}>
+            <InputNumber value={form.limitIp} min={0} onChange={(v) => update('limitIp', Number(v) || 0)} />
+          </Form.Item>
+          {!ipLimitEnable && (
+            <Alert type="warning" showIcon message={IP_LIMIT_ACCESS_LOG_WARNING} style={{ marginBottom: 16 }} />
           )}
 
           <Form.Item label={t('pages.clients.totalGB')}>

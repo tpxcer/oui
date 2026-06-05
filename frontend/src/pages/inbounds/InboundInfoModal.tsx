@@ -37,7 +37,8 @@ const LINK_PROTOCOLS: ReadonlySet<string> = new Set([
   Protocols.SHADOWSOCKS,
   Protocols.HYSTERIA,
 ]);
-const IP_LIMIT_TOOLTIP = 'IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并只针对当前节点端口写入防火墙规则，不会封整台 VPS 或其它节点端口。';
+const IP_LIMIT_ACCESS_LOG_WARNING = '请在 Xray > 基础 > 访问日志选择 ./access.log 后才会生效。';
+const IP_LIMIT_TOOLTIP = `IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并只针对当前节点端口写入防火墙规则，不会封整台 VPS 或其它节点端口。${IP_LIMIT_ACCESS_LOG_WARNING}`;
 
 function hasShareLink(protocol: string): boolean {
   return LINK_PROTOCOLS.has(protocol);
@@ -577,9 +578,15 @@ export default function InboundInfoModal({
           {clientSettings?.comment && (
             <tr><td>{t('comment')}</td><td><Tag className="info-large-tag">{clientSettings.comment}</Tag></td></tr>
           )}
-          {ipLimitEnable && (
-            <tr><td>{ipLimitLabel(t('pages.inbounds.IPLimit'))}</td><td><Tag>{clientSettings?.limitIp ?? 0}</Tag></td></tr>
-          )}
+          <tr>
+            <td>{ipLimitLabel(t('pages.inbounds.IPLimit'))}</td>
+            <td>
+              <Space wrap>
+                <Tag>{clientSettings?.limitIp ?? 0}</Tag>
+                {!ipLimitEnable && <Tag color="warning">访问日志未开启，暂未生效</Tag>}
+              </Space>
+            </td>
+          </tr>
           {ipLimitEnable && (clientSettings?.limitIp ?? 0) > 0 && (
             <tr>
               <td>{t('pages.inbounds.IPLimitlog')}</td>
