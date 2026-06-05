@@ -37,7 +37,7 @@ const LINK_PROTOCOLS: ReadonlySet<string> = new Set([
   Protocols.SHADOWSOCKS,
   Protocols.HYSTERIA,
 ]);
-const IP_LIMIT_TOOLTIP = 'IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并在已启用 Fail2Ban/3x-ipl jail 时把超限 IP 加入防火墙封禁。';
+const IP_LIMIT_TOOLTIP = 'IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并只针对当前节点端口写入防火墙规则，不会封整台 VPS 或其它节点端口。';
 
 function hasShareLink(protocol: string): boolean {
   return LINK_PROTOCOLS.has(protocol);

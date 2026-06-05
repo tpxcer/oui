@@ -169,7 +169,7 @@ func TestUpdateInboundClientIps_NewIpBannedByFreshHistoricalOriginal(t *testing.
 	if err != nil {
 		t.Fatalf("read 3xipl.log: %v", err)
 	}
-	wantSubstr := "[LIMIT_IP] Email = ip-limit-one || Disconnecting OLD IP = 192.0.2.9"
+	wantSubstr := "[LIMIT_IP] Email = ip-limit-one || Port = 4321 || Disconnecting OLD IP = 192.0.2.9"
 	if !contains(string(body), wantSubstr) {
 		t.Fatalf("3xipl.log missing expected ban line %q\nfull log:\n%s", wantSubstr, body)
 	}
@@ -219,7 +219,7 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read 3xipl.log: %v", err)
 	}
-	wantSubstr := "[LIMIT_IP] Email = pr4091-abuse || Disconnecting OLD IP = 192.0.2.9"
+	wantSubstr := "[LIMIT_IP] Email = pr4091-abuse || Port = 4321 || Disconnecting OLD IP = 192.0.2.9"
 	if !contains(string(body), wantSubstr) {
 		t.Fatalf("3xipl.log missing expected ban line %q\nfull log:\n%s", wantSubstr, body)
 	}

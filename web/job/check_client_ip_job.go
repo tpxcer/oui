@@ -21,6 +21,9 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/logger"
 	"github.com/mhsanaei/3x-ui/v3/web/service"
 	"github.com/mhsanaei/3x-ui/v3/xray"
+
+	"github.com/mymmrac/telego"
+	tu "github.com/mymmrac/telego/telegoutil"
 )
 
 // IPWithTimestamp tracks an IP address with its last seen timestamp
@@ -459,15 +462,18 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		ipLogger := log.New(logIpFile, "", log.LstdFlags)
 
 		// log format is load-bearing: x-ui.sh create_iplimit_jails builds
-		// filter.d/3x-ipl.conf with
-		//   failregex = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*Disconnecting OLD IP\s*=\s*<ADDR>\s*\|\|\s*Timestamp\s*=\s*\d+
-		// don't change the wording.
+		// filter.d/3x-ipl.conf from this wording. Keep Port before IP so
+		// Fail2Ban can block only this inbound port instead of all VPS ports.
 		for _, ipTime := range bannedLive {
 			j.disAllowedIps = append(j.disAllowedIps, ipTime.IP)
-			ipLogger.Printf("[LIMIT_IP] Email = %s || Disconnecting OLD IP = %s || Timestamp = %d", clientEmail, ipTime.IP, ipTime.Timestamp)
+			ipLogger.Printf("[LIMIT_IP] Email = %s || Port = %d || Disconnecting OLD IP = %s || Timestamp = %d", clientEmail, inbound.Port, ipTime.IP, ipTime.Timestamp)
+			if err := service.BanIPLimitPort(ipTime.IP, inbound.Port); err != nil {
+				logger.Warningf("[LIMIT_IP] Failed to ban IP %s on port %d: %v", ipTime.IP, inbound.Port, err)
+			} else {
+				service.AppendIPLimitBanLog("BAN", clientEmail, ipTime.IP, inbound.Port, "exceeded IP limit")
+			}
 		}
 
-		j.banIpsWithFail2Ban(j.disAllowedIps)
 		j.sendIPLimitCutoffNotify(clientEmail, inbound, limitIp, keptLive, bannedLive)
 
 		// force xray to drop existing connections from banned ips
@@ -499,25 +505,14 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	return shouldCleanLog
 }
 
-func (j *CheckClientIpJob) banIpsWithFail2Ban(ips []string) {
-	if runtime.GOOS == "windows" || len(ips) == 0 {
-		return
-	}
-	if _, err := exec.LookPath("fail2ban-client"); err != nil {
-		return
-	}
-	for _, ip := range ips {
-		if err := exec.Command("fail2ban-client", "set", "3x-ipl", "banip", ip).Run(); err != nil {
-			logger.Warningf("[LIMIT_IP] Failed to ban IP %s with fail2ban: %v", ip, err)
-		}
-	}
-}
-
 func (j *CheckClientIpJob) sendIPLimitCutoffNotify(clientEmail string, inbound *model.Inbound, limitIp int, keptLive, bannedLive []IPWithTimestamp) {
 	if len(bannedLive) == 0 {
 		return
 	}
-	j.tgbotService.SendMsgToTgbotAdmins(buildIPLimitCutoffNotifyMessage(clientEmail, inbound, limitIp, keptLive, bannedLive, time.Now()))
+	j.tgbotService.SendMsgToTgbotAdmins(
+		buildIPLimitCutoffNotifyMessage(clientEmail, inbound, limitIp, keptLive, bannedLive, time.Now()),
+		j.buildIPLimitCutoffKeyboard(clientEmail, inbound.Port, bannedLive),
+	)
 }
 
 func buildIPLimitCutoffNotifyMessage(clientEmail string, inbound *model.Inbound, limitIp int, keptLive, bannedLive []IPWithTimestamp, now time.Time) string {
@@ -553,6 +548,27 @@ func formatIPLimitNotifyIPs(ips []IPWithTimestamp) string {
 		parts = append(parts, ipTime.IP)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func (j *CheckClientIpJob) buildIPLimitCutoffKeyboard(clientEmail string, port int, bannedLive []IPWithTimestamp) telego.ReplyMarkup {
+	if len(bannedLive) == 0 {
+		return nil
+	}
+	ip := bannedLive[0].IP
+	portText := fmt.Sprint(port)
+	return tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("临时解封 1 小时").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 1")),
+			tu.InlineKeyboardButton("临时解封 6 小时").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 6")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("临时解封 24 小时").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 24")),
+			tu.InlineKeyboardButton("解除封禁").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 0")),
+		),
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("手动封禁").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_ban "+clientEmail+" "+ip+" "+portText)),
+		),
+	)
 }
 
 // disconnectClientTemporarily removes and re-adds a client to force disconnect banned connections

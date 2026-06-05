@@ -3755,6 +3755,11 @@ func (s *ClientService) ResetClientIpLimitByEmail(inboundSvc *InboundService, cl
 	}
 	inbound.Settings = string(modifiedSettings)
 	needRestart, err := s.UpdateInboundClient(inboundSvc, inbound, clientId)
+	if err == nil && count <= 0 {
+		if unbanErr := inboundSvc.UnbanClientIPLimitByEmail(clientEmail); unbanErr != nil {
+			logger.Warningf("failed to unban IP limit entries for %s after disabling limit: %v", clientEmail, unbanErr)
+		}
+	}
 	return needRestart, err
 }
 

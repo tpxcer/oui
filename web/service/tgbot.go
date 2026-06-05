@@ -440,8 +440,16 @@ func (t *Tgbot) encodeQuery(query string) string {
 	if len(query) <= 64 {
 		return query
 	}
+	if hashStorage == nil {
+		return query
+	}
 
 	return hashStorage.SaveHash(query)
+}
+
+// EncodeQuery prepares Telegram callback data and stores long payloads in hash storage.
+func (t *Tgbot) EncodeQuery(query string) string {
+	return t.encodeQuery(query)
 }
 
 // decodeQuery decodes a hashed query string back to its original form.
@@ -1595,6 +1603,33 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 			case "ips_cancel":
 				t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.canceled", "Email=="+email))
 				t.searchClientIps(chatId, email, callbackQuery.Message.GetMessageID())
+			case "iplimit_unban":
+				if len(dataArray) < 5 {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				port, err := strconv.Atoi(dataArray[3])
+				if err != nil || port <= 0 || port > 65535 {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				hours, err := strconv.Atoi(dataArray[4])
+				if err != nil || hours < 0 {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				t.handleIPLimitUnbanCallback(callbackQuery.ID, email, dataArray[2], port, hours)
+			case "iplimit_ban":
+				if len(dataArray) < 4 {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				port, err := strconv.Atoi(dataArray[3])
+				if err != nil || port <= 0 || port > 65535 {
+					t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.errorOperation"))
+					return
+				}
+				t.handleIPLimitBanCallback(callbackQuery.ID, email, dataArray[2], port)
 			case "tgid_refresh":
 				t.sendCallbackAnswerTgBot(callbackQuery.ID, t.I18nBot("tgbot.answers.TGIdRefreshSuccess", "Email=="+email))
 				t.clientTelegramUserInfo(chatId, email, callbackQuery.Message.GetMessageID())
@@ -4532,6 +4567,82 @@ func (t *Tgbot) sendBanLogs(chatId int64, dt bool) {
 	} else {
 		logger.Error("Error in opening IPLimitBannedLog file for backup: ", err)
 	}
+}
+
+func (t *Tgbot) handleIPLimitUnbanCallback(callbackID, email, ip string, port int, hours int) {
+	if err := t.inboundService.UnbanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
+		t.sendCallbackAnswerTgBot(callbackID, "解除封禁失败")
+		t.SendMsgToTgbotAdmins(fmt.Sprintf(
+			"💎 <b>OUI 用户通知</b>\n"+
+				"⚠️ <b>解除 IP 封禁失败</b>\n"+
+				"📧 用户/节点：<code>%s</code>\n"+
+				"🔌 端口：<code>%d</code>\n"+
+				"🌐 IP：<code>%s</code>\n"+
+				"❌ 错误：<code>%s</code>",
+			html.EscapeString(email),
+			port,
+			html.EscapeString(ip),
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
+
+	if hours > 0 {
+		duration := time.Duration(hours) * time.Hour
+		time.AfterFunc(duration, func() {
+			if err := t.inboundService.BanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
+				t.SendMsgToTgbotAdmins(fmt.Sprintf(
+					"💎 <b>OUI 用户通知</b>\n"+
+						"⚠️ <b>临时解封到期后重新封禁失败</b>\n"+
+						"📧 用户/节点：<code>%s</code>\n"+
+						"🔌 端口：<code>%d</code>\n"+
+						"🌐 IP：<code>%s</code>\n"+
+						"❌ 错误：<code>%s</code>",
+					html.EscapeString(email),
+					port,
+					html.EscapeString(ip),
+					html.EscapeString(err.Error()),
+				))
+				return
+			}
+			t.SendMsgToTgbotAdmins(fmt.Sprintf(
+				"💎 <b>OUI 用户通知</b>\n"+
+					"⛔ <b>临时解封已到期，已重新封禁</b>\n"+
+					"📧 用户/节点：<code>%s</code>\n"+
+					"🔌 端口：<code>%d</code>\n"+
+					"🌐 IP：<code>%s</code>\n"+
+					"⏰ 时间：<code>%s</code>",
+				html.EscapeString(email),
+				port,
+				html.EscapeString(ip),
+				time.Now().Format("2006-01-02 15:04:05"),
+			))
+		})
+		t.sendCallbackAnswerTgBot(callbackID, fmt.Sprintf("已临时解封 %d 小时", hours))
+		return
+	}
+
+	t.sendCallbackAnswerTgBot(callbackID, "已解除封禁")
+}
+
+func (t *Tgbot) handleIPLimitBanCallback(callbackID, email, ip string, port int) {
+	if err := t.inboundService.BanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
+		t.sendCallbackAnswerTgBot(callbackID, "手动封禁失败")
+		t.SendMsgToTgbotAdmins(fmt.Sprintf(
+			"💎 <b>OUI 用户通知</b>\n"+
+				"⚠️ <b>手动封禁失败</b>\n"+
+				"📧 用户/节点：<code>%s</code>\n"+
+				"🔌 端口：<code>%d</code>\n"+
+				"🌐 IP：<code>%s</code>\n"+
+				"❌ 错误：<code>%s</code>",
+			html.EscapeString(email),
+			port,
+			html.EscapeString(ip),
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
+	t.sendCallbackAnswerTgBot(callbackID, "已写入封禁")
 }
 
 // sendCallbackAnswerTgBot answers a callback query with a message.

@@ -1798,6 +1798,42 @@ ip_validation() {
     ipv4_regex="^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]?|0)$"
 }
 
+reset_iplimit_firewall_chain() {
+    for table_cmd in iptables ip6tables; do
+        if ! command -v "${table_cmd}" > /dev/null 2>&1; then
+            continue
+        fi
+        "${table_cmd}" -N f2b-3x-ipl > /dev/null 2>&1 || true
+        "${table_cmd}" -F f2b-3x-ipl > /dev/null 2>&1 || true
+        "${table_cmd}" -C INPUT -p tcp -j f2b-3x-ipl > /dev/null 2>&1 || \
+            "${table_cmd}" -I INPUT -p tcp -j f2b-3x-ipl > /dev/null 2>&1 || true
+    done
+}
+
+ensure_iplimit_firewall_chain() {
+    local table_cmd="$1"
+    if ! command -v "${table_cmd}" > /dev/null 2>&1; then
+        return
+    fi
+    "${table_cmd}" -N f2b-3x-ipl > /dev/null 2>&1 || true
+    "${table_cmd}" -C INPUT -p tcp -j f2b-3x-ipl > /dev/null 2>&1 || \
+        "${table_cmd}" -I INPUT -p tcp -j f2b-3x-ipl > /dev/null 2>&1 || true
+}
+
+delete_iplimit_legacy_allports_rule() {
+    local table_cmd="$1"
+    local ip="$2"
+    if ! command -v "${table_cmd}" > /dev/null 2>&1; then
+        return
+    fi
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j REJECT > /dev/null 2>&1; do :; done
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j DROP > /dev/null 2>&1; do :; done
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j REJECT --reject-with icmp-port-unreachable > /dev/null 2>&1; do :; done
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j REJECT --reject-with tcp-reset > /dev/null 2>&1; do :; done
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j REJECT --reject-with icmp6-port-unreachable > /dev/null 2>&1; do :; done
+    while "${table_cmd}" -D f2b-3x-ipl -s "$ip" -j REJECT --reject-with icmp6-adm-prohibited > /dev/null 2>&1; do :; done
+}
+
 iplimit_main() {
     echo -e "\n${green}\t1.${plain} Install Fail2ban and configure IP Limit"
     echo -e "${green}\t2.${plain} Change Ban Duration"
@@ -1855,23 +1891,39 @@ iplimit_main() {
             ;;
         5)
             read -rp "Enter the IP address you want to ban: " ban_ip
+            read -rp "Enter the inbound port to ban: " ban_port
             ip_validation
-            if [[ $ban_ip =~ $ipv4_regex || $ban_ip =~ $ipv6_regex ]]; then
-                fail2ban-client set 3x-ipl banip "$ban_ip"
-                echo -e "${green}IP Address ${ban_ip} has been banned successfully.${plain}"
+            if [[ ($ban_ip =~ $ipv4_regex || $ban_ip =~ $ipv6_regex) && $ban_port =~ ^[0-9]+$ ]]; then
+                echo "$(date +"%Y/%m/%d %H:%M:%S") [LIMIT_IP] Email = manual || Port = ${ban_port} || Disconnecting OLD IP = ${ban_ip} || Timestamp = $(date +%s)" >> "${iplimit_log_path}"
+                table_cmd="iptables"
+                [[ "$ban_ip" == *:* ]] && table_cmd="ip6tables"
+                if command -v "${table_cmd}" > /dev/null 2>&1; then
+                    ensure_iplimit_firewall_chain "${table_cmd}"
+                    delete_iplimit_legacy_allports_rule "${table_cmd}" "$ban_ip"
+                    "${table_cmd}" -C f2b-3x-ipl -s "$ban_ip" -p tcp --dport "$ban_port" -j REJECT > /dev/null 2>&1 || \
+                        "${table_cmd}" -I f2b-3x-ipl 1 -s "$ban_ip" -p tcp --dport "$ban_port" -j REJECT > /dev/null 2>&1 || true
+                fi
+                echo -e "${green}IP Address ${ban_ip} has been queued for port ${ban_port}.${plain}"
             else
-                echo -e "${red}Invalid IP address format! Please try again.${plain}"
+                echo -e "${red}Invalid IP address or port format! Please try again.${plain}"
             fi
             iplimit_main
             ;;
         6)
             read -rp "Enter the IP address you want to unban: " unban_ip
+            read -rp "Enter the inbound port to unban: " unban_port
             ip_validation
-            if [[ $unban_ip =~ $ipv4_regex || $unban_ip =~ $ipv6_regex ]]; then
-                fail2ban-client set 3x-ipl unbanip "$unban_ip"
-                echo -e "${green}IP Address ${unban_ip} has been unbanned successfully.${plain}"
+            if [[ ($unban_ip =~ $ipv4_regex || $unban_ip =~ $ipv6_regex) && $unban_port =~ ^[0-9]+$ ]]; then
+                fail2ban-client set 3x-ipl unbanip "$unban_ip" > /dev/null 2>&1 || true
+                table_cmd="iptables"
+                [[ "$unban_ip" == *:* ]] && table_cmd="ip6tables"
+                if command -v "${table_cmd}" > /dev/null 2>&1; then
+                    while "${table_cmd}" -D f2b-3x-ipl -s "$unban_ip" -p tcp --dport "$unban_port" -j REJECT > /dev/null 2>&1; do :; done
+                    delete_iplimit_legacy_allports_rule "${table_cmd}" "$unban_ip"
+                fi
+                echo -e "${green}IP Address ${unban_ip} has been unbanned on port ${unban_port}.${plain}"
             else
-                echo -e "${red}Invalid IP address format! Please try again.${plain}"
+                echo -e "${red}Invalid IP address or port format! Please try again.${plain}"
             fi
             iplimit_main
             ;;
@@ -2001,6 +2053,7 @@ install_iplimit() {
         fi
         systemctl enable fail2ban
     fi
+    reset_iplimit_firewall_chain
 
     echo -e "${green}IP Limit installed and configured successfully!${plain}\n"
     if [[ "$1" == "0" || "$1" == "--no-menu" ]]; then
@@ -2132,7 +2185,7 @@ create_iplimit_jails() {
 enabled=true
 backend=auto
 filter=3x-ipl
-action=3x-ipl
+action=dummy
 logpath=${iplimit_log_path}
 maxretry=1
 findtime=32
@@ -2142,35 +2195,22 @@ EOF
     cat << EOF > /etc/fail2ban/filter.d/3x-ipl.conf
 [Definition]
 datepattern = ^%%Y/%%m/%%d %%H:%%M:%%S
-failregex   = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*Disconnecting OLD IP\s*=\s*<ADDR>\s*\|\|\s*Timestamp\s*=\s*\d+
+failregex   = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*Port\s*=\s*(?P<port>\d+)\s*\|\|\s*Disconnecting OLD IP\s*=\s*<ADDR>\s*\|\|\s*Timestamp\s*=\s*\d+
 ignoreregex =
 EOF
 
     cat << EOF > /etc/fail2ban/action.d/3x-ipl.conf
-[INCLUDES]
-before = iptables-allports.conf
-
 [Definition]
-actionstart = <iptables> -N f2b-<name>
-              <iptables> -A f2b-<name> -j <returntype>
-              <iptables> -I <chain> -p <protocol> -j f2b-<name>
+actionstart =
+actionstop =
+actioncheck =
 
-actionstop = <iptables> -D <chain> -p <protocol> -j f2b-<name>
-             <actionflush>
-             <iptables> -X f2b-<name>
+actionban = echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [Email] = <F-USER> [IP] = <ip> observed by Fail2Ban; firewall rule is managed by OUI." >> ${iplimit_banned_log_path}
 
-actioncheck = <iptables> -n -L <chain> | grep -q 'f2b-<name>[ \t]'
-
-actionban = <iptables> -I f2b-<name> 1 -s <ip> -j <blocktype>
-            echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [Email] = <F-USER> [IP] = <ip> banned for <bantime> seconds." >> ${iplimit_banned_log_path}
-
-actionunban = <iptables> -D f2b-<name> -s <ip> -j <blocktype>
-              echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [Email] = <F-USER> [IP] = <ip> unbanned." >> ${iplimit_banned_log_path}
+actionunban = echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [Email] = <F-USER> [IP] = <ip> released by Fail2Ban." >> ${iplimit_banned_log_path}
 
 [Init]
 name = default
-protocol = tcp
-chain = INPUT
 EOF
 
     echo -e "${green}Ip Limit jail files created with a bantime of ${bantime} minutes.${plain}"

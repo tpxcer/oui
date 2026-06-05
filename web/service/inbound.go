@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -3000,6 +3004,10 @@ func (s *InboundService) GetInboundClientIps(clientEmail string) (string, error)
 func (s *InboundService) ClearClientIps(clientEmail string) error {
 	db := database.GetDB()
 
+	if err := s.UnbanClientIPLimitByEmail(clientEmail); err != nil {
+		logger.Warningf("failed to unban IP limit entries for %s: %v", clientEmail, err)
+	}
+
 	result := db.Model(model.InboundClientIps{}).
 		Where("client_email = ?", clientEmail).
 		Update("ips", "")
@@ -3008,6 +3016,152 @@ func (s *InboundService) ClearClientIps(clientEmail string) error {
 		return err
 	}
 	return nil
+}
+
+type ipLimitBanTarget struct {
+	IP   string
+	Port int
+}
+
+func (s *InboundService) BanClientIPLimitByEmailAndIP(clientEmail, ip string, port int) error {
+	if netIP := net.ParseIP(ip); netIP == nil {
+		return fmt.Errorf("invalid IP address: %s", ip)
+	}
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+
+	logIpFile, err := os.OpenFile(xray.GetIPLimitLogPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer logIpFile.Close()
+
+	_, err = fmt.Fprintf(logIpFile, "%s [LIMIT_IP] Email = %s || Port = %d || Disconnecting OLD IP = %s || Timestamp = %d\n",
+		time.Now().Format("2006/01/02 15:04:05"),
+		clientEmail,
+		port,
+		ip,
+		time.Now().Unix(),
+	)
+	if err != nil {
+		return err
+	}
+	if err := BanIPLimitPort(ip, port); err != nil {
+		return err
+	}
+	AppendIPLimitBanLog("BAN", clientEmail, ip, port, "manual firewall rule")
+	return nil
+}
+
+func (s *InboundService) UnbanClientIPLimitByEmail(clientEmail string) error {
+	targets := s.ipLimitBannedTargetsForEmail(clientEmail)
+	if len(targets) == 0 {
+		return nil
+	}
+
+	var errs []string
+	for _, target := range targets {
+		if err := s.UnbanClientIPLimitByEmailAndIP(clientEmail, target.IP, target.Port); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (s *InboundService) UnbanClientIPLimitByEmailAndIP(clientEmail, ip string, port int) error {
+	if netIP := net.ParseIP(ip); netIP == nil {
+		return fmt.Errorf("invalid IP address: %s", ip)
+	}
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("invalid port: %d", port)
+	}
+	if unbanErr := UnbanIPLimitPort(ip, port); unbanErr != nil {
+		return unbanErr
+	}
+	AppendIPLimitBanLog("UNBAN", clientEmail, ip, port, "manual firewall rule")
+
+	if _, err := exec.LookPath("fail2ban-client"); err != nil {
+		return nil
+	}
+
+	cmd := exec.Command("fail2ban-client", "set", "3x-ipl", "unbanip", ip)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		out := strings.TrimSpace(string(output))
+		if strings.Contains(out, "is not banned") || strings.Contains(out, "not banned") {
+			return nil
+		}
+		if out != "" {
+			return fmt.Errorf("unban %s for %s: %w: %s", ip, clientEmail, err, out)
+		}
+		return fmt.Errorf("unban %s for %s: %w", ip, clientEmail, err)
+	}
+	return nil
+}
+
+func (s *InboundService) ipLimitBannedTargetsForEmail(clientEmail string) []ipLimitBanTarget {
+	targets := make(map[string]ipLimitBanTarget)
+	addTarget := func(ip string, port int) {
+		if ip == "" || port <= 0 || port > 65535 {
+			return
+		}
+		key := fmt.Sprintf("%s/%d", ip, port)
+		targets[key] = ipLimitBanTarget{IP: ip, Port: port}
+	}
+
+	defaultPort := 0
+	if _, inbound, err := s.GetClientInboundByEmail(clientEmail); err == nil && inbound != nil {
+		defaultPort = inbound.Port
+	}
+
+	db := database.GetDB()
+	row := &model.InboundClientIps{}
+	if err := db.Model(model.InboundClientIps{}).Where("client_email = ?", clientEmail).First(row).Error; err == nil && row.Ips != "" {
+		type ipWithTimestamp struct {
+			IP string `json:"ip"`
+		}
+		var recent []ipWithTimestamp
+		if json.Unmarshal([]byte(row.Ips), &recent) == nil {
+			for _, item := range recent {
+				addTarget(item.IP, defaultPort)
+			}
+		}
+	}
+
+	linePort := regexp.MustCompile(`Port\s*=\s*(\d+)`)
+	lineIP := regexp.MustCompile(`(?:Disconnecting OLD IP|IP)\s*=\s*([0-9a-fA-F:.]+)`)
+	for _, path := range []string{xray.GetIPLimitLogPath(), xray.GetIPLimitBannedLogPath()} {
+		body, err := os.ReadFile(path)
+		if err != nil || len(body) == 0 {
+			continue
+		}
+		pattern := regexp.MustCompile(`Email\s*=\s*` + regexp.QuoteMeta(clientEmail) + `(?:\s|\])|Email\s*=\s*` + regexp.QuoteMeta(clientEmail) + `\s*\|\|`)
+		for _, line := range strings.Split(string(body), "\n") {
+			if !pattern.MatchString(line) {
+				continue
+			}
+			ipMatches := lineIP.FindStringSubmatch(line)
+			if len(ipMatches) < 2 {
+				continue
+			}
+			port := defaultPort
+			if portMatches := linePort.FindStringSubmatch(line); len(portMatches) >= 2 {
+				if parsed, err := strconv.Atoi(portMatches[1]); err == nil {
+					port = parsed
+				}
+			}
+			addTarget(ipMatches[1], port)
+		}
+	}
+
+	result := make([]ipLimitBanTarget, 0, len(targets))
+	for _, target := range targets {
+		result = append(result, target)
+	}
+	return result
 }
 
 func (s *InboundService) SearchInbounds(query string) ([]*model.Inbound, error) {

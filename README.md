@@ -140,9 +140,9 @@ OUI 支持按客户端限制可使用的 IP 数量。客户端配置中的 `IP L
 - 将超限 IP 写入 `/var/log/x-ui/3xipl.log`。
 - 临时移除并重新添加该客户端，迫使现有连接断开。
 - 如果 Telegram 机器人已配置管理员通知，会发送“超出 IP 上限，已掐断”的提醒。
-- 如果系统已启用 Fail2Ban 的 `3x-ipl` jail，会立即把超限 IP 加入防火墙封禁。
+- OUI 会只针对当前入站端口写入防火墙规则，不封整台 VPS，也不影响同一 IP 访问面板、SSH 或其它节点端口。
 
-安装脚本和更新脚本会自动尝试配置 Fail2Ban/IP Limit jail。自动配置会创建或更新这些文件：
+安装脚本和更新脚本会自动尝试配置 IP Limit 所需的 Fail2Ban 监控和 `f2b-3x-ipl` 防火墙链。自动配置会创建或更新这些文件：
 
 ```text
 /etc/fail2ban/jail.d/3x-ipl.conf
@@ -177,7 +177,7 @@ tail -f /var/log/x-ui/3xipl-banned.log
 export XUI_SKIP_IPLIMIT_SETUP=true
 ```
 
-注意：OUI 程序本身可以识别超限 IP 并断开客户端连接；防火墙级封禁依赖 Fail2Ban 和 `3x-ipl` jail 正常运行。若服务器使用云厂商安全组，还需要确认业务端口允许正常访问，面板端口按需限制来源。
+注意：OUI 程序本身负责识别超限 IP、断开客户端并写入端口级防火墙规则；Fail2Ban 仅作为日志监控和辅助状态组件，不再执行全端口封禁。若服务器使用云厂商安全组，还需要确认业务端口允许正常访问，面板端口按需限制来源。
 
 ## 快速安装
 
