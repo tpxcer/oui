@@ -65,7 +65,7 @@ var (
 
 const (
 	onlineNotifyConfirmWindow = 5 * time.Minute
-	onlineNotifyMinTraffic    = int64(5 * 1024 * 1024)
+	onlineNotifyMinTraffic    = int64(1 * 1024 * 1024)
 )
 
 // NewXrayTrafficJob creates a new traffic collection job instance.

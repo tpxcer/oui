@@ -20,7 +20,7 @@ func resetOnlineNotifySessions(t *testing.T) {
 	})
 }
 
-func TestOnlineNotifyRequiresFiveMiBWithinFiveMinutes(t *testing.T) {
+func TestOnlineNotifyRequiresOneMiBWithinFiveMinutes(t *testing.T) {
 	resetOnlineNotifySessions(t)
 
 	now := time.Unix(1000, 0)
@@ -43,8 +43,20 @@ func TestOnlineNotifyRequiresFiveMiBWithinFiveMinutes(t *testing.T) {
 
 	traffic["client@example.com"] = &xray.ClientTraffic{
 		Email: "client@example.com",
-		Up:    3 * 1024 * 1024,
-		Down:  3 * 1024 * 1024,
+		Up:    512 * 1024,
+		Down:  256 * 1024,
+	}
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(2*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions below 1MiB threshold = %#v/%#v, want none", online, offline)
+	}
+
+	traffic["client@example.com"] = &xray.ClientTraffic{
+		Email: "client@example.com",
+		Up:    768 * 1024,
+		Down:  512 * 1024,
 	}
 	onlineNotifyMu.Lock()
 	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(4*time.Minute))
