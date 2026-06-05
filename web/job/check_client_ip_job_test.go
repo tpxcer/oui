@@ -3,6 +3,7 @@ package job
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestMergeClientIps_EvictsStaleOldEntries(t *testing.T) {
@@ -142,5 +143,48 @@ func TestPartitionLiveIps_EmptyScanLeavesDbIntact(t *testing.T) {
 	}
 	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"A", "B"}) {
 		t.Fatalf("all merged entries should flow to historical\ngot:  %v\nwant: [A B]", got)
+	}
+}
+
+func TestSelectIPLimitExcess_FreshHistoricalIpReservesSlot(t *testing.T) {
+	ipMap := map[string]int64{
+		"10.0.0.1":  1000,
+		"192.0.2.9": 2000,
+	}
+	live := []IPWithTimestamp{
+		{IP: "192.0.2.9", Timestamp: 2000},
+	}
+
+	kept, banned := selectIPLimitExcess(ipMap, live, 1)
+
+	if len(kept) != 0 {
+		t.Fatalf("new live ip should not be kept while the original ip still reserves the only slot: %v", kept)
+	}
+	if got := collectIps(banned); !reflect.DeepEqual(got, []string{"192.0.2.9"}) {
+		t.Fatalf("new live ip should be banned\ngot:  %v\nwant: [192.0.2.9]", got)
+	}
+}
+
+func TestBuildIPLimitCutoffNotifyMessage(t *testing.T) {
+	msg := buildIPLimitCutoffNotifyMessage(
+		"user@example.com",
+		nil,
+		1,
+		[]IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}},
+		[]IPWithTimestamp{{IP: "192.0.2.9", Timestamp: 2000}},
+		time.Date(2026, 6, 5, 9, 8, 7, 0, time.Local),
+	)
+
+	for _, want := range []string{
+		"超出 IP 上限，已掐断",
+		"用户/节点：<code>user@example.com</code>",
+		"IP 限制：<code>1</code>",
+		"保留 IP：<code>10.0.0.1</code>",
+		"掐断 IP：<code>192.0.2.9</code>",
+		"2026-06-05 09:08:07",
+	} {
+		if !contains(msg, want) {
+			t.Fatalf("notification message missing %q\nfull message:\n%s", want, msg)
+		}
 	}
 }

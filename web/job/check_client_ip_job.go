@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html"
 	"io"
 	"log"
 	"os"
@@ -11,11 +13,13 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/database"
 	"github.com/mhsanaei/3x-ui/v3/database/model"
 	"github.com/mhsanaei/3x-ui/v3/logger"
+	"github.com/mhsanaei/3x-ui/v3/web/service"
 	"github.com/mhsanaei/3x-ui/v3/xray"
 )
 
@@ -29,6 +33,7 @@ type IPWithTimestamp struct {
 type CheckClientIpJob struct {
 	lastClear     int64
 	disAllowedIps []string
+	tgbotService  service.Tgbot
 }
 
 var job *CheckClientIpJob
@@ -77,13 +82,10 @@ func (j *CheckClientIpJob) Run() {
 			}
 		} else {
 			if iplimitActive {
-				if f2bInstalled {
-					shouldClearAccessLog = j.processLogFile()
-				} else {
-					if !f2bInstalled {
-						logger.Warning("[LimitIP] Fail2Ban is not installed, Please install Fail2Ban from the x-ui bash menu.")
-					}
+				if !f2bInstalled {
+					logger.Warning("[LimitIP] Fail2Ban is not installed, IP limit can disconnect users but cannot firewall-ban excess IPs.")
 				}
+				shouldClearAccessLog = j.processLogFile()
 			}
 		}
 	}
@@ -280,6 +282,41 @@ func partitionLiveIps(ipMap map[string]int64, observedThisScan map[string]bool) 
 	return live, historical
 }
 
+func sortedIps(ipMap map[string]int64) []IPWithTimestamp {
+	ips := make([]IPWithTimestamp, 0, len(ipMap))
+	for ip, ts := range ipMap {
+		ips = append(ips, IPWithTimestamp{IP: ip, Timestamp: ts})
+	}
+	sort.Slice(ips, func(i, k int) bool { return ips[i].Timestamp < ips[k].Timestamp })
+	return ips
+}
+
+func selectIPLimitExcess(ipMap map[string]int64, liveIps []IPWithTimestamp, limitIp int) (keptLive, bannedLive []IPWithTimestamp) {
+	if limitIp <= 0 {
+		return liveIps, nil
+	}
+
+	allIps := sortedIps(ipMap)
+	if len(allIps) <= limitIp {
+		return liveIps, nil
+	}
+
+	protected := make(map[string]bool, limitIp)
+	for _, ipTime := range allIps[:limitIp] {
+		protected[ipTime.IP] = true
+	}
+
+	for _, ipTime := range liveIps {
+		if protected[ipTime.IP] {
+			keptLive = append(keptLive, ipTime)
+		} else {
+			bannedLive = append(bannedLive, ipTime)
+		}
+	}
+
+	return keptLive, bannedLive
+}
+
 func (j *CheckClientIpJob) checkFail2BanInstalled() bool {
 	cmd := "fail2ban-client"
 	args := []string{"-h"}
@@ -403,14 +440,11 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	shouldCleanLog := false
 	j.disAllowedIps = []string{}
 
-	// historical db-only ips are excluded from this count on purpose.
 	var keptLive []IPWithTimestamp
-	if len(liveIps) > limitIp {
+	var bannedLive []IPWithTimestamp
+	keptLive, bannedLive = selectIPLimitExcess(ipMap, liveIps, limitIp)
+	if len(bannedLive) > 0 {
 		shouldCleanLog = true
-
-		// protect the oldest live ip, ban newcomers.
-		keptLive = liveIps[:limitIp]
-		bannedLive := liveIps[limitIp:]
 
 		// Open log file only when a ban entry needs to be written.
 		// Use a local logger to avoid mutating the global log.* state,
@@ -432,6 +466,9 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 			j.disAllowedIps = append(j.disAllowedIps, ipTime.IP)
 			ipLogger.Printf("[LIMIT_IP] Email = %s || Disconnecting OLD IP = %s || Timestamp = %d", clientEmail, ipTime.IP, ipTime.Timestamp)
 		}
+
+		j.banIpsWithFail2Ban(j.disAllowedIps)
+		j.sendIPLimitCutoffNotify(clientEmail, inbound, limitIp, keptLive, bannedLive)
 
 		// force xray to drop existing connections from banned ips
 		j.disconnectClientTemporarily(inbound, clientEmail, clients)
@@ -460,6 +497,62 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	}
 
 	return shouldCleanLog
+}
+
+func (j *CheckClientIpJob) banIpsWithFail2Ban(ips []string) {
+	if runtime.GOOS == "windows" || len(ips) == 0 {
+		return
+	}
+	if _, err := exec.LookPath("fail2ban-client"); err != nil {
+		return
+	}
+	for _, ip := range ips {
+		if err := exec.Command("fail2ban-client", "set", "3x-ipl", "banip", ip).Run(); err != nil {
+			logger.Warningf("[LIMIT_IP] Failed to ban IP %s with fail2ban: %v", ip, err)
+		}
+	}
+}
+
+func (j *CheckClientIpJob) sendIPLimitCutoffNotify(clientEmail string, inbound *model.Inbound, limitIp int, keptLive, bannedLive []IPWithTimestamp) {
+	if len(bannedLive) == 0 {
+		return
+	}
+	j.tgbotService.SendMsgToTgbotAdmins(buildIPLimitCutoffNotifyMessage(clientEmail, inbound, limitIp, keptLive, bannedLive, time.Now()))
+}
+
+func buildIPLimitCutoffNotifyMessage(clientEmail string, inbound *model.Inbound, limitIp int, keptLive, bannedLive []IPWithTimestamp, now time.Time) string {
+	remark := ""
+	if inbound != nil {
+		remark = inbound.Remark
+	}
+
+	return fmt.Sprintf(
+		"💎 <b>OUI 用户通知</b>\n"+
+			"⛔ <b>超出 IP 上限，已掐断</b>\n"+
+			"📧 用户/节点：<code>%s</code>\n"+
+			"🧩 节点名称：<code>%s</code>\n"+
+			"🔢 IP 限制：<code>%d</code>\n"+
+			"✅ 保留 IP：<code>%s</code>\n"+
+			"🚫 掐断 IP：<code>%s</code>\n"+
+			"⏰ 时间：<code>%s</code>",
+		html.EscapeString(clientEmail),
+		html.EscapeString(remark),
+		limitIp,
+		html.EscapeString(formatIPLimitNotifyIPs(keptLive)),
+		html.EscapeString(formatIPLimitNotifyIPs(bannedLive)),
+		now.Format("2006-01-02 15:04:05"),
+	)
+}
+
+func formatIPLimitNotifyIPs(ips []IPWithTimestamp) string {
+	if len(ips) == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(ips))
+	for _, ipTime := range ips {
+		parts = append(parts, ipTime.IP)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // disconnectClientTemporarily removes and re-adds a client to force disconnect banned connections
@@ -492,7 +585,7 @@ func (j *CheckClientIpJob) disconnectClientTemporarily(inbound *model.Inbound, c
 	// Only perform remove/re-add for protocols supported by XrayAPI.AddUser
 	protocol := string(inbound.Protocol)
 	switch protocol {
-	case "vmess", "vless", "trojan", "shadowsocks":
+	case "vmess", "vless", "trojan", "shadowsocks", "hysteria":
 		// supported protocols, continue
 	default:
 		logger.Warningf("[LIMIT_IP] Temporary disconnect is not supported for protocol %s on inbound %s", protocol, inbound.Tag)

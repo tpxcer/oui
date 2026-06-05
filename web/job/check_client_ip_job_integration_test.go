@@ -128,53 +128,50 @@ func ipSet(entries []IPWithTimestamp) map[string]int64 {
 	return out
 }
 
-// #4091 repro: client has limit=3, db still holds 3 idle ips from a
-// few minutes ago, only one live ip is actually connecting. pre-fix:
-// live ip got banned every tick and never appeared in the panel.
-// post-fix: no ban, live ip persisted, historical ips still visible.
-func TestUpdateInboundClientIps_LiveIpNotBannedByStillFreshHistoricals(t *testing.T) {
+// A fresh historical IP still reserves one of the configured IP slots.
+// With limit=1, a different IP that appears later is the newcomer and
+// must be banned even if the original IP did not emit a log line in the
+// same scan.
+func TestUpdateInboundClientIps_NewIpBannedByFreshHistoricalOriginal(t *testing.T) {
 	setupIntegrationDB(t)
 
-	const email = "pr4091-repro"
-	seedInboundWithClient(t, "inbound-pr4091", email, 3)
+	const email = "ip-limit-one"
+	seedInboundWithClient(t, "inbound-ip-limit-one", email, 1)
 
 	now := time.Now().Unix()
-	// idle but still within the 30min staleness window.
 	row := seedClientIps(t, email, []IPWithTimestamp{
-		{IP: "10.0.0.1", Timestamp: now - 20*60},
-		{IP: "10.0.0.2", Timestamp: now - 15*60},
-		{IP: "10.0.0.3", Timestamp: now - 10*60},
+		{IP: "10.0.0.1", Timestamp: now - 10*60},
 	})
 
 	j := NewCheckClientIpJob()
-	// the one that's actually connecting (user's 128.71.x.x).
 	live := []IPWithTimestamp{
-		{IP: "128.71.1.1", Timestamp: now},
+		{IP: "192.0.2.9", Timestamp: now},
 	}
 
 	shouldCleanLog := j.updateInboundClientIps(row, email, live)
 
-	if shouldCleanLog {
-		t.Fatalf("shouldCleanLog must be false, nothing should have been banned with 1 live ip under limit 3")
+	if !shouldCleanLog {
+		t.Fatalf("shouldCleanLog must be true when a new IP exceeds the configured limit")
 	}
-	if len(j.disAllowedIps) != 0 {
-		t.Fatalf("disAllowedIps must be empty, got %v", j.disAllowedIps)
+	if len(j.disAllowedIps) != 1 || j.disAllowedIps[0] != "192.0.2.9" {
+		t.Fatalf("expected 192.0.2.9 to be banned; disAllowedIps = %v", j.disAllowedIps)
 	}
 
 	persisted := ipSet(readClientIps(t, email))
-	for _, want := range []string{"128.71.1.1", "10.0.0.1", "10.0.0.2", "10.0.0.3"} {
-		if _, ok := persisted[want]; !ok {
-			t.Errorf("expected %s to be persisted in inbound_client_ips.ips; got %v", want, persisted)
-		}
+	if _, ok := persisted["10.0.0.1"]; !ok {
+		t.Errorf("original IP 10.0.0.1 must still be persisted; got %v", persisted)
 	}
-	if got := persisted["128.71.1.1"]; got != now {
-		t.Errorf("live ip timestamp should match the scan timestamp %d, got %d", now, got)
+	if _, ok := persisted["192.0.2.9"]; ok {
+		t.Errorf("banned IP 192.0.2.9 must NOT be persisted; got %v", persisted)
 	}
 
-	// 3xipl.log must not contain a ban line.
-	if info, err := os.Stat(readIpLimitLogPath()); err == nil && info.Size() > 0 {
-		body, _ := os.ReadFile(readIpLimitLogPath())
-		t.Fatalf("3xipl.log should be empty when no ips are banned, got:\n%s", body)
+	body, err := os.ReadFile(readIpLimitLogPath())
+	if err != nil {
+		t.Fatalf("read 3xipl.log: %v", err)
+	}
+	wantSubstr := "[LIMIT_IP] Email = ip-limit-one || Disconnecting OLD IP = 192.0.2.9"
+	if !contains(string(body), wantSubstr) {
+		t.Fatalf("3xipl.log missing expected ban line %q\nfull log:\n%s", wantSubstr, body)
 	}
 }
 
