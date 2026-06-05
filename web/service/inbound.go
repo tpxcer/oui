@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -3107,63 +3106,15 @@ func (s *InboundService) unbanClientIPLimitByEmailAndIP(clientEmail, ip string, 
 }
 
 func (s *InboundService) ipLimitBannedTargetsForEmail(clientEmail string) []ipLimitBanTarget {
-	targets := make(map[string]ipLimitBanTarget)
-	addTarget := func(ip string, port int) {
-		if ip == "" || port <= 0 || port > 65535 {
-			return
-		}
-		key := fmt.Sprintf("%s/%d", ip, port)
-		targets[key] = ipLimitBanTarget{IP: ip, Port: port}
-	}
-
 	defaultPort := 0
 	if _, inbound, err := s.GetClientInboundByEmail(clientEmail); err == nil && inbound != nil {
 		defaultPort = inbound.Port
 	}
 
-	db := database.GetDB()
-	row := &model.InboundClientIps{}
-	if err := db.Model(model.InboundClientIps{}).Where("client_email = ?", clientEmail).First(row).Error; err == nil && row.Ips != "" {
-		type ipWithTimestamp struct {
-			IP string `json:"ip"`
-		}
-		var recent []ipWithTimestamp
-		if json.Unmarshal([]byte(row.Ips), &recent) == nil {
-			for _, item := range recent {
-				addTarget(item.IP, defaultPort)
-			}
-		}
-	}
-
-	linePort := regexp.MustCompile(`\[?Port\]?\s*=\s*(\d+)`)
-	lineIP := regexp.MustCompile(`(?:Disconnecting OLD IP|\[?IP\]?)\s*=\s*([0-9a-fA-F:.]+)`)
-	for _, path := range []string{xray.GetIPLimitLogPath(), xray.GetIPLimitBannedLogPath()} {
-		body, err := os.ReadFile(path)
-		if err != nil || len(body) == 0 {
-			continue
-		}
-		pattern := regexp.MustCompile(`Email\s*=\s*` + regexp.QuoteMeta(clientEmail) + `(?:\s|\])|Email\s*=\s*` + regexp.QuoteMeta(clientEmail) + `\s*\|\|`)
-		for _, line := range strings.Split(string(body), "\n") {
-			if !pattern.MatchString(line) {
-				continue
-			}
-			ipMatches := lineIP.FindStringSubmatch(line)
-			if len(ipMatches) < 2 {
-				continue
-			}
-			port := defaultPort
-			if portMatches := linePort.FindStringSubmatch(line); len(portMatches) >= 2 {
-				if parsed, err := strconv.Atoi(portMatches[1]); err == nil {
-					port = parsed
-				}
-			}
-			addTarget(ipMatches[1], port)
-		}
-	}
-
-	result := make([]ipLimitBanTarget, 0, len(targets))
-	for _, target := range targets {
-		result = append(result, target)
+	current := s.currentIPLimitBanStatesForEmail(clientEmail, defaultPort)
+	result := make([]ipLimitBanTarget, 0, len(current))
+	for _, state := range current {
+		result = append(result, ipLimitBanTarget{IP: state.IP, Port: state.Port})
 	}
 	return result
 }

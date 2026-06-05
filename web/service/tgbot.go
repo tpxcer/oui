@@ -4570,18 +4570,52 @@ func (t *Tgbot) sendBanLogs(chatId int64, dt bool) {
 }
 
 func (t *Tgbot) handleIPLimitUnbanCallback(callbackID, email, ip string, port int, hours int) {
+	var incrementResult IPLimitIncrementResult
+	if hours == 0 {
+		t.inboundService.ClearClientIPLimitTemporaryUnban(email, ip, port)
+		result, err := t.inboundService.IncrementClientIPLimitByEmailAndPort(email, port)
+		if err != nil {
+			t.sendCallbackAnswerTgBot(callbackID, "解除封禁失败")
+			t.SendMsgToTgbotAdmins(fmt.Sprintf(
+				"💎 <b>OUI 用户通知</b>\n"+
+					"⚠️ <b>解除 IP 封禁失败</b>\n"+
+					"📧 用户/节点：<code>%s</code>\n"+
+					"🔌 端口：<code>%d</code>\n"+
+					"🌐 IP：<code>%s</code>\n"+
+					"❌ 错误：<code>IP 限制递增失败：%s</code>",
+				html.EscapeString(email),
+				port,
+				html.EscapeString(ip),
+				html.EscapeString(err.Error()),
+			))
+			return
+		}
+		incrementResult = result
+		port = result.Port
+	}
+
 	if err := t.inboundService.UnbanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
 		t.sendCallbackAnswerTgBot(callbackID, "解除封禁失败")
+		extra := ""
+		if hours == 0 {
+			extra = fmt.Sprintf(
+				"\n🔢 IP 限制：<code>%d → %d</code>\n⚠️ 说明：<code>面板限制已增加，但防火墙解除失败</code>",
+				incrementResult.OldLimit,
+				incrementResult.NewLimit,
+			)
+		}
 		t.SendMsgToTgbotAdmins(fmt.Sprintf(
 			"💎 <b>OUI 用户通知</b>\n"+
 				"⚠️ <b>解除 IP 封禁失败</b>\n"+
 				"📧 用户/节点：<code>%s</code>\n"+
 				"🔌 端口：<code>%d</code>\n"+
 				"🌐 IP：<code>%s</code>\n"+
+				"%s\n"+
 				"❌ 错误：<code>%s</code>",
 			html.EscapeString(email),
 			port,
 			html.EscapeString(ip),
+			extra,
 			html.EscapeString(err.Error()),
 		))
 		return
@@ -4589,7 +4623,25 @@ func (t *Tgbot) handleIPLimitUnbanCallback(callbackID, email, ip string, port in
 
 	if hours > 0 {
 		duration := time.Duration(hours) * time.Hour
+		until := time.Now().Add(duration)
+		if err := t.inboundService.MarkClientIPLimitTemporaryUnban(email, ip, port, until); err != nil {
+			t.sendCallbackAnswerTgBot(callbackID, "临时解封记录失败")
+			t.SendMsgToTgbotAdmins(fmt.Sprintf(
+				"💎 <b>OUI 用户通知</b>\n"+
+					"⚠️ <b>临时解除 IP 封禁记录失败</b>\n"+
+					"📧 用户/节点：<code>%s</code>\n"+
+					"🔌 端口：<code>%d</code>\n"+
+					"🌐 IP：<code>%s</code>\n"+
+					"❌ 错误：<code>%s</code>",
+				html.EscapeString(email),
+				port,
+				html.EscapeString(ip),
+				html.EscapeString(err.Error()),
+			))
+			return
+		}
 		time.AfterFunc(duration, func() {
+			t.inboundService.ClearClientIPLimitTemporaryUnban(email, ip, port)
 			if err := t.inboundService.BanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
 				t.SendMsgToTgbotAdmins(fmt.Sprintf(
 					"💎 <b>OUI 用户通知</b>\n"+
@@ -4619,13 +4671,47 @@ func (t *Tgbot) handleIPLimitUnbanCallback(callbackID, email, ip string, port in
 			))
 		})
 		t.sendCallbackAnswerTgBot(callbackID, fmt.Sprintf("已临时解封 %d 小时", hours))
+		t.SendMsgToTgbotAdmins(fmt.Sprintf(
+			"💎 <b>OUI 用户通知</b>\n"+
+				"✅ <b>临时解除 IP 封禁成功</b>\n"+
+				"📧 用户/节点：<code>%s</code>\n"+
+				"🔌 端口：<code>%d</code>\n"+
+				"🌐 IP：<code>%s</code>\n"+
+				"⏳ 时长：<code>%d 小时</code>\n"+
+				"⏰ 到期时间：<code>%s</code>\n"+
+				"⏰ 时间：<code>%s</code>",
+			html.EscapeString(email),
+			port,
+			html.EscapeString(ip),
+			hours,
+			until.Format("2006-01-02 15:04:05"),
+			time.Now().Format("2006-01-02 15:04:05"),
+		))
 		return
 	}
 
-	t.sendCallbackAnswerTgBot(callbackID, "已解除封禁")
+	t.sendCallbackAnswerTgBot(callbackID, "已解除封禁，IP 限制已增加")
+	t.SendMsgToTgbotAdmins(fmt.Sprintf(
+		"💎 <b>OUI 用户通知</b>\n"+
+			"✅ <b>解除 IP 封禁成功</b>\n"+
+			"📧 用户/节点：<code>%s</code>\n"+
+			"🧩 节点名称：<code>%s</code>\n"+
+			"🔌 端口：<code>%d</code>\n"+
+			"🌐 IP：<code>%s</code>\n"+
+			"🔢 IP 限制：<code>%d → %d</code>\n"+
+			"⏰ 时间：<code>%s</code>",
+		html.EscapeString(email),
+		html.EscapeString(incrementResult.InboundRemark),
+		incrementResult.Port,
+		html.EscapeString(ip),
+		incrementResult.OldLimit,
+		incrementResult.NewLimit,
+		time.Now().Format("2006-01-02 15:04:05"),
+	))
 }
 
 func (t *Tgbot) handleIPLimitBanCallback(callbackID, email, ip string, port int) {
+	t.inboundService.ClearClientIPLimitTemporaryUnban(email, ip, port)
 	if err := t.inboundService.BanClientIPLimitByEmailAndIP(email, ip, port); err != nil {
 		t.sendCallbackAnswerTgBot(callbackID, "手动封禁失败")
 		t.SendMsgToTgbotAdmins(fmt.Sprintf(

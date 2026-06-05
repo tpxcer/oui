@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -256,6 +257,56 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	}
 }
 
+func TestUpdateInboundClientIps_TemporaryUnbanSkipsRebanWithoutChangingLimit(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "temporary-unban"
+	seedInboundWithClient(t, "inbound-temporary-unban", email, 1)
+
+	now := time.Now().Unix()
+	row := seedClientIps(t, email, []IPWithTimestamp{
+		{IP: "10.1.0.1", Timestamp: now - 60},
+	})
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.MarkClientIPLimitTemporaryUnban(email, "192.0.2.9", 4321, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("mark temporary unban: %v", err)
+	}
+	t.Cleanup(func() {
+		inboundSvc.ClearClientIPLimitTemporaryUnban(email, "192.0.2.9", 4321)
+	})
+
+	j := NewCheckClientIpJob()
+	live := []IPWithTimestamp{
+		{IP: "10.1.0.1", Timestamp: now - 5},
+		{IP: "192.0.2.9", Timestamp: now},
+	}
+
+	shouldCleanLog := j.updateInboundClientIps(row, email, live)
+	if shouldCleanLog {
+		t.Fatalf("temporary-unbanned IP must not trigger a new ban")
+	}
+	if len(j.disAllowedIps) != 0 {
+		t.Fatalf("expected no banned IPs while temporary unban is active, got %v", j.disAllowedIps)
+	}
+
+	persisted := ipSet(readClientIps(t, email))
+	if _, ok := persisted["192.0.2.9"]; !ok {
+		t.Fatalf("temporary-unbanned IP should stay persisted while allowed, got %v", persisted)
+	}
+
+	var inbound model.Inbound
+	if err := database.GetDB().Where("port = ?", 4321).First(&inbound).Error; err != nil {
+		t.Fatalf("read inbound: %v", err)
+	}
+	settings := map[string][]model.Client{}
+	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	if settings["clients"][0].LimitIP != 1 {
+		t.Fatalf("temporary unban must not change panel limitIp, settings=%s", inbound.Settings)
+	}
+}
+
 func TestSyncClientIPLimitBans_LimitZeroUnbansImmediately(t *testing.T) {
 	setupIntegrationDB(t)
 
@@ -348,6 +399,82 @@ func TestSyncClientIPLimitBans_LimitIncreaseUnbansByFirstSeenTime(t *testing.T) 
 	}
 	if contains(body, "UNBAN   [Email] = limit-increase [Port] = 4321 [IP] = 192.0.2.10 automatic IP limit sync.") {
 		t.Fatalf("newer banned IP should remain blocked while limit=2\nfull log:\n%s", body)
+	}
+}
+
+func TestUnbanClientIPLimitByEmail_IgnoresAlreadyUnbannedTargets(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "already-unbanned"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-already-unbanned",
+		Email:   email,
+		LimitIP: 1,
+		Enable:  true,
+		Port:    4321,
+	})
+	writeIPLimitBannedLog(t,
+		"2026/06/05 10:00:00 BAN   [Email] = already-unbanned [Port] = 4321 [IP] = 192.0.2.9 exceeded IP limit.\n"+
+			"2026/06/05 10:00:01 UNBAN   [Email] = already-unbanned [Port] = 4321 [IP] = 192.0.2.9 manual firewall rule.\n",
+	)
+
+	inboundSvc := service.InboundService{}
+	if err := inboundSvc.UnbanClientIPLimitByEmail(email); err != nil {
+		t.Fatalf("unban by email: %v", err)
+	}
+
+	body := readIPLimitBannedLog(t)
+	if got := strings.Count(body, "UNBAN   [Email] = already-unbanned [Port] = 4321 [IP] = 192.0.2.9"); got != 1 {
+		t.Fatalf("expected no repeated UNBAN entries, got %d\nfull log:\n%s", got, body)
+	}
+}
+
+func TestIncrementClientIPLimitByEmailAndPort_UpdatesInboundSettingsAndClientRecord(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "tg-unban-increment"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-tg-unban-increment",
+		Email:   email,
+		LimitIP: 2,
+		Enable:  true,
+		Port:    4321,
+	})
+	if err := database.GetDB().Create(&model.ClientRecord{
+		Email:   email,
+		LimitIP: 2,
+		Enable:  true,
+	}).Error; err != nil {
+		t.Fatalf("seed client record: %v", err)
+	}
+
+	inboundSvc := service.InboundService{}
+	result, err := inboundSvc.IncrementClientIPLimitByEmailAndPort(email, 4321)
+	if err != nil {
+		t.Fatalf("increment limit: %v", err)
+	}
+	if result.OldLimit != 2 || result.NewLimit != 3 || result.Port != 4321 {
+		t.Fatalf("unexpected increment result: %+v", result)
+	}
+
+	var inbound model.Inbound
+	if err := database.GetDB().Where("port = ?", 4321).First(&inbound).Error; err != nil {
+		t.Fatalf("read inbound: %v", err)
+	}
+	settings := map[string][]model.Client{}
+	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	if len(settings["clients"]) != 1 || settings["clients"][0].LimitIP != 3 {
+		t.Fatalf("expected inbound client limitIp=3, settings=%s", inbound.Settings)
+	}
+
+	var record model.ClientRecord
+	if err := database.GetDB().Where("email = ?", email).First(&record).Error; err != nil {
+		t.Fatalf("read client record: %v", err)
+	}
+	if record.LimitIP != 3 {
+		t.Fatalf("expected client record limit_ip=3, got %d", record.LimitIP)
 	}
 }
 

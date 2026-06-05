@@ -35,6 +35,14 @@ type ipLimitBanEvent struct {
 	Seq    int
 }
 
+type IPLimitIncrementResult struct {
+	Email         string
+	Port          int
+	InboundRemark string
+	OldLimit      int
+	NewLimit      int
+}
+
 func (s *InboundService) SyncClientIPLimitBansByEmail(clientEmail string) error {
 	clientEmail = strings.TrimSpace(clientEmail)
 	if clientEmail == "" {
@@ -79,6 +87,82 @@ func (s *InboundService) SyncClientIPLimitBansByEmail(clientEmail string) error 
 	return nil
 }
 
+func (s *InboundService) IncrementClientIPLimitByEmailAndPort(clientEmail string, port int) (IPLimitIncrementResult, error) {
+	result := IPLimitIncrementResult{Email: strings.TrimSpace(clientEmail), Port: port}
+	if result.Email == "" {
+		return result, errors.New("client email is required")
+	}
+	if port <= 0 || port > 65535 {
+		return result, fmt.Errorf("invalid port: %d", port)
+	}
+
+	db := database.GetDB()
+	var inbounds []model.Inbound
+	if err := db.Model(model.Inbound{}).
+		Where("port = ? AND settings LIKE ?", port, "%"+result.Email+"%").
+		Order("id asc").
+		Find(&inbounds).Error; err != nil {
+		return result, err
+	}
+	if len(inbounds) == 0 {
+		if err := db.Model(model.Inbound{}).
+			Where("settings LIKE ?", "%"+result.Email+"%").
+			Order("id asc").
+			Find(&inbounds).Error; err != nil {
+			return result, err
+		}
+	}
+
+	var selected *model.Inbound
+	var selectedSettings string
+	for i := range inbounds {
+		nextSettings, oldLimit, newLimit, ok, err := incrementClientLimitInSettings(inbounds[i].Settings, result.Email)
+		if err != nil {
+			return result, err
+		}
+		if !ok {
+			continue
+		}
+		selected = &inbounds[i]
+		selectedSettings = nextSettings
+		result.Port = inbounds[i].Port
+		result.InboundRemark = inbounds[i].Remark
+		result.OldLimit = oldLimit
+		result.NewLimit = newLimit
+		break
+	}
+	if selected == nil {
+		return result, fmt.Errorf("client %s not found for port %d", result.Email, port)
+	}
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		return result, tx.Error
+	}
+	var err error
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err = tx.Model(&model.Inbound{}).
+		Where("id = ?", selected.Id).
+		Update("settings", selectedSettings).Error; err != nil {
+		return result, err
+	}
+	if err = tx.Model(&model.ClientRecord{}).
+		Where("email = ? AND limit_ip < ?", result.Email, result.NewLimit).
+		Update("limit_ip", result.NewLimit).Error; err != nil {
+		return result, err
+	}
+	if err = tx.Commit().Error; err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
 func (s *InboundService) SyncClientIPLimitBansForInbound(clientEmail string, inbound *model.Inbound, limitIP int, tracked []IPLimitIPWithTimestamp) error {
 	if strings.TrimSpace(clientEmail) == "" || inbound == nil {
 		return nil
@@ -108,6 +192,59 @@ func (s *InboundService) SyncClientIPLimitBansForInbound(clientEmail string, inb
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+func incrementClientLimitInSettings(rawSettings string, clientEmail string) (string, int, int, bool, error) {
+	settings := map[string]any{}
+	if err := json.Unmarshal([]byte(rawSettings), &settings); err != nil {
+		return "", 0, 0, false, err
+	}
+	rawClients, ok := settings["clients"].([]any)
+	if !ok {
+		return "", 0, 0, false, nil
+	}
+
+	for i, rawClient := range rawClients {
+		clientMap, ok := rawClient.(map[string]any)
+		if !ok {
+			continue
+		}
+		email, _ := clientMap["email"].(string)
+		if email != clientEmail {
+			continue
+		}
+		oldLimit := ipLimitIntValue(clientMap["limitIp"])
+		newLimit := oldLimit + 1
+		clientMap["limitIp"] = newLimit
+		rawClients[i] = clientMap
+		settings["clients"] = rawClients
+		next, err := json.MarshalIndent(settings, "", "  ")
+		if err != nil {
+			return "", 0, 0, false, err
+		}
+		return string(next), oldLimit, newLimit, true, nil
+	}
+
+	return "", 0, 0, false, nil
+}
+
+func ipLimitIntValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		parsed, _ := v.Int64()
+		return int(parsed)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(v))
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func (s *InboundService) UnbanIPLimitBansForNode(nodeID int) error {

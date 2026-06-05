@@ -485,6 +485,17 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		logger.Warningf("[LIMIT_IP] failed to sync allowed bans for %s: %v", clientEmail, err)
 	}
 	if len(bannedLive) > 0 {
+		activeBanned := make([]IPWithTimestamp, 0, len(bannedLive))
+		for _, ipTime := range bannedLive {
+			if inboundSvc.IsClientIPLimitTemporarilyUnbanned(clientEmail, ipTime.IP, inbound.Port, time.Now()) {
+				keptLive = append(keptLive, ipTime)
+				continue
+			}
+			activeBanned = append(activeBanned, ipTime)
+		}
+		bannedLive = activeBanned
+	}
+	if len(bannedLive) > 0 {
 		shouldCleanLog = true
 
 		// Open log file only when a ban entry needs to be written.

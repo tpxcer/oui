@@ -550,16 +550,22 @@ func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {
 
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
 	up, down := sessionDelta(session, st)
+	ipLine := ""
+	if ip := strings.TrimSpace(session.ip); ip != "" {
+		ipLine = fmt.Sprintf("🌐 离线 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
+	}
 	j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
 		"💎 <b>OUI 用户通知</b>\n"+
 			"📴 <b>客户端下线</b>\n"+
 			"📧 用户/节点：<code>%s</code>\n"+
 			"🧩 节点名称：<code>%s</code>\n"+
+			"%s"+
 			"⏱ 在线时长：<code>%s</code>\n"+
 			"⏰ 下线时间：<code>%s</code>\n"+
 			"📊 流量：<code>↑%s / ↓%s / 合计%s</code>",
 		html.EscapeString(email),
 		html.EscapeString(session.remark),
+		ipLine,
 		formatOnlineDuration(now.Sub(session.start)),
 		now.Format("2006-01-02 15:04:05"),
 		common.FormatTraffic(up),
