@@ -317,9 +317,6 @@ func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string) string {
 	} else if geo.Error != "" {
 		lines += fmt.Sprintf("📍 归属地：<code>查询失败：%s</code>\n", html.EscapeString(geo.Error))
 	}
-	if geo.Source != "" {
-		lines += fmt.Sprintf("🔎 来源：<code>%s</code>\n", html.EscapeString(geo.Source))
-	}
 	return lines
 }
 
