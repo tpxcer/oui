@@ -165,6 +165,30 @@ func TestSelectIPLimitExcess_FreshHistoricalIpReservesSlot(t *testing.T) {
 	}
 }
 
+func TestSelectIPLimitExcess_LimitThreeBansFourthByFirstSeenTime(t *testing.T) {
+	ipMap := map[string]int64{
+		"10.0.0.1":  1000,
+		"10.0.0.2":  1100,
+		"10.0.0.3":  1200,
+		"192.0.2.9": 1300,
+	}
+	live := []IPWithTimestamp{
+		{IP: "10.0.0.1", Timestamp: 1000},
+		{IP: "10.0.0.2", Timestamp: 1100},
+		{IP: "10.0.0.3", Timestamp: 1200},
+		{IP: "192.0.2.9", Timestamp: 1300},
+	}
+
+	kept, banned := selectIPLimitExcess(ipMap, live, 3)
+
+	if got := collectIps(kept); !reflect.DeepEqual(got, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Fatalf("oldest three IPs should be kept\ngot:  %v\nwant: [10.0.0.1 10.0.0.2 10.0.0.3]", got)
+	}
+	if got := collectIps(banned); !reflect.DeepEqual(got, []string{"192.0.2.9"}) {
+		t.Fatalf("fourth IP by first-seen time should be banned\ngot:  %v\nwant: [192.0.2.9]", got)
+	}
+}
+
 func TestBuildIPLimitCutoffNotifyMessage(t *testing.T) {
 	msg := buildIPLimitCutoffNotifyMessage(
 		"user@example.com",

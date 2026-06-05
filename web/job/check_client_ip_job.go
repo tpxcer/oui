@@ -3,7 +3,6 @@ package job
 import (
 	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -40,8 +39,6 @@ type CheckClientIpJob struct {
 }
 
 var job *CheckClientIpJob
-
-const defaultXrayAPIPort = 62789
 
 // ipStaleAfterSeconds controls how long a client IP kept in the
 // per-client tracking table (model.InboundClientIps.Ips) is considered
@@ -476,8 +473,9 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 
 		j.sendIPLimitCutoffNotify(clientEmail, inbound, limitIp, keptLive, bannedLive)
 
-		// force xray to drop existing connections from banned ips
-		j.disconnectClientTemporarily(inbound, clientEmail, clients)
+		// The firewall rule above cuts only the excess source IP on this
+		// inbound port. Do not remove/re-add the Xray user here: that is a
+		// client-level operation and can drop every device using this client.
 	} else {
 		keptLive = liveIps
 	}
@@ -569,130 +567,6 @@ func (j *CheckClientIpJob) buildIPLimitCutoffKeyboard(clientEmail string, port i
 			tu.InlineKeyboardButton("手动封禁").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_ban "+clientEmail+" "+ip+" "+portText)),
 		),
 	)
-}
-
-// disconnectClientTemporarily removes and re-adds a client to force disconnect banned connections
-func (j *CheckClientIpJob) disconnectClientTemporarily(inbound *model.Inbound, clientEmail string, clients []model.Client) {
-	var xrayAPI xray.XrayAPI
-	apiPort := j.resolveXrayAPIPort()
-
-	err := xrayAPI.Init(apiPort)
-	if err != nil {
-		logger.Warningf("[LIMIT_IP] Failed to init Xray API for disconnection: %v", err)
-		return
-	}
-	defer xrayAPI.Close()
-
-	// Find the client config
-	var clientConfig map[string]any
-	for _, client := range clients {
-		if client.Email == clientEmail {
-			// Convert client to map for API
-			clientBytes, _ := json.Marshal(client)
-			json.Unmarshal(clientBytes, &clientConfig)
-			break
-		}
-	}
-
-	if clientConfig == nil {
-		return
-	}
-
-	// Only perform remove/re-add for protocols supported by XrayAPI.AddUser
-	protocol := string(inbound.Protocol)
-	switch protocol {
-	case "vmess", "vless", "trojan", "shadowsocks", "hysteria":
-		// supported protocols, continue
-	default:
-		logger.Warningf("[LIMIT_IP] Temporary disconnect is not supported for protocol %s on inbound %s", protocol, inbound.Tag)
-		return
-	}
-
-	// For Shadowsocks, ensure the required "cipher" field is present by
-	// reading it from the inbound settings (e.g., settings["method"]).
-	if string(inbound.Protocol) == "shadowsocks" {
-		var inboundSettings map[string]any
-		if err := json.Unmarshal([]byte(inbound.Settings), &inboundSettings); err != nil {
-			logger.Warningf("[LIMIT_IP] Failed to parse inbound settings for shadowsocks cipher: %v", err)
-		} else {
-			if method, ok := inboundSettings["method"].(string); ok && method != "" {
-				clientConfig["cipher"] = method
-			}
-		}
-	}
-
-	// Remove user to disconnect all connections
-	err = xrayAPI.RemoveUser(inbound.Tag, clientEmail)
-	if err != nil {
-		logger.Warningf("[LIMIT_IP] Failed to remove user %s: %v", clientEmail, err)
-		return
-	}
-
-	// Wait a moment for disconnection to take effect
-	time.Sleep(100 * time.Millisecond)
-
-	// Re-add user to allow new connections
-	err = xrayAPI.AddUser(protocol, inbound.Tag, clientConfig)
-	if err != nil {
-		logger.Warningf("[LIMIT_IP] Failed to re-add user %s: %v", clientEmail, err)
-	}
-}
-
-// resolveXrayAPIPort returns the API inbound port from running config, then template config, then default.
-func (j *CheckClientIpJob) resolveXrayAPIPort() int {
-	var configErr error
-	var templateErr error
-
-	if port, err := getAPIPortFromConfigPath(xray.GetConfigPath()); err == nil {
-		return port
-	} else {
-		configErr = err
-	}
-
-	db := database.GetDB()
-	var template model.Setting
-	if err := db.Where("key = ?", "xrayTemplateConfig").First(&template).Error; err == nil {
-		if port, parseErr := getAPIPortFromConfigData([]byte(template.Value)); parseErr == nil {
-			return port
-		} else {
-			templateErr = parseErr
-		}
-	} else {
-		templateErr = err
-	}
-
-	logger.Warningf(
-		"[LIMIT_IP] Could not determine Xray API port from config or template; falling back to default port %d (config error: %v, template error: %v)",
-		defaultXrayAPIPort,
-		configErr,
-		templateErr,
-	)
-
-	return defaultXrayAPIPort
-}
-
-func getAPIPortFromConfigPath(configPath string) (int, error) {
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		return 0, err
-	}
-
-	return getAPIPortFromConfigData(configData)
-}
-
-func getAPIPortFromConfigData(configData []byte) (int, error) {
-	xrayConfig := &xray.Config{}
-	if err := json.Unmarshal(configData, xrayConfig); err != nil {
-		return 0, err
-	}
-
-	for _, inboundConfig := range xrayConfig.InboundConfigs {
-		if inboundConfig.Tag == "api" && inboundConfig.Port > 0 {
-			return inboundConfig.Port, nil
-		}
-	}
-
-	return 0, errors.New("api inbound port not found")
 }
 
 func (j *CheckClientIpJob) getInboundByEmail(clientEmail string) (*model.Inbound, error) {
