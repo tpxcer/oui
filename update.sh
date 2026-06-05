@@ -195,6 +195,20 @@ install_base() {
     esac
 }
 
+auto_configure_iplimit() {
+    if [[ "${XUI_SKIP_IPLIMIT_SETUP}" == "true" ]]; then
+        echo -e "${yellow}已跳过 Fail2Ban/IP Limit jail 自动配置。${plain}"
+        return 0
+    fi
+
+    echo -e "${green}正在自动配置 Fail2Ban/IP Limit jail...${plain}"
+    if /usr/bin/x-ui install-iplimit; then
+        echo -e "${green}Fail2Ban/IP Limit jail 已启用。${plain}"
+    else
+        echo -e "${yellow}Fail2Ban/IP Limit jail 自动配置失败，OUI 已更新；稍后可运行 ${blue}x-ui install-iplimit${yellow} 或在菜单 21 中手动启用。${plain}"
+    fi
+}
+
 install_acme() {
     echo -e "${green}正在安装 acme.sh，用于 SSL 证书管理...${plain}"
     cd ~ || return 1
@@ -1028,6 +1042,7 @@ update_x-ui() {
     fi
 
     config_after_update
+    auto_configure_iplimit
 
     echo -e "${green}OUI ${tag_version}${plain} 更新完成，当前正在运行..."
     echo -e ""
@@ -1044,6 +1059,7 @@ update_x-ui() {
 │  ${blue}x-ui disable${plain}      - 关闭开机自启                     │
 │  ${blue}x-ui log${plain}          - 查看日志                         │
 │  ${blue}x-ui banlog${plain}       - 查看 Fail2ban 封禁日志           │
+│  ${blue}x-ui install-iplimit${plain} - 启用 Fail2Ban/IP 限制          │
 │  ${blue}x-ui update${plain}       - 更新                             │
 │  ${blue}x-ui legacy${plain}       - 旧版本管理                       │
 │  ${blue}x-ui install${plain}      - 安装                             │

@@ -2003,6 +2003,9 @@ install_iplimit() {
     fi
 
     echo -e "${green}IP Limit installed and configured successfully!${plain}\n"
+    if [[ "$1" == "0" || "$1" == "--no-menu" ]]; then
+        return 0
+    fi
     before_show_menu
 }
 
@@ -2310,6 +2313,7 @@ show_usage() {
 │  ${blue}x-ui disable${plain}               - 关闭开机自启                     │
 │  ${blue}x-ui log${plain}                   - 查看日志                         │
 │  ${blue}x-ui banlog${plain}                - 查看 Fail2ban 封禁日志           │
+│  ${blue}x-ui install-iplimit${plain}       - 启用 Fail2Ban/IP 限制            │
 │  ${blue}x-ui update${plain}                - 更新                             │
 │  ${blue}x-ui update-all-geofiles${plain}   - 更新全部 Geo 文件                │
 │  ${blue}x-ui legacy${plain}                - 安装指定旧版本                   │
@@ -2479,6 +2483,9 @@ if [[ $# > 0 ]]; then
             ;;
         "banlog")
             check_install 0 && show_banlog 0
+            ;;
+        "install-iplimit")
+            check_install 0 && install_iplimit 0
             ;;
         "update")
             check_install 0 && update 0

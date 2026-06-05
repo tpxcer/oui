@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AutoComplete, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, message } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { AutoComplete, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Tooltip, message } from 'antd';
+import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 
@@ -12,6 +12,7 @@ import { useClients, type InboundOption } from '@/hooks/useClients';
 import { ClientBulkAddFormSchema, type ClientBulkAddFormValues } from '@/schemas/client';
 
 const FLOW_OPTIONS = Object.values(TLS_FLOW_CONTROL);
+const IP_LIMIT_TOOLTIP = 'IP 限制用于限制同一客户端允许保留的 IP 数量；0 表示不限制。超过上限时，OUI 会记录超限 IP、临时断开客户端，并在已启用 Fail2Ban/3x-ipl jail 时把超限 IP 加入防火墙封禁。';
 
 const MULTI_CLIENT_PROTOCOLS = new Set([
   'shadowsocks', 'vless', 'vmess', 'trojan', 'hysteria',
@@ -27,6 +28,17 @@ interface ClientBulkAddModalProps {
 }
 
 type FormState = ClientBulkAddFormValues;
+
+function ipLimitLabel(label: string) {
+  return (
+    <Space size={4}>
+      <span>{label}</span>
+      <Tooltip title={IP_LIMIT_TOOLTIP}>
+        <QuestionCircleOutlined />
+      </Tooltip>
+    </Space>
+  );
+}
 
 function emptyForm(): FormState {
   return {
@@ -300,7 +312,7 @@ export default function ClientBulkAddModal({
           )}
 
           {ipLimitEnable && (
-            <Form.Item label={t('pages.clients.limitIp')}>
+            <Form.Item label={ipLimitLabel(t('pages.clients.limitIp'))}>
               <InputNumber value={form.limitIp} min={0} onChange={(v) => update('limitIp', Number(v) || 0)} />
             </Form.Item>
           )}
