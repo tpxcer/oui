@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,9 @@ type XrayTrafficJob struct {
 }
 
 type onlineNotifySession struct {
+	email     string
 	remark    string
+	ip        string
 	start     time.Time
 	lastTotal int64
 	up        int64
@@ -38,7 +41,9 @@ type onlineNotifySession struct {
 }
 
 type onlineNotifyInbound struct {
+	email  string
 	remark string
+	ip     string
 }
 
 type onlineNotifyTransition struct {
@@ -167,7 +172,7 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 		logger.Warning("get inbounds for tg online notify failed:", err)
 		return
 	}
-	trackable := make(map[string]onlineNotifyInbound)
+	trackableByEmail := make(map[string]onlineNotifyInbound)
 	for _, inbound := range inbounds {
 		if inbound == nil || !inbound.Enable || !inbound.TgOnlineNotify {
 			continue
@@ -180,9 +185,10 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 			if client.Email == "" || !client.Enable {
 				continue
 			}
-			meta := trackable[client.Email]
+			meta := trackableByEmail[client.Email]
+			meta.email = client.Email
 			meta.remark = inbound.Remark
-			trackable[client.Email] = meta
+			trackableByEmail[client.Email] = meta
 		}
 	}
 
@@ -200,13 +206,14 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 	for _, email := range onlineClients {
 		onlineSet[email] = true
 	}
+	trackable := j.expandOnlineNotifyTrackable(trackableByEmail, onlineSet)
 
 	onlineNotifyMu.Lock()
 	onlineTransitions, offlineTransitions := reconcileOnlineNotifySessions(trackable, onlineSet, trafficByEmail, now)
 	onlineNotifyMu.Unlock()
 
 	for _, ev := range onlineTransitions {
-		ipLines := j.buildOnlineNotifyIPLines(ev.email)
+		ipLines := j.buildOnlineNotifyIPLines(ev.email, ev.session.ip)
 		j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
 			"💎 <b>OUI 用户通知</b>\n"+
 				"🚀 <b>客户端上线</b>\n"+
@@ -226,6 +233,31 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 	}
 }
 
+func (j *XrayTrafficJob) expandOnlineNotifyTrackable(trackableByEmail map[string]onlineNotifyInbound, onlineSet map[string]bool) map[string]onlineNotifyInbound {
+	trackable := make(map[string]onlineNotifyInbound, len(trackableByEmail))
+	for email, meta := range trackableByEmail {
+		if meta.email == "" {
+			meta.email = email
+		}
+		if !onlineSet[email] {
+			trackable[email] = meta
+			continue
+		}
+		ips := j.onlineNotifyClientIPs(email)
+		if len(ips) == 0 {
+			trackable[email] = meta
+			continue
+		}
+		for i, clientIP := range ips {
+			ipMeta := meta
+			ipMeta.ip = clientIP.ip
+			ipMeta.remark = onlineNotifyRemarkForIPIndex(meta.remark, i)
+			trackable[onlineNotifySessionKey(email, clientIP.ip)] = ipMeta
+		}
+	}
+	return trackable
+}
+
 func reconcileOnlineNotifySessions(
 	trackable map[string]onlineNotifyInbound,
 	onlineSet map[string]bool,
@@ -234,13 +266,24 @@ func reconcileOnlineNotifySessions(
 ) ([]onlineNotifyTransition, []onlineNotifyTransition) {
 	onlineTransitions := make([]onlineNotifyTransition, 0)
 	offlineTransitions := make([]onlineNotifyTransition, 0)
+	trackableEmails := make(map[string]struct{}, len(trackable))
+	for key, meta := range trackable {
+		if meta.email == "" {
+			meta.email = key
+			trackable[key] = meta
+		}
+		trackableEmails[meta.email] = struct{}{}
+	}
 
-	for email, meta := range trackable {
+	for key, meta := range trackable {
+		email := meta.email
 		if !onlineSet[email] {
 			continue
 		}
-		if session, exists := onlineNotifySessions[email]; exists {
+		if session, exists := onlineNotifySessions[key]; exists {
+			session.email = email
 			session.remark = meta.remark
+			session.ip = meta.ip
 			st := trafficByEmail[email]
 			if st != nil {
 				session.lastTotal = st.Up + st.Down
@@ -254,49 +297,89 @@ func reconcileOnlineNotifySessions(
 					traffic: st,
 				})
 			}
-			onlineNotifySessions[email] = session
+			onlineNotifySessions[key] = session
 			continue
 		}
 		st := trafficByEmail[email]
-		session := onlineNotifySession{remark: meta.remark, start: now}
+		session := onlineNotifySession{email: email, remark: meta.remark, ip: meta.ip, start: now}
 		if st != nil {
 			session.up = st.Up
 			session.down = st.Down
 			session.lastTotal = st.Up + st.Down
 		}
-		onlineNotifySessions[email] = session
+		onlineNotifySessions[key] = session
 	}
 
-	for email, session := range onlineNotifySessions {
-		if _, ok := trackable[email]; !ok {
-			delete(onlineNotifySessions, email)
+	for key, session := range onlineNotifySessions {
+		if session.email == "" {
+			session.email = key
+		}
+		if _, ok := trackable[key]; !ok {
+			delete(onlineNotifySessions, key)
+			if _, emailStillTrackable := trackableEmails[session.email]; !emailStillTrackable {
+				continue
+			}
+			if !session.announced {
+				continue
+			}
+			if !onlineSet[session.email] || session.ip != "" {
+				st := trafficByEmail[session.email]
+				offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
+					email:   session.email,
+					remark:  session.remark,
+					session: session,
+					traffic: st,
+				})
+			}
 			continue
 		}
 
-		st := trafficByEmail[email]
+		st := trafficByEmail[session.email]
 		if st != nil {
 			session.lastTotal = st.Up + st.Down
 		}
-		if !onlineSet[email] {
-			delete(onlineNotifySessions, email)
+		if !onlineSet[session.email] {
+			delete(onlineNotifySessions, key)
 			if !session.announced {
 				continue
 			}
 			offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
-				email:   email,
+				email:   session.email,
 				remark:  session.remark,
 				session: session,
 				traffic: st,
 			})
 			continue
 		}
-		onlineNotifySessions[email] = session
+		onlineNotifySessions[key] = session
 	}
 
 	return onlineTransitions, offlineTransitions
 }
 
-func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string) string {
+func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string, ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		ip = j.latestOnlineNotifyClientIP(email)
+	}
+	if ip == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	geo := j.serverService.LookupIPGeo(ctx, ip)
+	location := formatOnlineNotifyGeoLocation(geo)
+
+	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
+	if location != "" {
+		lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(location))
+	} else if geo.Error != "" {
+		lines += fmt.Sprintf("📍 归属地：<code>查询失败：%s</code>\n", html.EscapeString(geo.Error))
+	}
+	return lines
+}
+
+func (j *XrayTrafficJob) latestOnlineNotifyClientIP(email string) string {
 	raw, err := j.inboundService.GetInboundClientIps(email)
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return ""
@@ -305,19 +388,15 @@ func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string) string {
 	if !ok {
 		return ""
 	}
+	return clientIP.ip
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	geo := j.serverService.LookupIPGeo(ctx, clientIP.ip)
-	location := formatOnlineNotifyGeoLocation(geo)
-
-	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(clientIP.ip))
-	if location != "" {
-		lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(location))
-	} else if geo.Error != "" {
-		lines += fmt.Sprintf("📍 归属地：<code>查询失败：%s</code>\n", html.EscapeString(geo.Error))
+func (j *XrayTrafficJob) onlineNotifyClientIPs(email string) []onlineNotifyClientIP {
+	raw, err := j.inboundService.GetInboundClientIps(email)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return nil
 	}
-	return lines
+	return onlineNotifyClientIPsFromRaw(raw)
 }
 
 func latestOnlineNotifyClientIP(raw string) (onlineNotifyClientIP, bool) {
@@ -359,6 +438,77 @@ func latestOnlineNotifyClientIP(raw string) (onlineNotifyClientIP, bool) {
 	}
 
 	return onlineNotifyClientIP{}, false
+}
+
+func onlineNotifyClientIPsFromRaw(raw string) []onlineNotifyClientIP {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	type ipWithTimestamp struct {
+		IP        string `json:"ip"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	var ipsWithTime []ipWithTimestamp
+	if err := json.Unmarshal([]byte(raw), &ipsWithTime); err == nil {
+		ips := make([]onlineNotifyClientIP, 0, len(ipsWithTime))
+		for _, item := range ipsWithTime {
+			ip := strings.TrimSpace(item.IP)
+			if ip == "" {
+				continue
+			}
+			ips = append(ips, onlineNotifyClientIP{ip: ip, timestamp: item.Timestamp})
+		}
+		sortOnlineNotifyClientIPs(ips)
+		return ips
+	}
+
+	var oldIps []string
+	if err := json.Unmarshal([]byte(raw), &oldIps); err == nil {
+		ips := make([]onlineNotifyClientIP, 0, len(oldIps))
+		for _, item := range oldIps {
+			ip := strings.TrimSpace(item)
+			if ip == "" {
+				continue
+			}
+			ips = append(ips, onlineNotifyClientIP{ip: ip})
+		}
+		return ips
+	}
+
+	return nil
+}
+
+func sortOnlineNotifyClientIPs(ips []onlineNotifyClientIP) {
+	sort.SliceStable(ips, func(i, j int) bool {
+		if ips[i].timestamp == ips[j].timestamp {
+			return ips[i].ip < ips[j].ip
+		}
+		if ips[i].timestamp == 0 {
+			return false
+		}
+		if ips[j].timestamp == 0 {
+			return true
+		}
+		return ips[i].timestamp < ips[j].timestamp
+	})
+}
+
+func onlineNotifySessionKey(email string, ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return email
+	}
+	return email + "\x00" + ip
+}
+
+func onlineNotifyRemarkForIPIndex(remark string, index int) string {
+	if index <= 0 {
+		return remark
+	}
+	return fmt.Sprintf("%s(ip%d)", remark, index+1)
 }
 
 func formatOnlineNotifyGeoLocation(geo service.NodeGeoLocation) string {

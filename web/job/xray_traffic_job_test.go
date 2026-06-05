@@ -115,6 +115,104 @@ func TestOnlineNotifyDoesNotSendOfflineIfOnlineWasNeverAnnounced(t *testing.T) {
 	}
 }
 
+func TestOnlineNotifyAnnouncesDifferentIPForSameClient(t *testing.T) {
+	resetOnlineNotifySessions(t)
+
+	now := time.Unix(3000, 0)
+	trackable := map[string]onlineNotifyInbound{
+		onlineNotifySessionKey("client@example.com", "1.1.1.1"): {
+			email:  "client@example.com",
+			remark: "node-a",
+			ip:     "1.1.1.1",
+		},
+	}
+	traffic := map[string]*xray.ClientTraffic{
+		"client@example.com": {Email: "client@example.com", Up: 100, Down: 200},
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline := reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now)
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("initial transitions = %#v/%#v, want none", online, offline)
+	}
+
+	traffic["client@example.com"] = &xray.ClientTraffic{
+		Email: "client@example.com",
+		Up:    6 * 1024 * 1024,
+		Down:  0,
+	}
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 1 || online[0].session.ip != "1.1.1.1" || online[0].remark != "node-a" {
+		t.Fatalf("first ip online transitions = %#v, want node-a for 1.1.1.1", online)
+	}
+	if len(offline) != 0 {
+		t.Fatalf("first ip offline transitions = %#v, want none", offline)
+	}
+
+	trackable[onlineNotifySessionKey("client@example.com", "2.2.2.2")] = onlineNotifyInbound{
+		email:  "client@example.com",
+		remark: "node-a(ip2)",
+		ip:     "2.2.2.2",
+	}
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(2*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("second ip initial transitions = %#v/%#v, want none before traffic threshold", online, offline)
+	}
+
+	traffic["client@example.com"] = &xray.ClientTraffic{
+		Email: "client@example.com",
+		Up:    12 * 1024 * 1024,
+		Down:  0,
+	}
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(3*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 1 || online[0].session.ip != "2.2.2.2" || online[0].remark != "node-a(ip2)" {
+		t.Fatalf("second ip online transitions = %#v, want node-a(ip2) for 2.2.2.2", online)
+	}
+	if len(offline) != 0 {
+		t.Fatalf("second ip offline transitions = %#v, want none", offline)
+	}
+}
+
+func TestOnlineNotifyDifferentIPOfflineKeepsRule(t *testing.T) {
+	resetOnlineNotifySessions(t)
+
+	now := time.Unix(4000, 0)
+	key := onlineNotifySessionKey("client@example.com", "1.1.1.1")
+	onlineNotifySessions[key] = onlineNotifySession{
+		email:     "client@example.com",
+		remark:    "node-a",
+		ip:        "1.1.1.1",
+		start:     now,
+		up:        0,
+		down:      0,
+		lastTotal: 6 * 1024 * 1024,
+		announced: true,
+	}
+	trackable := map[string]onlineNotifyInbound{
+		"client@example.com": {email: "client@example.com", remark: "node-a"},
+	}
+	traffic := map[string]*xray.ClientTraffic{
+		"client@example.com": {Email: "client@example.com", Up: 6 * 1024 * 1024, Down: 0},
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline := reconcileOnlineNotifySessions(trackable, map[string]bool{}, traffic, now.Add(time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 {
+		t.Fatalf("online transitions after disappearance = %#v, want none", online)
+	}
+	if len(offline) != 1 || offline[0].email != "client@example.com" || offline[0].session.ip != "1.1.1.1" {
+		t.Fatalf("offline transitions = %#v, want one ip session", offline)
+	}
+}
+
 func TestLatestOnlineNotifyClientIPPrefersNewestTimestamp(t *testing.T) {
 	got, ok := latestOnlineNotifyClientIP(`[
 		{"ip":"139.201.252.156","timestamp":1780644977},
@@ -125,6 +223,15 @@ func TestLatestOnlineNotifyClientIPPrefersNewestTimestamp(t *testing.T) {
 	}
 	if got.ip != "8.8.8.8" || got.timestamp != 1780644999 {
 		t.Fatalf("latestOnlineNotifyClientIP = %#v, want 8.8.8.8 at 1780644999", got)
+	}
+}
+
+func TestOnlineNotifyRemarkForIPIndex(t *testing.T) {
+	if got := onlineNotifyRemarkForIPIndex("node-a", 0); got != "node-a" {
+		t.Fatalf("onlineNotifyRemarkForIPIndex first = %q, want node-a", got)
+	}
+	if got := onlineNotifyRemarkForIPIndex("node-a", 1); got != "node-a(ip2)" {
+		t.Fatalf("onlineNotifyRemarkForIPIndex second = %q, want node-a(ip2)", got)
 	}
 }
 
