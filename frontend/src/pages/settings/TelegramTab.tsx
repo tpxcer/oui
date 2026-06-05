@@ -11,10 +11,10 @@ interface TelegramTabProps {
 }
 
 const telegramNotifyTimeOptions = [
-  { value: '@daily', label: '一天' },
-  { value: '@weekly', label: '一周' },
+  { value: '@daily', label: '每天' },
+  { value: '@weekly', label: '每周' },
   { value: '@every 360h', label: '15天' },
-  { value: '@monthly', label: '一月' },
+  { value: '@monthly', label: '每月' },
 ];
 
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {

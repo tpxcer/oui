@@ -35,6 +35,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
   const [lang, setLang] = useState<string>(() => LanguageManager.getLanguage());
   const [inboundOptions, setInboundOptions] = useState<{ label: string; value: string }[]>([]);
   const [serverProviderAPIKeyDraft, setServerProviderAPIKeyDraft] = useState('');
+  const [serverProviderAPIKeyFocused, setServerProviderAPIKeyFocused] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +95,10 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
     setLang(value);
     LanguageManager.setLanguage(value);
   }
+
+  const serverProviderAPIKeyValue = serverProviderAPIKeyFocused
+    ? serverProviderAPIKeyDraft
+    : serverProviderAPIKeyDraft || (allSetting.hasServerProviderAPIKey ? '已保存 API KEY' : '');
 
   const langOptions = useMemo(
     () => LanguageManager.supportedLanguages.map((l: { value: string; name: string; icon: string }) => ({
@@ -186,7 +191,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 style={{ width: '100%' }}
                 options={[
                   { value: '', label: '不启用' },
-                  { value: 'custom', label: '自定义' },
+                  { value: 'custom', label: '启用' },
                 ]}
               />
             </SettingListItem>
@@ -195,7 +200,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
               <>
                 <SettingListItem
                   paddings="small"
-                  title="自定义拉取链接"
+                  title="拉取链接"
                   description="填写服务器商的信息接口；会自动附加 veid 和 api_key，也支持 {veid}、{api_key}、{apiKey} 占位符。"
                 >
                   <Input
@@ -204,7 +209,7 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                     onChange={(e) => updateSetting({ serverProviderURL: e.target.value })}
                   />
                 </SettingListItem>
-                <SettingListItem paddings="small" title="自定义 VEID">
+                <SettingListItem paddings="small" title="VEID">
                   <Input
                     value={allSetting.serverProviderVEID}
                     placeholder="请输入 VEID"
@@ -213,12 +218,14 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                 </SettingListItem>
                 <SettingListItem
                   paddings="small"
-                  title="自定义 API KEY"
+                  title="API KEY"
                   description={allSetting.hasServerProviderAPIKey ? '已配置，输入新密钥才会替换；留空保存会保留当前密钥。' : '请填写服务器商提供的 API KEY。'}
                 >
                   <Input.Password
-                    value={serverProviderAPIKeyDraft}
+                    value={serverProviderAPIKeyValue}
                     placeholder={allSetting.hasServerProviderAPIKey ? '留空保留当前密钥，输入新密钥替换' : '请输入 API KEY'}
+                    onFocus={() => setServerProviderAPIKeyFocused(true)}
+                    onBlur={() => setServerProviderAPIKeyFocused(false)}
                     onChange={(e) => {
                       setServerProviderAPIKeyDraft(e.target.value);
                       updateSetting({ serverProviderAPIKey: e.target.value });
