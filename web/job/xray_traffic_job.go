@@ -1,9 +1,11 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ type XrayTrafficJob struct {
 	inboundService  service.InboundService
 	outboundService service.OutboundService
 	tgbotService    service.Tgbot
+	serverService   service.ServerService
 }
 
 type onlineNotifySession struct {
@@ -43,6 +46,11 @@ type onlineNotifyTransition struct {
 	remark  string
 	session onlineNotifySession
 	traffic *xray.ClientTraffic
+}
+
+type onlineNotifyClientIP struct {
+	ip        string
+	timestamp int64
 }
 
 var (
@@ -198,14 +206,17 @@ func (j *XrayTrafficJob) notifyInboundOnlineChanges(onlineClients []string, last
 	onlineNotifyMu.Unlock()
 
 	for _, ev := range onlineTransitions {
+		ipLines := j.buildOnlineNotifyIPLines(ev.email)
 		j.tgbotService.SendMsgToTgbotAdmins(fmt.Sprintf(
 			"💎 <b>OUI 用户通知</b>\n"+
 				"🚀 <b>客户端上线</b>\n"+
 				"📧 用户/节点：<code>%s</code>\n"+
 				"🧩 节点名称：<code>%s</code>\n"+
+				"%s"+
 				"⏰ 上线时间：<code>%s</code>",
 			html.EscapeString(ev.email),
 			html.EscapeString(ev.remark),
+			ipLines,
 			now.Format("2006-01-02 15:04:05"),
 		))
 	}
@@ -283,6 +294,101 @@ func reconcileOnlineNotifySessions(
 	}
 
 	return onlineTransitions, offlineTransitions
+}
+
+func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string) string {
+	raw, err := j.inboundService.GetInboundClientIps(email)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	clientIP, ok := latestOnlineNotifyClientIP(raw)
+	if !ok {
+		return ""
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	geo := j.serverService.LookupIPGeo(ctx, clientIP.ip)
+	location := formatOnlineNotifyGeoLocation(geo)
+
+	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(clientIP.ip))
+	if location != "" {
+		lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(location))
+	} else if geo.Error != "" {
+		lines += fmt.Sprintf("📍 归属地：<code>查询失败：%s</code>\n", html.EscapeString(geo.Error))
+	}
+	if geo.Source != "" {
+		lines += fmt.Sprintf("🔎 来源：<code>%s</code>\n", html.EscapeString(geo.Source))
+	}
+	return lines
+}
+
+func latestOnlineNotifyClientIP(raw string) (onlineNotifyClientIP, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return onlineNotifyClientIP{}, false
+	}
+
+	type ipWithTimestamp struct {
+		IP        string `json:"ip"`
+		Timestamp int64  `json:"timestamp"`
+	}
+
+	var ipsWithTime []ipWithTimestamp
+	if err := json.Unmarshal([]byte(raw), &ipsWithTime); err == nil {
+		var latest onlineNotifyClientIP
+		for _, item := range ipsWithTime {
+			ip := strings.TrimSpace(item.IP)
+			if ip == "" {
+				continue
+			}
+			if latest.ip == "" || item.Timestamp >= latest.timestamp {
+				latest = onlineNotifyClientIP{ip: ip, timestamp: item.Timestamp}
+			}
+		}
+		if latest.ip != "" {
+			return latest, true
+		}
+	}
+
+	var oldIps []string
+	if err := json.Unmarshal([]byte(raw), &oldIps); err == nil {
+		for i := len(oldIps) - 1; i >= 0; i-- {
+			ip := strings.TrimSpace(oldIps[i])
+			if ip != "" {
+				return onlineNotifyClientIP{ip: ip}, true
+			}
+		}
+	}
+
+	return onlineNotifyClientIP{}, false
+}
+
+func formatOnlineNotifyGeoLocation(geo service.NodeGeoLocation) string {
+	if location := strings.TrimSpace(geo.Location); location != "" {
+		return location
+	}
+	parts := []string{
+		geo.Country,
+		geo.Province,
+		geo.City,
+		geo.District,
+		geo.Detail,
+	}
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		out = append(out, part)
+	}
+	return strings.Join(out, " ")
 }
 
 func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {

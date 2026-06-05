@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/web/service"
 	"github.com/mhsanaei/3x-ui/v3/xray"
 )
 
@@ -111,5 +112,57 @@ func TestOnlineNotifyDoesNotSendOfflineIfOnlineWasNeverAnnounced(t *testing.T) {
 	onlineNotifyMu.Unlock()
 	if len(online) != 0 || len(offline) != 0 {
 		t.Fatalf("offline without prior online transitions = %#v/%#v, want none", online, offline)
+	}
+}
+
+func TestLatestOnlineNotifyClientIPPrefersNewestTimestamp(t *testing.T) {
+	got, ok := latestOnlineNotifyClientIP(`[
+		{"ip":"139.201.252.156","timestamp":1780644977},
+		{"ip":"8.8.8.8","timestamp":1780644999}
+	]`)
+	if !ok {
+		t.Fatal("latestOnlineNotifyClientIP returned no IP")
+	}
+	if got.ip != "8.8.8.8" || got.timestamp != 1780644999 {
+		t.Fatalf("latestOnlineNotifyClientIP = %#v, want 8.8.8.8 at 1780644999", got)
+	}
+}
+
+func TestLatestOnlineNotifyClientIPSupportsLegacyStringArray(t *testing.T) {
+	got, ok := latestOnlineNotifyClientIP(`["1.1.1.1","139.201.252.156"]`)
+	if !ok {
+		t.Fatal("latestOnlineNotifyClientIP returned no IP")
+	}
+	if got.ip != "139.201.252.156" {
+		t.Fatalf("latestOnlineNotifyClientIP = %#v, want last legacy IP", got)
+	}
+}
+
+func TestFormatOnlineNotifyGeoLocationDeduplicatesFields(t *testing.T) {
+	got := formatOnlineNotifyGeoLocation(service.NodeGeoLocation{
+		Location: "中国四川省成都市",
+		Country:  "中国",
+		Province: "四川省",
+		City:     "成都市",
+		District: "成都市",
+		Detail:   "锦江区",
+	})
+	want := "中国四川省成都市"
+	if got != want {
+		t.Fatalf("formatOnlineNotifyGeoLocation = %q, want %q", got, want)
+	}
+}
+
+func TestFormatOnlineNotifyGeoLocationFallsBackToParts(t *testing.T) {
+	got := formatOnlineNotifyGeoLocation(service.NodeGeoLocation{
+		Country:  "中国",
+		Province: "四川省",
+		City:     "成都市",
+		District: "成都市",
+		Detail:   "锦江区",
+	})
+	want := "中国 四川省 成都市 锦江区"
+	if got != want {
+		t.Fatalf("formatOnlineNotifyGeoLocation = %q, want %q", got, want)
 	}
 }
