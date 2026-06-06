@@ -276,6 +276,7 @@ func (t *Tgbot) StartConfigured() error {
 	}
 
 	t.trySetBotCommands(bot)
+	go t.sendPendingPanelUpdateNotice()
 
 	// Start receiving Telegram bot messages
 	tgBotMutex.Lock()
@@ -1003,7 +1004,18 @@ func (t *Tgbot) startPanelUpdateFromBot(chatId int64) {
 		))
 		return
 	}
+	if err := panelService.SavePendingUpdateNotice(chatId, info.LatestVersion); err != nil {
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"❌ <b>OUI 更新通知记录失败</b>\n目标版本：<code>%s</code>\n错误：<code>%s</code>",
+			html.EscapeString(info.LatestVersion),
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
 	if err := panelService.StartUpdate(); err != nil {
+		if clearErr := panelService.ClearPendingUpdateNotice(); clearErr != nil {
+			logger.Warning("failed to clear pending panel update notice:", clearErr)
+		}
 		t.SendMsgToTgbot(chatId, fmt.Sprintf(
 			"❌ <b>OUI 更新启动失败</b>\n目标版本：<code>%s</code>\n错误：<code>%s</code>",
 			html.EscapeString(info.LatestVersion),
@@ -1015,6 +1027,90 @@ func (t *Tgbot) startPanelUpdateFromBot(chatId int64) {
 		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。",
 		html.EscapeString(info.LatestVersion),
 	))
+}
+
+func (t *Tgbot) sendPendingPanelUpdateNotice() {
+	panelService := &PanelService{}
+	notice, err := panelService.GetPendingUpdateNotice()
+	if err != nil {
+		logger.Warning("failed to load pending panel update notice:", err)
+		return
+	}
+	if notice == nil {
+		return
+	}
+
+	current := config.GetVersion()
+	if !panelUpdateNoticeReached(notice.TargetVersion, current) {
+		return
+	}
+
+	requestedAt := "未知"
+	if notice.RequestedAt > 0 {
+		requestedAt = time.Unix(notice.RequestedAt, 0).Format("2006-01-02 15:04:05")
+	}
+	message := fmt.Sprintf(
+		"✅ <b>OUI 更新成功</b>\n目标版本：<code>%s</code>\n当前版本：<code>%s</code>\n发起时间：<code>%s</code>",
+		html.EscapeString(notice.TargetVersion),
+		html.EscapeString(current),
+		html.EscapeString(requestedAt),
+	)
+
+	chatIDs := pendingPanelUpdateNoticeRecipients(notice.ChatID)
+	if len(chatIDs) == 0 {
+		logger.Warning("pending panel update notice has no Telegram recipients")
+		return
+	}
+
+	var sendErr error
+	for _, chatID := range chatIDs {
+		if err := t.sendTgbotMessageDirect(chatID, message); err != nil {
+			logger.Warningf("failed to send panel update success notice to %d: %v", chatID, err)
+			sendErr = err
+		}
+	}
+	if sendErr != nil {
+		return
+	}
+	if err := panelService.ClearPendingUpdateNotice(); err != nil {
+		logger.Warning("failed to clear pending panel update notice:", err)
+	}
+}
+
+func pendingPanelUpdateNoticeRecipients(chatID int64) []int64 {
+	if chatID != 0 {
+		return []int64{chatID}
+	}
+
+	tgBotMutex.Lock()
+	defer tgBotMutex.Unlock()
+	recipients := make([]int64, 0, len(adminIds))
+	seen := make(map[int64]struct{}, len(adminIds))
+	for _, adminID := range adminIds {
+		if adminID == 0 {
+			continue
+		}
+		if _, ok := seen[adminID]; ok {
+			continue
+		}
+		seen[adminID] = struct{}{}
+		recipients = append(recipients, adminID)
+	}
+	return recipients
+}
+
+func (t *Tgbot) sendTgbotMessageDirect(chatID int64, msg string) error {
+	if bot == nil {
+		return fmt.Errorf("Telegram bot 未初始化")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := bot.SendMessage(ctx, &telego.SendMessageParams{
+		ChatID:    tu.ID(chatID),
+		Text:      msg,
+		ParseMode: "HTML",
+	})
+	return err
 }
 
 // randomLowerAndNum generates a random string of lowercase letters and numbers.

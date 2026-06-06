@@ -30,9 +30,17 @@ type PanelUpdateInfo struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 }
 
+// PendingPanelUpdateNotice remembers a Telegram-triggered update across the panel restart.
+type PendingPanelUpdateNotice struct {
+	ChatID        int64  `json:"chatId"`
+	TargetVersion string `json:"targetVersion"`
+	RequestedAt   int64  `json:"requestedAt"`
+}
+
 const (
 	panelUpdaterURL      = "https://raw.githubusercontent.com/tpxcer/oui/main/update.sh"
 	maxPanelUpdaterBytes = 2 << 20
+	panelUpdateNotice    = "panel-update-pending.json"
 )
 
 func (s *PanelService) RestartPanel(delay time.Duration) error {
@@ -136,6 +144,103 @@ func (s *PanelService) StartUpdate() error {
 	}
 	logger.Infof("started panel update job with pid %d", cmd.Process.Pid)
 	return nil
+}
+
+// SavePendingUpdateNotice persists the Telegram chat that should receive the success notice.
+func (s *PanelService) SavePendingUpdateNotice(chatID int64, targetVersion string) error {
+	targetVersion = strings.TrimSpace(targetVersion)
+	if targetVersion == "" {
+		return fmt.Errorf("目标版本为空")
+	}
+
+	folder := config.GetDBFolderPath()
+	if err := os.MkdirAll(folder, 0700); err != nil {
+		return fmt.Errorf("创建更新通知目录失败: %w", err)
+	}
+
+	notice := PendingPanelUpdateNotice{
+		ChatID:        chatID,
+		TargetVersion: targetVersion,
+		RequestedAt:   time.Now().Unix(),
+	}
+	payload, err := json.MarshalIndent(notice, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+
+	tmp, err := os.CreateTemp(folder, ".panel-update-pending-*.json")
+	if err != nil {
+		return fmt.Errorf("创建更新通知临时文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(payload); err != nil {
+		return fmt.Errorf("写入更新通知失败: %w", err)
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, panelUpdateNoticePath()); err != nil {
+		return fmt.Errorf("保存更新通知失败: %w", err)
+	}
+	ok = true
+	return nil
+}
+
+// GetPendingUpdateNotice loads a pending Telegram update success notice, if one exists.
+func (s *PanelService) GetPendingUpdateNotice() (*PendingPanelUpdateNotice, error) {
+	payload, err := os.ReadFile(panelUpdateNoticePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var notice PendingPanelUpdateNotice
+	if err := json.Unmarshal(payload, &notice); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(notice.TargetVersion) == "" {
+		return nil, fmt.Errorf("更新通知目标版本为空")
+	}
+	return &notice, nil
+}
+
+// ClearPendingUpdateNotice removes a pending Telegram update success notice.
+func (s *PanelService) ClearPendingUpdateNotice() error {
+	err := os.Remove(panelUpdateNoticePath())
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+func panelUpdateNoticePath() string {
+	return filepath.Join(config.GetDBFolderPath(), panelUpdateNotice)
+}
+
+func panelUpdateNoticeReached(targetVersion string, currentVersion string) bool {
+	targetVersion = strings.TrimSpace(targetVersion)
+	currentVersion = strings.TrimSpace(currentVersion)
+	if targetVersion == "" || currentVersion == "" {
+		return false
+	}
+	if normalizeVersionTag(targetVersion) == normalizeVersionTag(currentVersion) {
+		return true
+	}
+	return !isNewerVersion(targetVersion, currentVersion)
 }
 
 func downloadPanelUpdater() (string, error) {
