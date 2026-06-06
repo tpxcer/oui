@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -1330,6 +1331,10 @@ func quickClient(emailPrefix string, id string, auth string, flow string) model.
 	}
 }
 
+func quickHysteriaClient(emailPrefix string, auth string) model.Client {
+	return quickClient(emailPrefix, uuid.NewString(), auth, "")
+}
+
 func randomStringFromCrypto(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	buf := make([]byte, length)
@@ -1473,7 +1478,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		}
 		tlsSettings["alpn"] = []string{"h3"}
 		auth := t.randomLowerAndNum(16)
-		client := quickClient(preset.EmailPrefix, "", auth, "")
+		client := quickHysteriaClient(preset.EmailPrefix, auth)
 		email = client.Email
 		settings = map[string]any{
 			"version": 2,
@@ -1640,20 +1645,28 @@ func allowInboundPort(port int, transport string) string {
 	if transport == "udp" {
 		protocols = []string{"udp"}
 	}
+	if msg, handled := allowInboundPortWithHostHardening(port, protocols); handled {
+		return msg
+	}
+	ufwInactive := false
 	if path, err := exec.LookPath("ufw"); err == nil {
-		var errs []string
-		for _, proto := range protocols {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d/%s", port, proto)).Run()
-			cancel()
-			if err != nil {
-				errs = append(errs, err.Error())
+		if !isUfwActive(path) {
+			ufwInactive = true
+		} else {
+			var errs []string
+			for _, proto := range protocols {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d/%s", port, proto)).Run()
+				cancel()
+				if err != nil {
+					errs = append(errs, err.Error())
+				}
 			}
+			if len(errs) == 0 {
+				return fmt.Sprintf("ufw 已放行 %d/%s", port, strings.Join(protocols, ","))
+			}
+			return "ufw 放行失败：" + strings.Join(errs, "; ")
 		}
-		if len(errs) == 0 {
-			return fmt.Sprintf("ufw 已放行 %d/%s", port, strings.Join(protocols, ","))
-		}
-		return "ufw 放行失败：" + strings.Join(errs, "; ")
 	}
 	if path, err := exec.LookPath("firewall-cmd"); err == nil {
 		var errs []string
@@ -1673,7 +1686,185 @@ func allowInboundPort(port int, transport string) string {
 		}
 		return "firewalld 放行失败：" + strings.Join(errs, "; ")
 	}
+	if ufwInactive {
+		return "ufw 未启用，请手动放行端口"
+	}
 	return "未检测到 ufw/firewalld，请手动放行端口"
+}
+
+const hostHardeningNftPath = "/etc/nftables.d/host_hardening.nft"
+
+func isUfwActive(path string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	output, err := exec.CommandContext(ctx, path, "status").CombinedOutput()
+	cancel()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(output)), "status: active")
+}
+
+func allowInboundPortWithHostHardening(port int, protocols []string) (string, bool) {
+	if port <= 0 || port > 65535 {
+		return fmt.Sprintf("端口无效：%d", port), true
+	}
+	if _, err := os.Stat(hostHardeningNftPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", false
+		}
+		return "nftables 配置检测失败：" + err.Error(), true
+	}
+	if _, err := exec.LookPath("nft"); err != nil {
+		return "检测到 host_hardening，但未找到 nft 命令，请手动放行端口", true
+	}
+
+	original, err := os.ReadFile(hostHardeningNftPath)
+	if err != nil {
+		return "读取 nftables 配置失败：" + err.Error(), true
+	}
+	content := string(original)
+	changed := false
+	for _, proto := range protocols {
+		updated, didChange, err := addPortToNftDportRule(content, proto, port)
+		if err != nil {
+			return "nftables 放行失败：" + err.Error(), true
+		}
+		content = updated
+		changed = changed || didChange
+	}
+	if !changed {
+		return fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), true
+	}
+
+	dir := filepath.Dir(hostHardeningNftPath)
+	tmp, err := os.CreateTemp(dir, ".host_hardening-*.nft")
+	if err != nil {
+		return "创建 nftables 临时配置失败：" + err.Error(), true
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.WriteString(content); err != nil {
+		return "写入 nftables 临时配置失败：" + err.Error(), true
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		return "设置 nftables 临时配置权限失败：" + err.Error(), true
+	}
+	if err := tmp.Close(); err != nil {
+		return "关闭 nftables 临时配置失败：" + err.Error(), true
+	}
+
+	if err := runNftConfigCheck(tmpPath); err != nil {
+		return "nftables 配置校验失败：" + err.Error(), true
+	}
+
+	backupPath := fmt.Sprintf("%s.bak.%s", hostHardeningNftPath, time.Now().Format("20060102150405"))
+	if err := os.WriteFile(backupPath, original, 0644); err != nil {
+		return "备份 nftables 配置失败：" + err.Error(), true
+	}
+	if err := os.Rename(tmpPath, hostHardeningNftPath); err != nil {
+		return "保存 nftables 配置失败：" + err.Error(), true
+	}
+	ok = true
+
+	if err := reloadHostHardeningFirewall(); err != nil {
+		_ = os.WriteFile(hostHardeningNftPath, original, 0644)
+		_ = reloadHostHardeningFirewall()
+		return "nftables 重载失败：" + err.Error(), true
+	}
+	return fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), true
+}
+
+func runNftConfigCheck(path string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	output, err := exec.CommandContext(ctx, "nft", "-c", "-f", path).CombinedOutput()
+	cancel()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func reloadHostHardeningFirewall() error {
+	if systemctl, err := exec.LookPath("systemctl"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		output, err := exec.CommandContext(ctx, systemctl, "restart", "host-hardening-firewall.service").CombinedOutput()
+		cancel()
+		if err == nil {
+			return nil
+		}
+		logger.Warning("failed to restart host-hardening-firewall.service:", strings.TrimSpace(string(output)))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	output, err := exec.CommandContext(ctx, "nft", "-f", hostHardeningNftPath).CombinedOutput()
+	cancel()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func addPortToNftDportRule(content, proto string, port int) (string, bool, error) {
+	proto = strings.ToLower(strings.TrimSpace(proto))
+	if proto != "tcp" && proto != "udp" {
+		return content, false, fmt.Errorf("unsupported nft protocol: %s", proto)
+	}
+	if port <= 0 || port > 65535 {
+		return content, false, fmt.Errorf("invalid port: %d", port)
+	}
+
+	re := regexp.MustCompile(`(?m)(\s*` + regexp.QuoteMeta(proto) + `\s+dport\s+\{)([^}]*)((?:\}\s+accept))`)
+	match := re.FindStringSubmatchIndex(content)
+	if match == nil {
+		dropRe := regexp.MustCompile(`(?m)^(\s*)counter\s+drop\s*$`)
+		if !dropRe.MatchString(content) {
+			return content, false, fmt.Errorf("missing %s dport set and counter drop rule", proto)
+		}
+		rule := fmt.Sprintf("${1}%s dport {%d} accept\n${1}counter drop", proto, port)
+		return dropRe.ReplaceAllString(content, rule), true, nil
+	}
+
+	portsText := content[match[4]:match[5]]
+	ports, hasPort := parseNftPortSet(portsText)
+	if hasPort[port] {
+		return content, false, nil
+	}
+	ports = append(ports, port)
+	slices.Sort(ports)
+	replacement := content[match[2]:match[3]] + formatNftPortSet(ports) + content[match[6]:match[7]]
+	return content[:match[0]] + replacement + content[match[1]:], true, nil
+}
+
+func parseNftPortSet(value string) ([]int, map[int]bool) {
+	seen := make(map[int]bool)
+	parts := strings.Split(value, ",")
+	for _, part := range parts {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil || port <= 0 || port > 65535 || seen[port] {
+			continue
+		}
+		seen[port] = true
+	}
+	ports := make([]int, 0, len(seen))
+	for port := range seen {
+		ports = append(ports, port)
+	}
+	slices.Sort(ports)
+	return ports, seen
+}
+
+func formatNftPortSet(ports []int) string {
+	parts := make([]string, 0, len(ports))
+	for _, port := range ports {
+		parts = append(parts, strconv.Itoa(port))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // answerCallback processes callback queries from inline keyboards.
