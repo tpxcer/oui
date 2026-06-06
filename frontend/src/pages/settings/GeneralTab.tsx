@@ -26,10 +26,19 @@ interface GeneralTabProps {
 
 const REMARK_MODELS: Record<string, string> = { i: 'Inbound', e: 'Email', o: 'Other' };
 const REMARK_SEPARATORS = [' ', '-', '_', '@', ':', '~', '|', ',', '.', '/'];
+const SAVED_SECRET_MASK = '********************************';
 const DATEPICKER_LIST: { name: string; value: 'gregorian' | 'jalalian' }[] = [
   { name: 'Gregorian (Standard)', value: 'gregorian' },
   { name: 'Jalalian (شمسی)', value: 'jalalian' },
 ];
+
+function normalizeMaskedSecretInput(value: string, mask: string): string | null {
+  if (value === mask) return null;
+  if (value.startsWith(mask)) return value.slice(mask.length);
+  if (value.endsWith(mask)) return value.slice(0, -mask.length);
+  if (/^\*+$/.test(value)) return '';
+  return value;
+}
 
 export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProps) {
   const { t } = useTranslation();
@@ -39,6 +48,8 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
   const [serverProviderAPIKeyDraft, setServerProviderAPIKeyDraft] = useState('');
   const [serverProviderAPIKeyVisible, setServerProviderAPIKeyVisible] = useState(false);
   const [serverProviderAPIKeyLoading, setServerProviderAPIKeyLoading] = useState(false);
+  const [serverProviderAPIKeyTouched, setServerProviderAPIKeyTouched] = useState(false);
+  const [ldapPasswordTouched, setLdapPasswordTouched] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +134,20 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
     }
     setServerProviderAPIKeyVisible(true);
   }
+
+  const showSavedServerProviderAPIKeyMask = allSetting.hasServerProviderAPIKey
+    && !serverProviderAPIKeyVisible
+    && !serverProviderAPIKeyDraft
+    && !serverProviderAPIKeyTouched;
+  const serverProviderAPIKeyValue = showSavedServerProviderAPIKeyMask
+    ? SAVED_SECRET_MASK
+    : serverProviderAPIKeyDraft;
+  const showSavedLdapPasswordMask = allSetting.hasLdapPassword
+    && !allSetting.ldapPassword
+    && !ldapPasswordTouched;
+  const ldapPasswordValue = showSavedLdapPasswordMask
+    ? SAVED_SECRET_MASK
+    : allSetting.ldapPassword;
 
   const langOptions = useMemo(
     () => LanguageManager.supportedLanguages.map((l: { value: string; name: string; icon: string }) => ({
@@ -246,21 +271,27 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                   description={allSetting.hasServerProviderAPIKey ? '已配置，输入新密钥才会替换；留空保存会保留当前密钥。' : '请填写服务器商提供的 API KEY。'}
                 >
                   <Input.Password
-                    value={serverProviderAPIKeyDraft}
+                    value={serverProviderAPIKeyValue}
                     placeholder={
                       serverProviderAPIKeyLoading
                         ? '正在读取已保存 API KEY...'
-                        : allSetting.hasServerProviderAPIKey
-                          ? '已配置，点右侧眼睛查看；输入新密钥替换'
-                          : '请输入 API KEY'
+                        : '请输入 API KEY'
                     }
                     visibilityToggle={{
                       visible: serverProviderAPIKeyVisible,
                       onVisibleChange: handleServerProviderAPIKeyVisibleChange,
                     }}
+                    onFocus={(e) => {
+                      if (showSavedServerProviderAPIKeyMask) e.currentTarget.select();
+                    }}
                     onChange={(e) => {
-                      setServerProviderAPIKeyDraft(e.target.value);
-                      updateSetting({ serverProviderAPIKey: e.target.value });
+                      const value = showSavedServerProviderAPIKeyMask
+                        ? normalizeMaskedSecretInput(e.target.value, SAVED_SECRET_MASK)
+                        : e.target.value;
+                      if (value === null) return;
+                      setServerProviderAPIKeyTouched(true);
+                      setServerProviderAPIKeyDraft(value);
+                      updateSetting({ serverProviderAPIKey: value });
                     }}
                   />
                 </SettingListItem>
@@ -382,9 +413,19 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
               description={allSetting.hasLdapPassword ? '已配置，留空会保留当前密码。' : '未配置。'}
             >
               <Input.Password
-                value={allSetting.ldapPassword}
-                placeholder={allSetting.hasLdapPassword ? '已配置，输入新值可替换' : ''}
-                onChange={(e) => updateSetting({ ldapPassword: e.target.value })}
+                value={ldapPasswordValue}
+                placeholder={allSetting.hasLdapPassword ? '' : '请输入 LDAP 密码'}
+                onFocus={(e) => {
+                  if (showSavedLdapPasswordMask) e.currentTarget.select();
+                }}
+                onChange={(e) => {
+                  const value = showSavedLdapPasswordMask
+                    ? normalizeMaskedSecretInput(e.target.value, SAVED_SECRET_MASK)
+                    : e.target.value;
+                  if (value === null) return;
+                  setLdapPasswordTouched(true);
+                  updateSetting({ ldapPassword: value });
+                }}
               />
             </SettingListItem>
             <SettingListItem paddings="small" title="基础 DN">

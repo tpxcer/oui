@@ -17,12 +17,22 @@ const telegramNotifyTimeOptions = [
   { value: '@every 360h', label: '15天' },
   { value: '@monthly', label: '每月' },
 ];
+const SAVED_SECRET_MASK = '********************************';
+
+function normalizeMaskedSecretInput(value: string, mask: string): string | null {
+  if (value === mask) return null;
+  if (value.startsWith(mask)) return value.slice(mask.length);
+  if (value.endsWith(mask)) return value.slice(0, -mask.length);
+  if (/^\*+$/.test(value)) return '';
+  return value;
+}
 
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {
   const { t } = useTranslation();
   const [tgBotTokenDraft, setTgBotTokenDraft] = useState('');
   const [tgBotTokenVisible, setTgBotTokenVisible] = useState(false);
   const [tgBotTokenLoading, setTgBotTokenLoading] = useState(false);
+  const [tgBotTokenTouched, setTgBotTokenTouched] = useState(false);
   const tgTokenRequired = allSetting.tgBotEnable && !allSetting.hasTgBotToken && tgBotTokenDraft.trim() === '';
   const tgChatIdRequired = allSetting.tgBotEnable && allSetting.tgBotChatId.trim() === '';
 
@@ -64,6 +74,12 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
     setTgBotTokenVisible(true);
   }
 
+  const showSavedTgBotTokenMask = allSetting.hasTgBotToken
+    && !tgBotTokenVisible
+    && !tgBotTokenDraft
+    && !tgBotTokenTouched;
+  const tgBotTokenValue = showSavedTgBotTokenMask ? SAVED_SECRET_MASK : tgBotTokenDraft;
+
   return (
     <Collapse defaultActiveKey="1" items={[
       {
@@ -85,22 +101,28 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
                   description="启用 Telegram 机器人时，机器人API和聊天 ID 必填；已保存过机器人API时可留空沿用。"
                 >
                   <Input.Password
-                    value={tgBotTokenDraft}
+                    value={tgBotTokenValue}
                     status={tgTokenRequired ? 'error' : undefined}
                     placeholder={
                       tgBotTokenLoading
                         ? '正在读取已保存机器人API...'
-                        : allSetting.hasTgBotToken
-                          ? '已配置，点右侧眼睛查看；输入新机器人API替换'
-                          : '输入 Telegram 机器人API'
+                        : '输入 Telegram 机器人API'
                     }
                     visibilityToggle={{
                       visible: tgBotTokenVisible,
                       onVisibleChange: handleTgBotTokenVisibleChange,
                     }}
+                    onFocus={(e) => {
+                      if (showSavedTgBotTokenMask) e.currentTarget.select();
+                    }}
                     onChange={(e) => {
-                      setTgBotTokenDraft(e.target.value);
-                      updateSetting({ tgBotToken: e.target.value });
+                      const value = showSavedTgBotTokenMask
+                        ? normalizeMaskedSecretInput(e.target.value, SAVED_SECRET_MASK)
+                        : e.target.value;
+                      if (value === null) return;
+                      setTgBotTokenTouched(true);
+                      setTgBotTokenDraft(value);
+                      updateSetting({ tgBotToken: value });
                     }}
                   />
                 </SettingListItem>
