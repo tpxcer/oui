@@ -301,6 +301,7 @@ func (t *Tgbot) trySetBotCommands(bot *telego.Bot) {
 			{Command: "start", Description: t.I18nBot("tgbot.commands.startDesc")},
 			{Command: "help", Description: t.I18nBot("tgbot.commands.helpDesc")},
 			{Command: "status", Description: t.I18nBot("tgbot.commands.statusDesc")},
+			{Command: "update", Description: "检查并更新 OUI 面板"},
 			{Command: "id", Description: t.I18nBot("tgbot.commands.idDesc")},
 		},
 	})
@@ -882,6 +883,13 @@ func (t *Tgbot) answerCommand(message *telego.Message, chatId int64, isAdmin boo
 	case "status":
 		onlyMessage = true
 		msg += t.I18nBot("tgbot.commands.status")
+	case "update":
+		onlyMessage = true
+		if isAdmin {
+			t.sendPanelUpdateStatus(chatId)
+			return
+		}
+		handleUnknownCommand()
 	case "id":
 		onlyMessage = true
 		msg += t.I18nBot("tgbot.commands.getID", "ID=="+strconv.FormatInt(message.From.ID, 10))
@@ -940,6 +948,73 @@ func (t *Tgbot) sendResponse(chatId int64, msg string, onlyMessage, isAdmin bool
 	} else {
 		t.SendAnswer(chatId, msg, isAdmin)
 	}
+}
+
+func (t *Tgbot) sendPanelUpdateStatus(chatId int64) {
+	panelService := &PanelService{}
+	info, err := panelService.GetUpdateInfo()
+	if err != nil {
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"❌ <b>OUI 更新检测失败</b>\n错误：<code>%s</code>",
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
+	current := info.CurrentVersion
+	if current == "" {
+		current = config.GetVersion()
+	}
+	if info.UpdateAvailable {
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"🆕 <b>OUI 可更新到最新版(<code>%s</code>)</b>\n当前版本：<code>%s</code>",
+			html.EscapeString(info.LatestVersion),
+			html.EscapeString(current),
+		), tu.InlineKeyboard(
+			tu.InlineKeyboardRow(
+				tu.InlineKeyboardButton(fmt.Sprintf("一键更新到 %s", info.LatestVersion)).WithCallbackData(t.encodeQuery("panel_update_start")),
+			),
+		))
+		return
+	}
+	t.SendMsgToTgbot(chatId, fmt.Sprintf(
+		"✅ <b>OUI 已是最新版</b>\n当前版本：<code>%s</code>",
+		html.EscapeString(current),
+	))
+}
+
+func (t *Tgbot) startPanelUpdateFromBot(chatId int64) {
+	panelService := &PanelService{}
+	info, err := panelService.GetUpdateInfo()
+	if err != nil {
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"❌ <b>OUI 更新检测失败</b>\n错误：<code>%s</code>",
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
+	if !info.UpdateAvailable {
+		current := info.CurrentVersion
+		if current == "" {
+			current = config.GetVersion()
+		}
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"✅ <b>OUI 已是最新版</b>\n当前版本：<code>%s</code>",
+			html.EscapeString(current),
+		))
+		return
+	}
+	if err := panelService.StartUpdate(); err != nil {
+		t.SendMsgToTgbot(chatId, fmt.Sprintf(
+			"❌ <b>OUI 更新启动失败</b>\n目标版本：<code>%s</code>\n错误：<code>%s</code>",
+			html.EscapeString(info.LatestVersion),
+			html.EscapeString(err.Error()),
+		))
+		return
+	}
+	t.SendMsgToTgbot(chatId, fmt.Sprintf(
+		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。",
+		html.EscapeString(info.LatestVersion),
+	))
 }
 
 // randomLowerAndNum generates a random string of lowercase letters and numbers.
@@ -2433,6 +2508,14 @@ func (t *Tgbot) answerCallback(callbackQuery *telego.CallbackQuery, isAdmin bool
 			case "quick_config":
 				t.sendCallbackAnswerTgBot(callbackQuery.ID, "一键配置")
 				t.SendMsgToTgbot(chatId, "选择一个一键节点配置：", t.quickConfigKeyboard())
+			case "panel_update":
+				t.sendCallbackAnswerTgBot(callbackQuery.ID, "正在检测 OUI 更新")
+				t.sendPanelUpdateStatus(chatId)
+				return
+			case "panel_update_start":
+				t.sendCallbackAnswerTgBot(callbackQuery.ID, "已开始处理 OUI 更新")
+				t.startPanelUpdateFromBot(chatId)
+				return
 			}
 
 		}
@@ -2980,6 +3063,7 @@ func (t *Tgbot) SendAnswer(chatId int64, msg string, isAdmin bool) {
 		),
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("⚡ 一键配置").WithCallbackData(t.encodeQuery("quick_config")),
+			tu.InlineKeyboardButton("更新 OUI").WithCallbackData(t.encodeQuery("panel_update")),
 		),
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton(t.I18nBot("pages.settings.subSettings")).WithCallbackData(t.encodeQuery("admin_client_sub_links")),

@@ -4553,6 +4553,66 @@
         }
       }
     },
+    "/panel/setting/secret": {
+      "post": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Return one saved secret for an authenticated Settings page reveal action. Only whitelisted keys are accepted.",
+        "operationId": "post_panel_setting_secret",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "description": "Secret key to reveal. Supported values: tgBotToken, serverProviderAPIKey."
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              },
+              "example": {
+                "key": "tgBotToken"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "key": "tgBotToken",
+                    "value": "123456:ABCDEF",
+                    "configured": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/setting/defaultSettings": {
       "post": {
         "tags": [

@@ -126,24 +126,30 @@ export default function IndexPage() {
     await refresh();
   }, [refresh]);
 
-  const checkPanelUpdate = useCallback(async () => {
+  const checkPanelUpdate = useCallback(async (options?: { silent?: boolean }) => {
     setCheckingUpdate(true);
     try {
       const msg = await getPanelUpdateInfoNoCache();
       if (msg?.success && msg.obj) {
         setPanelUpdateInfo(msg.obj);
-        if (msg.obj.updateAvailable) {
-          messageApi.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
-        } else {
-          messageApi.success('当前已是最新版');
+        if (!options?.silent) {
+          if (msg.obj.updateAvailable) {
+            messageApi.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
+          } else {
+            messageApi.success('当前已是最新版');
+          }
         }
-      } else {
+      } else if (!options?.silent) {
         messageApi.error(msg?.msg || '版本检测失败，请检查服务器是否可以访问 GitHub');
       }
     } finally {
       setCheckingUpdate(false);
     }
   }, [messageApi]);
+
+  useEffect(() => {
+    void checkPanelUpdate({ silent: true });
+  }, [checkPanelUpdate]);
 
   const startPanelUpdate = useCallback(async () => {
     const info = panelUpdateInfo;
@@ -234,7 +240,7 @@ export default function IndexPage() {
     : checkingUpdate
       ? '检测中'
       : panelUpdateInfo.updateAvailable
-        ? `更新到 ${panelUpdateInfo.latestVersion || '最新版'}`
+        ? '一键更新'
         : '检测更新';
 
   const handlePanelUpdateAction = useCallback(() => {
@@ -341,10 +347,10 @@ export default function IndexPage() {
                       title={
                         <Space>
                           <span>OUI</span>
-                          {isMobile && displayVersion && (
+                          {displayVersion && (
                             <Tag color={panelUpdateInfo.updateAvailable ? 'orange' : 'green'}>
                               {panelUpdateInfo.updateAvailable
-                                ? panelUpdateInfo.latestVersion
+                                ? `最新 ${panelUpdateInfo.latestVersion || '最新版'}`
                                 : displayVersion}
                             </Tag>
                           )}

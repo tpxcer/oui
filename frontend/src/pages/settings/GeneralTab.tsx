@@ -4,6 +4,7 @@ import {
   Collapse,
   Input,
   InputNumber,
+  message,
   Select,
   Space,
   Switch,
@@ -11,6 +12,7 @@ import {
 import type { AllSetting } from '@/models/setting';
 import { HttpUtil, LanguageManager } from '@/utils';
 import SettingListItem from '@/components/SettingListItem';
+import { fetchSettingSecret } from '@/api/settingSecrets';
 
 interface ApiMsg<T = unknown> {
   success?: boolean;
@@ -35,7 +37,8 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
   const [lang, setLang] = useState<string>(() => LanguageManager.getLanguage());
   const [inboundOptions, setInboundOptions] = useState<{ label: string; value: string }[]>([]);
   const [serverProviderAPIKeyDraft, setServerProviderAPIKeyDraft] = useState('');
-  const [serverProviderAPIKeyFocused, setServerProviderAPIKeyFocused] = useState(false);
+  const [serverProviderAPIKeyVisible, setServerProviderAPIKeyVisible] = useState(false);
+  const [serverProviderAPIKeyLoading, setServerProviderAPIKeyLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,9 +99,30 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
     LanguageManager.setLanguage(value);
   }
 
-  const serverProviderAPIKeyValue = serverProviderAPIKeyFocused
-    ? serverProviderAPIKeyDraft
-    : serverProviderAPIKeyDraft || (allSetting.hasServerProviderAPIKey ? '已保存 API KEY' : '');
+  function handleServerProviderAPIKeyVisibleChange(visible: boolean) {
+    if (!visible) {
+      setServerProviderAPIKeyVisible(false);
+      return;
+    }
+    if (serverProviderAPIKeyLoading) return;
+    if (!serverProviderAPIKeyDraft && allSetting.hasServerProviderAPIKey) {
+      setServerProviderAPIKeyLoading(true);
+      fetchSettingSecret('serverProviderAPIKey')
+        .then((value) => {
+          setServerProviderAPIKeyDraft(value);
+          setServerProviderAPIKeyVisible(true);
+          if (!value) message.warning('未读取到已保存的 API KEY');
+        })
+        .catch((error) => {
+          message.error(error instanceof Error ? error.message : '读取已保存 API KEY 失败');
+        })
+        .finally(() => {
+          setServerProviderAPIKeyLoading(false);
+        });
+      return;
+    }
+    setServerProviderAPIKeyVisible(true);
+  }
 
   const langOptions = useMemo(
     () => LanguageManager.supportedLanguages.map((l: { value: string; name: string; icon: string }) => ({
@@ -222,10 +246,18 @@ export default function GeneralTab({ allSetting, updateSetting }: GeneralTabProp
                   description={allSetting.hasServerProviderAPIKey ? '已配置，输入新密钥才会替换；留空保存会保留当前密钥。' : '请填写服务器商提供的 API KEY。'}
                 >
                   <Input.Password
-                    value={serverProviderAPIKeyValue}
-                    placeholder={allSetting.hasServerProviderAPIKey ? '留空保留当前密钥，输入新密钥替换' : '请输入 API KEY'}
-                    onFocus={() => setServerProviderAPIKeyFocused(true)}
-                    onBlur={() => setServerProviderAPIKeyFocused(false)}
+                    value={serverProviderAPIKeyDraft}
+                    placeholder={
+                      serverProviderAPIKeyLoading
+                        ? '正在读取已保存 API KEY...'
+                        : allSetting.hasServerProviderAPIKey
+                          ? '已配置，点右侧眼睛查看；输入新密钥替换'
+                          : '请输入 API KEY'
+                    }
+                    visibilityToggle={{
+                      visible: serverProviderAPIKeyVisible,
+                      onVisibleChange: handleServerProviderAPIKeyVisibleChange,
+                    }}
                     onChange={(e) => {
                       setServerProviderAPIKeyDraft(e.target.value);
                       updateSetting({ serverProviderAPIKey: e.target.value });

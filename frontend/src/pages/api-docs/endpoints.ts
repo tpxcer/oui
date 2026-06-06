@@ -864,6 +864,16 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'POST',
+        path: '/panel/setting/secret',
+        summary: 'Return one saved secret for an authenticated Settings page reveal action. Only whitelisted keys are accepted.',
+        params: [
+          { name: 'key', in: 'body', type: 'string', desc: 'Secret key to reveal. Supported values: tgBotToken, serverProviderAPIKey.' },
+        ],
+        body: '{\n  "key": "tgBotToken"\n}',
+        response: '{\n  "success": true,\n  "obj": {\n    "key": "tgBotToken",\n    "value": "123456:ABCDEF",\n    "configured": true\n  }\n}',
+      },
+      {
+        method: 'POST',
         path: '/panel/setting/defaultSettings',
         summary: 'Return the computed default settings based on the request host. Useful to preview what a fresh install would use.',
       },

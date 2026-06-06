@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Collapse, Input, InputNumber, Select, Switch } from 'antd';
+import { Alert, Collapse, Input, InputNumber, message, Select, Switch } from 'antd';
 import { LanguageManager } from '@/utils';
 import type { AllSetting } from '@/models/setting';
 import SettingListItem from '@/components/SettingListItem';
+import { fetchSettingSecret } from '@/api/settingSecrets';
 
 interface TelegramTabProps {
   allSetting: AllSetting;
@@ -20,6 +21,8 @@ const telegramNotifyTimeOptions = [
 export default function TelegramTab({ allSetting, updateSetting }: TelegramTabProps) {
   const { t } = useTranslation();
   const [tgBotTokenDraft, setTgBotTokenDraft] = useState('');
+  const [tgBotTokenVisible, setTgBotTokenVisible] = useState(false);
+  const [tgBotTokenLoading, setTgBotTokenLoading] = useState(false);
   const tgTokenRequired = allSetting.tgBotEnable && !allSetting.hasTgBotToken && tgBotTokenDraft.trim() === '';
   const tgChatIdRequired = allSetting.tgBotEnable && allSetting.tgBotChatId.trim() === '';
 
@@ -35,6 +38,31 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
     })),
     [],
   );
+
+  function handleTgBotTokenVisibleChange(visible: boolean) {
+    if (!visible) {
+      setTgBotTokenVisible(false);
+      return;
+    }
+    if (tgBotTokenLoading) return;
+    if (!tgBotTokenDraft && allSetting.hasTgBotToken) {
+      setTgBotTokenLoading(true);
+      fetchSettingSecret('tgBotToken')
+        .then((value) => {
+          setTgBotTokenDraft(value);
+          setTgBotTokenVisible(true);
+          if (!value) message.warning('未读取到已保存的机器人API');
+        })
+        .catch((error) => {
+          message.error(error instanceof Error ? error.message : '读取已保存机器人API失败');
+        })
+        .finally(() => {
+          setTgBotTokenLoading(false);
+        });
+      return;
+    }
+    setTgBotTokenVisible(true);
+  }
 
   return (
     <Collapse defaultActiveKey="1" items={[
@@ -59,7 +87,17 @@ export default function TelegramTab({ allSetting, updateSetting }: TelegramTabPr
                   <Input.Password
                     value={tgBotTokenDraft}
                     status={tgTokenRequired ? 'error' : undefined}
-                    placeholder="输入 Telegram 机器人API"
+                    placeholder={
+                      tgBotTokenLoading
+                        ? '正在读取已保存机器人API...'
+                        : allSetting.hasTgBotToken
+                          ? '已配置，点右侧眼睛查看；输入新机器人API替换'
+                          : '输入 Telegram 机器人API'
+                    }
+                    visibilityToggle={{
+                      visible: tgBotTokenVisible,
+                      onVisibleChange: handleTgBotTokenVisibleChange,
+                    }}
                     onChange={(e) => {
                       setTgBotTokenDraft(e.target.value);
                       updateSetting({ tgBotToken: e.target.value });

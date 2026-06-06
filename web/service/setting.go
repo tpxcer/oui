@@ -234,6 +234,17 @@ func (s *SettingService) GetAllSettingView() (*entity.AllSettingView, error) {
 	return view, nil
 }
 
+func (s *SettingService) GetDisplaySecret(key string) (string, error) {
+	switch key {
+	case "tgBotToken":
+		return s.GetTgBotToken()
+	case "serverProviderAPIKey":
+		return s.GetServerProviderAPIKey()
+	default:
+		return "", common.NewError("secret key is not readable:", key)
+	}
+}
+
 func secretConfigured(value string) bool {
 	return strings.TrimSpace(value) != ""
 }

@@ -32,6 +32,9 @@ func TestGetAllSettingViewRedactsSecrets(t *testing.T) {
 	if err := s.saveSetting("ldapPassword", "ldap-secret"); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.saveSetting("serverProviderAPIKey", "provider-secret"); err != nil {
+		t.Fatal(err)
+	}
 	if err := database.GetDB().Create(&model.ApiToken{Name: "test", Token: "api-secret", Enabled: true}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -40,11 +43,35 @@ func TestGetAllSettingViewRedactsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.TgBotToken != "" || view.TwoFactorToken != "" || view.LdapPassword != "" {
+	if view.TgBotToken != "" || view.TwoFactorToken != "" || view.LdapPassword != "" || view.ServerProviderAPIKey != "" {
 		t.Fatalf("settings view leaked secrets: %#v", view)
 	}
-	if !view.HasTgBotToken || !view.HasTwoFactorToken || !view.HasLdapPassword || !view.HasApiToken {
+	if !view.HasTgBotToken || !view.HasTwoFactorToken || !view.HasLdapPassword || !view.HasServerProviderAPIKey || !view.HasApiToken {
 		t.Fatalf("settings view did not report configured secret flags: %#v", view)
+	}
+}
+
+func TestGetDisplaySecretAllowsOnlyWhitelistedSecrets(t *testing.T) {
+	setupSettingTestDB(t)
+	s := &SettingService{}
+	if err := s.saveSetting("tgBotToken", "telegram-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.saveSetting("serverProviderAPIKey", "provider-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.saveSetting("ldapPassword", "ldap-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := s.GetDisplaySecret("tgBotToken"); err != nil || got != "telegram-secret" {
+		t.Fatalf("tgBotToken secret = %q, %v", got, err)
+	}
+	if got, err := s.GetDisplaySecret("serverProviderAPIKey"); err != nil || got != "provider-secret" {
+		t.Fatalf("serverProviderAPIKey secret = %q, %v", got, err)
+	}
+	if got, err := s.GetDisplaySecret("ldapPassword"); err == nil || got != "" {
+		t.Fatalf("ldapPassword should not be readable, got %q, %v", got, err)
 	}
 }
 

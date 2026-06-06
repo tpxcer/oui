@@ -23,6 +23,16 @@ type updateUserForm struct {
 	NewPassword string `json:"newPassword" form:"newPassword"`
 }
 
+type settingSecretForm struct {
+	Key string `json:"key" form:"key" validate:"required"`
+}
+
+type settingSecretView struct {
+	Key        string `json:"key"`
+	Value      string `json:"value"`
+	Configured bool   `json:"configured"`
+}
+
 // SettingController handles settings and user management operations.
 type SettingController struct {
 	settingService  service.SettingService
@@ -44,6 +54,7 @@ func (a *SettingController) initRouter(g *gin.RouterGroup) {
 	g = g.Group("/setting")
 
 	g.POST("/all", a.getAllSetting)
+	g.POST("/secret", a.getSettingSecret)
 	g.POST("/defaultSettings", a.getDefaultSettings)
 	g.POST("/update", a.updateSetting)
 	g.POST("/updateUser", a.updateUser)
@@ -63,6 +74,23 @@ func (a *SettingController) getAllSetting(c *gin.Context) {
 		return
 	}
 	jsonObj(c, allSetting, nil)
+}
+
+func (a *SettingController) getSettingSecret(c *gin.Context) {
+	form, ok := middleware.BindAndValidate[settingSecretForm](c)
+	if !ok {
+		return
+	}
+	value, err := a.settingService.GetDisplaySecret(form.Key)
+	if err != nil {
+		jsonMsg(c, "读取已保存密钥", err)
+		return
+	}
+	jsonObj(c, settingSecretView{
+		Key:        form.Key,
+		Value:      value,
+		Configured: value != "",
+	}, nil)
 }
 
 // getDefaultSettings retrieves the default settings based on the host.
