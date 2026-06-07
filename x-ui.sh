@@ -138,19 +138,42 @@ update() {
         fi
         return 1
     fi
-    bash "${tmp_update_script}"
-    local update_rc=$?
-    rm -f "${tmp_update_script}"
-    if [[ ${update_rc} == 0 ]]; then
-        LOGI "更新完成，面板已自动重启。"
-        before_show_menu
-    else
-        LOGE "更新失败，请查看上方输出。"
+
+    mkdir -p "${log_folder}"
+    local unit_name="oui-update-$(date +%s)"
+    local update_log="${log_folder}/${unit_name}.log"
+    local update_cmd
+    printf -v update_cmd "bash %q > %q 2>&1; rc=\$?; rm -f %q; exit \$rc" "${tmp_update_script}" "${update_log}" "${tmp_update_script}"
+
+    if command -v systemd-run > /dev/null 2>&1 && command -v systemctl > /dev/null 2>&1; then
+        if systemd-run --unit="${unit_name}" --collect /bin/bash -lc "${update_cmd}" > /dev/null 2>&1; then
+            LOGI "更新任务已在后台启动：${unit_name}.service"
+            LOGI "更新日志：${update_log}"
+            LOGI "面板会自动重启，当前连接可能短暂断开。"
+            if [[ $# == 0 ]]; then
+                before_show_menu
+            fi
+            return 0
+        fi
+        LOGE "systemd-run 启动后台更新失败，尝试使用 nohup。"
+    fi
+
+    nohup /bin/bash -lc "${update_cmd}" > /dev/null 2>&1 &
+    if [[ $? == 0 ]]; then
+        LOGI "更新任务已在后台启动，日志：${update_log}"
+        LOGI "面板会自动重启，当前连接可能短暂断开。"
         if [[ $# == 0 ]]; then
             before_show_menu
         fi
-        return ${update_rc}
+        return 0
     fi
+
+    rm -f "${tmp_update_script}"
+    LOGE "后台更新启动失败。"
+    if [[ $# == 0 ]]; then
+        before_show_menu
+    fi
+    return 1
 }
 
 update_menu() {

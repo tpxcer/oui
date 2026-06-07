@@ -6,8 +6,13 @@ blue='\033[0;34m'
 yellow='\033[0;33m'
 plain='\033[0m'
 
+# Keep the updater alive when the current SSH session is carried by Xray and
+# drops as soon as x-ui is stopped.
+trap '' HUP
+
 xui_folder="${XUI_MAIN_FOLDER:=/usr/local/x-ui}"
 xui_service="${XUI_SERVICE:=/etc/systemd/system}"
+xui_service_update_started=false
 
 # Don't edit this config
 b_source="${BASH_SOURCE[0]}"
@@ -145,6 +150,7 @@ verify_installed_version() {
 
 start_xui_service_checked() {
     if [[ $release == "alpine" ]]; then
+        rc-update add x-ui > /dev/null 2>&1
         if ! rc-service x-ui start > /dev/null 2>&1; then
             _fail "错误：OUI 服务启动失败，请运行 rc-service x-ui status 查看原因。"
         fi
@@ -152,8 +158,12 @@ start_xui_service_checked() {
     fi
 
     systemctl daemon-reload > /dev/null 2>&1
-    systemctl enable x-ui > /dev/null 2>&1
-    if ! systemctl start x-ui > /dev/null 2>&1; then
+    systemctl reset-failed x-ui > /dev/null 2>&1 || true
+    if ! systemctl enable x-ui > /dev/null 2>&1; then
+        journalctl -u x-ui -n 50 --no-pager 2> /dev/null || true
+        _fail "错误：OUI 服务设置开机自启失败，以上是最近的 systemd 日志。"
+    fi
+    if ! systemctl restart x-ui > /dev/null 2>&1; then
         journalctl -u x-ui -n 50 --no-pager 2> /dev/null || true
         _fail "错误：OUI 服务启动失败，以上是最近的 systemd 日志。"
     fi
@@ -163,6 +173,30 @@ start_xui_service_checked() {
         _fail "错误：OUI 服务未保持运行，以上是最近的 systemd 日志。"
     fi
 }
+
+recover_xui_service_on_failure() {
+	local rc="$1"
+	if [[ "${xui_service_update_started}" != "true" || "${rc}" -eq 0 ]]; then
+		return
+	fi
+
+	echo -e "${yellow}更新未正常完成，正在尝试恢复 OUI 服务...${plain}"
+	if [[ $release == "alpine" ]]; then
+		if [ -f "/etc/init.d/x-ui" ]; then
+			rc-update add x-ui > /dev/null 2>&1 || true
+			rc-service x-ui start > /dev/null 2>&1 || true
+		fi
+		return
+	fi
+
+	if [ -f "${xui_service}/x-ui.service" ]; then
+		systemctl daemon-reload > /dev/null 2>&1 || true
+		systemctl reset-failed x-ui > /dev/null 2>&1 || true
+		systemctl enable x-ui > /dev/null 2>&1 || true
+		systemctl start x-ui > /dev/null 2>&1 || true
+	fi
+}
+trap 'recover_xui_service_on_failure $?' EXIT
 
 install_base() {
     echo -e "${green}Updating and install dependency packages...${plain}"
@@ -884,12 +918,10 @@ update_x-ui() {
 
     if [[ -e ${xui_folder}/ ]]; then
         echo -e "${green}正在停止 x-ui...${plain}"
+        xui_service_update_started=true
         if [[ $release == "alpine" ]]; then
             if [ -f "/etc/init.d/x-ui" ]; then
                 rc-service x-ui stop > /dev/null 2>&1
-                rc-update del x-ui > /dev/null 2>&1
-                echo -e "${green}正在移除旧的服务单元...${plain}"
-                rm -f /etc/init.d/x-ui > /dev/null 2>&1
             else
                 rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
                 _fail "错误：未安装 x-ui 服务单元。"
@@ -897,9 +929,6 @@ update_x-ui() {
         else
             if [ -f "${xui_service}/x-ui.service" ]; then
                 systemctl stop x-ui > /dev/null 2>&1
-                systemctl disable x-ui > /dev/null 2>&1
-                echo -e "${green}正在移除旧的 systemd 服务单元...${plain}"
-                rm ${xui_service}/x-ui.service -f > /dev/null 2>&1
                 systemctl daemon-reload > /dev/null 2>&1
             else
                 rm x-ui-linux-$(arch).tar.gz -f > /dev/null 2>&1
