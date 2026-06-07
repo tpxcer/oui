@@ -367,15 +367,23 @@ func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string, ip string) strin
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	geo := j.serverService.LookupIPGeo(ctx, ip)
-	location := formatOnlineNotifyGeoLocation(geo)
+	var attribution service.NodeGeoLocation
+	var trace service.NodeGeoLocation
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		attribution = j.serverService.LookupIPAttribution(ctx, ip)
+	}()
+	go func() {
+		defer wg.Done()
+		trace = j.serverService.LookupIPGeo(ctx, ip)
+	}()
+	wg.Wait()
 
 	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
-	if location != "" {
-		lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(location))
-	} else if geo.Error != "" {
-		lines += fmt.Sprintf("📍 归属地：<code>查询失败：%s</code>\n", html.EscapeString(geo.Error))
-	}
+	lines += fmt.Sprintf("📍 IP归属地址：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(attribution)))
+	lines += fmt.Sprintf("🧭 IP溯源：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(trace)))
 	return lines
 }
 
@@ -536,6 +544,14 @@ func formatOnlineNotifyGeoLocation(geo service.NodeGeoLocation) string {
 		out = append(out, part)
 	}
 	return strings.Join(out, " ")
+}
+
+func formatOnlineNotifyLocationOrUnknown(geo service.NodeGeoLocation) string {
+	location := strings.TrimSpace(formatOnlineNotifyGeoLocation(geo))
+	if location == "" {
+		return "未知"
+	}
+	return location
 }
 
 func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {

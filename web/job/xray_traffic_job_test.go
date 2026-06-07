@@ -285,3 +285,12 @@ func TestFormatOnlineNotifyGeoLocationFallsBackToParts(t *testing.T) {
 		t.Fatalf("formatOnlineNotifyGeoLocation = %q, want %q", got, want)
 	}
 }
+
+func TestFormatOnlineNotifyLocationOrUnknown(t *testing.T) {
+	if got := formatOnlineNotifyLocationOrUnknown(service.NodeGeoLocation{}); got != "未知" {
+		t.Fatalf("formatOnlineNotifyLocationOrUnknown empty = %q, want 未知", got)
+	}
+	if got := formatOnlineNotifyLocationOrUnknown(service.NodeGeoLocation{City: "资阳", Detail: "中国电信"}); got != "资阳 中国电信" {
+		t.Fatalf("formatOnlineNotifyLocationOrUnknown parts = %q, want 资阳 中国电信", got)
+	}
+}

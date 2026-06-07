@@ -145,6 +145,7 @@ type ServerService struct {
 	cachedGeoLocation  NodeGeoLocation
 	lastGeoAttempt     time.Time
 	ipGeoCache         map[string]cachedIPGeo
+	ipAttributionCache map[string]cachedIPGeo
 	cachedCloud64Key   string
 	cachedCloud64Info  *cloud64ServiceInfo
 	cachedCloud64At    time.Time
@@ -339,7 +340,13 @@ type cloud64ServiceInfo struct {
 	Error            json.RawMessage   `json:"error"`
 }
 
-const defaultServerProviderURL = "https://api.64clouds.com/v1/getServiceInfo"
+const (
+	defaultServerProviderURL = "https://api.64clouds.com/v1/getServiceInfo"
+	ipGeoSuccessCacheTTL     = 24 * time.Hour
+	ipGeoFailureCacheTTL     = 15 * time.Minute
+	ipAttrSuccessCacheTTL    = 48 * time.Hour
+	ipAttrFailureCacheTTL    = 15 * time.Minute
+)
 
 func getPublicIP(url string) string {
 	client := &http.Client{
@@ -387,9 +394,12 @@ func (s *ServerService) LookupIPGeo(ctx context.Context, ip string) NodeGeoLocat
 	if s.ipGeoCache == nil {
 		s.ipGeoCache = make(map[string]cachedIPGeo)
 	}
-	if cached, ok := s.ipGeoCache[ip]; ok && now.Sub(cached.at) < 24*time.Hour {
-		s.mu.Unlock()
-		return cached.location
+	if cached, ok := s.ipGeoCache[ip]; ok {
+		ttl := cachedIPGeoTTL(cached.location, ipGeoSuccessCacheTTL, ipGeoFailureCacheTTL)
+		if now.Sub(cached.at) < ttl {
+			s.mu.Unlock()
+			return cached.location
+		}
 	}
 	s.mu.Unlock()
 
@@ -401,6 +411,57 @@ func (s *ServerService) LookupIPGeo(ctx context.Context, ip string) NodeGeoLocat
 	s.ipGeoCache[ip] = cachedIPGeo{location: geo, at: time.Now()}
 	s.mu.Unlock()
 	return geo
+}
+
+func (s *ServerService) LookupIPAttribution(ctx context.Context, ip string) NodeGeoLocation {
+	ip = strings.TrimSpace(ip)
+	result := NodeGeoLocation{IP: ip, Source: "ip9"}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		result.Error = fmt.Sprintf("invalid ip: %s", ip)
+		return result
+	}
+	ip = addr.String()
+	result.IP = ip
+
+	now := time.Now()
+	s.mu.Lock()
+	if s.ipAttributionCache == nil {
+		s.ipAttributionCache = make(map[string]cachedIPGeo)
+	}
+	if cached, ok := s.ipAttributionCache[ip]; ok {
+		ttl := cachedIPGeoTTL(cached.location, ipAttrSuccessCacheTTL, ipAttrFailureCacheTTL)
+		if now.Sub(cached.at) < ttl {
+			s.mu.Unlock()
+			return cached.location
+		}
+	}
+	s.mu.Unlock()
+
+	geo, err := fetchIP9NodeGeo(ctx, ip)
+	if err != nil {
+		geo = NodeGeoLocation{IP: ip, Source: "ip9", Error: err.Error()}
+	}
+	s.mu.Lock()
+	s.ipAttributionCache[ip] = cachedIPGeo{location: geo, at: time.Now()}
+	s.mu.Unlock()
+	return geo
+}
+
+func cachedIPGeoTTL(geo NodeGeoLocation, successTTL time.Duration, failureTTL time.Duration) time.Duration {
+	if strings.TrimSpace(geo.Error) != "" || !hasNodeGeoLocation(geo) {
+		return failureTTL
+	}
+	return successTTL
+}
+
+func hasNodeGeoLocation(geo NodeGeoLocation) bool {
+	return strings.TrimSpace(geo.Location) != "" ||
+		strings.TrimSpace(geo.Country) != "" ||
+		strings.TrimSpace(geo.Province) != "" ||
+		strings.TrimSpace(geo.City) != "" ||
+		strings.TrimSpace(geo.District) != "" ||
+		strings.TrimSpace(geo.Detail) != ""
 }
 
 func joinGeoAddress(values ...string) string {
@@ -439,7 +500,7 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 		return result, fmt.Errorf("meituan locate status %d", locRespHTTP.StatusCode)
 	}
 	var locResp struct {
-		Code int `json:"code"`
+		Code *int `json:"code"`
 		Data struct {
 			Lat  float64 `json:"lat"`
 			Lng  float64 `json:"lng"`
@@ -455,8 +516,11 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 	if err := json.NewDecoder(locRespHTTP.Body).Decode(&locResp); err != nil {
 		return result, err
 	}
-	if locResp.Code != 0 {
-		return result, fmt.Errorf("meituan locate code %d %s", locResp.Code, locResp.Msg)
+	if locResp.Code == nil {
+		return result, fmt.Errorf("meituan locate missing code")
+	}
+	if *locResp.Code != 0 {
+		return result, fmt.Errorf("meituan locate code %d %s", *locResp.Code, locResp.Msg)
 	}
 	result.Latitude = locResp.Data.Lat
 	result.Longitude = locResp.Data.Lng
@@ -465,6 +529,9 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 	result.City = strings.TrimSpace(locResp.Data.RGeo.City)
 	result.District = strings.TrimSpace(locResp.Data.RGeo.District)
 	result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District)
+	if result.Location == "" {
+		return result, fmt.Errorf("meituan locate empty location")
+	}
 
 	if result.Latitude == 0 && result.Longitude == 0 {
 		return result, nil
@@ -492,6 +559,67 @@ func fetchMeituanNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error
 		if result.Detail != "" {
 			result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District, result.Detail)
 		}
+	}
+	return result, nil
+}
+
+func fetchIP9NodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
+	result := NodeGeoLocation{IP: ip, Source: "ip9"}
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://ip9.com.cn/get?ip="+url.QueryEscape(ip), nil)
+	if err != nil {
+		return result, err
+	}
+	req.Header.Set("User-Agent", "OUI Panel")
+	respHTTP, err := client.Do(req)
+	if err != nil {
+		return result, err
+	}
+	defer respHTTP.Body.Close()
+	if respHTTP.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("ip9 status %d", respHTTP.StatusCode)
+	}
+
+	var resp struct {
+		Ret  int    `json:"ret"`
+		Msg  string `json:"msg"`
+		Data *struct {
+			Country string `json:"country"`
+			Prov    string `json:"prov"`
+			City    string `json:"city"`
+			Area    string `json:"area"`
+			ISP     string `json:"isp"`
+			Lng     string `json:"lng"`
+			Lat     string `json:"lat"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(respHTTP.Body).Decode(&resp); err != nil {
+		return result, err
+	}
+	if resp.Ret != 200 {
+		if strings.TrimSpace(resp.Msg) == "" {
+			resp.Msg = "unknown error"
+		}
+		return result, fmt.Errorf("ip9 ret %d %s", resp.Ret, resp.Msg)
+	}
+	if resp.Data == nil {
+		return result, fmt.Errorf("ip9 empty data")
+	}
+
+	result.Country = strings.TrimSpace(resp.Data.Country)
+	result.Province = strings.TrimSpace(resp.Data.Prov)
+	result.City = strings.TrimSpace(resp.Data.City)
+	result.District = strings.TrimSpace(resp.Data.Area)
+	result.Detail = strings.TrimSpace(resp.Data.ISP)
+	if lat, err := strconv.ParseFloat(strings.TrimSpace(resp.Data.Lat), 64); err == nil {
+		result.Latitude = lat
+	}
+	if lng, err := strconv.ParseFloat(strings.TrimSpace(resp.Data.Lng), 64); err == nil {
+		result.Longitude = lng
+	}
+	result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District, result.Detail)
+	if result.Location == "" {
+		return result, fmt.Errorf("ip9 empty location")
 	}
 	return result, nil
 }

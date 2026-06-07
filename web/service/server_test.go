@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestJoinGeoAddressKeepsFullAddress(t *testing.T) {
@@ -24,6 +25,20 @@ func TestJoinGeoAddressUsesFullDetailWhenProvided(t *testing.T) {
 	got := joinGeoAddress("中国", "台湾省", "彰化县", "埔盐乡", "中国台湾省彰化县埔盐乡")
 	if got != "中国台湾省彰化县埔盐乡" {
 		t.Fatalf("joinGeoAddress() with full detail = %q", got)
+	}
+}
+
+func TestCachedIPGeoTTLSeparatesSuccessAndFailure(t *testing.T) {
+	successTTL := 48 * time.Hour
+	failureTTL := 15 * time.Minute
+	if got := cachedIPGeoTTL(NodeGeoLocation{Location: "中国四川资阳中国电信"}, successTTL, failureTTL); got != successTTL {
+		t.Fatalf("cachedIPGeoTTL success = %s, want %s", got, successTTL)
+	}
+	if got := cachedIPGeoTTL(NodeGeoLocation{Error: "lookup failed"}, successTTL, failureTTL); got != failureTTL {
+		t.Fatalf("cachedIPGeoTTL error = %s, want %s", got, failureTTL)
+	}
+	if got := cachedIPGeoTTL(NodeGeoLocation{}, successTTL, failureTTL); got != failureTTL {
+		t.Fatalf("cachedIPGeoTTL empty = %s, want %s", got, failureTTL)
 	}
 }
 
