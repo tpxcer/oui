@@ -1215,7 +1215,7 @@ func cloud64Truthy(raw json.RawMessage) bool {
 func (s *ServerService) applyNodeGeoLocation(status *Status, now time.Time) {
 	ip := strings.TrimSpace(status.PublicIP.IPv4)
 	if ip == "" || ip == "N/A" {
-		status.ServerInfo.Geo = NodeGeoLocation{IP: ip, Source: "meituan", Error: "no public IPv4"}
+		status.ServerInfo.Geo = NodeGeoLocation{IP: ip, Source: "ip9", Error: "no public IPv4"}
 		return
 	}
 
@@ -1236,10 +1236,7 @@ func (s *ServerService) applyNodeGeoLocation(status *Status, now time.Time) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	geo, err := fetchMeituanNodeGeo(ctx, ip)
-	if err != nil {
-		geo = NodeGeoLocation{IP: ip, Source: "meituan", Error: err.Error()}
-	}
+	geo := s.LookupIPAttribution(ctx, ip)
 
 	s.mu.Lock()
 	s.cachedGeoIP = ip

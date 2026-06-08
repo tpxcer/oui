@@ -36,11 +36,11 @@ function geoLine(geo?: Partial<NodeGeoLocation> | null) {
   const address = geoAddress(geo);
   const parts = [
     geo.ip ? `IP：${geo.ip}` : '',
-    address ? `地址：${address}` : '',
+    address ? `归属地：${address}` : '',
+    geo.detail ? `运营商：${geo.detail}` : '',
     geo.latitude && geo.longitude ? `坐标：${geo.latitude.toFixed(5)}, ${geo.longitude.toFixed(5)}` : '',
-    geo.source ? `来源：${geo.source}` : '',
-    geo.error ? `错误：${geo.error}` : '',
   ].filter(Boolean);
+  if (!parts.length && geo.error) return '查询失败或暂无归属信息';
   return parts.join('；') || '-';
 }
 
@@ -58,10 +58,17 @@ function geoAddress(geo?: Partial<NodeGeoLocation> | null) {
     }
     parts.push(part);
   };
-  for (const p of [geo.country, geo.province, geo.city, geo.district, geo.detail, geo.location]) {
+  for (const p of [geo.country, geo.province, geo.city, geo.district]) {
     addPart(p);
   }
-  return parts.join('');
+  const address = parts.join('');
+  if (address) return address;
+  const location = (geo.location || '').trim();
+  const detail = (geo.detail || '').trim();
+  if (location && detail && location.endsWith(detail)) {
+    return location.slice(0, -detail.length).trim() || location;
+  }
+  return location;
 }
 
 function unixDate(ts?: number) {
@@ -143,7 +150,7 @@ export default function ApiDocsPage() {
                 <section className="preview-panel trace-panel">
                   <div className="panel-title">
                     <EnvironmentOutlined />
-                    <span>VPN 溯源</span>
+                    <span>公网归属信息</span>
                   </div>
                   <div className="trace-search">
                     <Input.Search
@@ -152,12 +159,12 @@ export default function ApiDocsPage() {
                       onSearch={lookupGeo}
                       enterButton="查询"
                       loading={traceLoading}
-                      placeholder="IPv4"
+                      placeholder="IP 地址"
                     />
                   </div>
                   <Spin spinning={traceLoading}>
                     <div className="trace-result">
-                      <strong>{geoAddress(traceGeo) || traceIp || '-'}</strong>
+                      <strong>{geoAddress(traceGeo) || traceIp || '暂无归属信息'}</strong>
                       <span>{geoLine(traceGeo)}</span>
                     </div>
                   </Spin>

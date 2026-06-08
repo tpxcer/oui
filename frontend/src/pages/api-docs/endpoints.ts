@@ -341,11 +341,11 @@ export const sections: readonly Section[] = [
       {
         method: 'GET',
         path: '/panel/api/server/geoIp/:ip',
-        summary: 'Look up an IPv4 address with the panel VPN tracing provider and return the resolved location.',
+        summary: 'Look up an IP address and return attribution details such as location, ISP, and coordinates.',
         params: [
-          { name: 'ip', in: 'path', type: 'string', desc: 'IPv4 address to trace.' },
+          { name: 'ip', in: 'path', type: 'string', desc: 'IP address to query.' },
         ],
-        response: '{\n  "success": true,\n  "obj": {\n    "ip": "8.8.8.8",\n    "location": "United States",\n    "source": "meituan"\n  }\n}',
+        response: '{\n  "success": true,\n  "obj": {\n    "ip": "8.8.8.8",\n    "location": "United States",\n    "country": "United States",\n    "detail": "Google LLC",\n    "latitude": 37.751,\n    "longitude": -97.822\n  }\n}',
       },
       {
         method: 'POST',

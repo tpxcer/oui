@@ -93,7 +93,7 @@ func (a *ServerController) status(c *gin.Context) { jsonObj(c, a.serverService.L
 func (a *ServerController) getGeoIP(c *gin.Context) {
 	ctx, cancel := contextWithGinTimeout(c, 5*time.Second)
 	defer cancel()
-	geo := a.serverService.LookupIPGeo(ctx, c.Param("ip"))
+	geo := a.serverService.LookupIPAttribution(ctx, c.Param("ip"))
 	jsonObj(c, geo, nil)
 }
 

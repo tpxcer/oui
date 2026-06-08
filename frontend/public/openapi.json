@@ -1685,14 +1685,14 @@
         "tags": [
           "Server"
         ],
-        "summary": "Look up an IPv4 address with the panel VPN tracing provider and return the resolved location.",
+        "summary": "Look up an IP address and return attribution details such as location, ISP, and coordinates.",
         "operationId": "get_panel_api_server_geoIp_ip",
         "parameters": [
           {
             "name": "ip",
             "in": "path",
             "required": true,
-            "description": "IPv4 address to trace.",
+            "description": "IP address to query.",
             "schema": {
               "type": "string"
             }
@@ -1720,7 +1720,10 @@
                   "obj": {
                     "ip": "8.8.8.8",
                     "location": "United States",
-                    "source": "meituan"
+                    "country": "United States",
+                    "detail": "Google LLC",
+                    "latitude": 37.751,
+                    "longitude": -97.822
                   }
                 }
               }
