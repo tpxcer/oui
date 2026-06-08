@@ -613,10 +613,7 @@ func (j *CheckClientIpJob) buildIPLimitCutoffKeyboard(clientEmail string, port i
 		),
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("临时解封 24 小时").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 24")),
-			tu.InlineKeyboardButton("解除封禁").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_unban "+clientEmail+" "+ip+" "+portText+" 0")),
-		),
-		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("手动封禁").WithCallbackData(j.tgbotService.EncodeQuery("iplimit_ban "+clientEmail+" "+ip+" "+portText)),
+			tu.InlineKeyboardButton("设置IP数量").WithCallbackData(j.tgbotService.EncodeQuery("ip_limit "+clientEmail)),
 		),
 	)
 }

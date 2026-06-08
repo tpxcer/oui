@@ -2,8 +2,12 @@ package job
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/mhsanaei/3x-ui/v3/web/service"
+	"github.com/mymmrac/telego"
 )
 
 func TestMergeClientIps_EvictsStaleOldEntries(t *testing.T) {
@@ -210,5 +214,44 @@ func TestBuildIPLimitCutoffNotifyMessage(t *testing.T) {
 		if !contains(msg, want) {
 			t.Fatalf("notification message missing %q\nfull message:\n%s", want, msg)
 		}
+	}
+}
+
+func TestBuildIPLimitCutoffKeyboardUsesIPLimitSettings(t *testing.T) {
+	j := &CheckClientIpJob{tgbotService: service.Tgbot{}}
+	markup := j.buildIPLimitCutoffKeyboard(
+		"user@example.com",
+		443,
+		[]IPWithTimestamp{{IP: "192.0.2.9", Timestamp: 2000}},
+	)
+
+	keyboard, ok := markup.(*telego.InlineKeyboardMarkup)
+	if !ok {
+		t.Fatalf("keyboard type = %T, want *telego.InlineKeyboardMarkup", markup)
+	}
+	if len(keyboard.InlineKeyboard) != 2 {
+		t.Fatalf("keyboard rows = %d, want 2", len(keyboard.InlineKeyboard))
+	}
+
+	var labels []string
+	var callbacks []string
+	for _, row := range keyboard.InlineKeyboard {
+		for _, button := range row {
+			labels = append(labels, button.Text)
+			callbacks = append(callbacks, button.CallbackData)
+		}
+	}
+	for _, forbidden := range []string{"解除封禁", "手动封禁"} {
+		if contains(strings.Join(labels, ","), forbidden) {
+			t.Fatalf("keyboard should not contain %q: %v", forbidden, labels)
+		}
+	}
+	for _, want := range []string{"临时解封 1 小时", "临时解封 6 小时", "临时解封 24 小时", "设置IP数量"} {
+		if !contains(strings.Join(labels, ","), want) {
+			t.Fatalf("keyboard missing %q: %v", want, labels)
+		}
+	}
+	if callbacks[len(callbacks)-1] != "ip_limit user@example.com" {
+		t.Fatalf("set IP count callback = %q, want %q", callbacks[len(callbacks)-1], "ip_limit user@example.com")
 	}
 }
