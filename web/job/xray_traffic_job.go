@@ -367,23 +367,10 @@ func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string, ip string) strin
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var attribution service.NodeGeoLocation
-	var trace service.NodeGeoLocation
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		attribution = j.serverService.LookupIPAttribution(ctx, ip)
-	}()
-	go func() {
-		defer wg.Done()
-		trace = j.serverService.LookupIPGeo(ctx, ip)
-	}()
-	wg.Wait()
+	attribution := j.serverService.LookupIPAttribution(ctx, ip)
 
 	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
-	lines += fmt.Sprintf("📍 IP归属地址：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(attribution)))
-	lines += fmt.Sprintf("🧭 IP溯源：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(trace)))
+	lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(attribution)))
 	return lines
 }
 
