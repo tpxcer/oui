@@ -175,3 +175,28 @@ jobs:
           asset_name: x-ui-linux-${{ matrix.platform }}.tar.gz
           overwrite: true
           prerelease: false
+
+  release-notes:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Publish Chinese release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NOTES_FILE="config/release-notes/latest.md"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "Missing Chinese release notes: $NOTES_FILE" >&2
+            exit 1
+          fi
+          if ! grep -Fq "${{ github.ref_name }}" "$NOTES_FILE"; then
+            echo "Chinese release notes must mention current tag: ${{ github.ref_name }}" >&2
+            exit 1
+          fi
+          gh release edit "${{ github.ref_name }}" --notes-file "$NOTES_FILE"

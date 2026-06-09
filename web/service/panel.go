@@ -28,6 +28,8 @@ type PanelUpdateInfo struct {
 	CurrentVersion  string `json:"currentVersion"`
 	LatestVersion   string `json:"latestVersion"`
 	UpdateAvailable bool   `json:"updateAvailable"`
+	ReleaseNotes    string `json:"releaseNotes"`
+	ReleaseURL      string `json:"releaseUrl"`
 }
 
 // PendingPanelUpdateNotice remembers a Telegram-triggered update across the panel restart.
@@ -67,15 +69,17 @@ func (s *PanelService) RestartPanel(delay time.Duration) error {
 
 // GetUpdateInfo checks GitHub for the latest OUI release.
 func (s *PanelService) GetUpdateInfo() (*PanelUpdateInfo, error) {
-	latest, err := fetchLatestPanelVersion()
+	release, err := fetchLatestPanelRelease()
 	if err != nil {
 		return nil, err
 	}
 	current := config.GetVersion()
 	return &PanelUpdateInfo{
 		CurrentVersion:  current,
-		LatestVersion:   latest,
-		UpdateAvailable: isNewerVersion(latest, current),
+		LatestVersion:   release.TagName,
+		UpdateAvailable: isNewerVersion(release.TagName, current),
+		ReleaseNotes:    normalizePanelReleaseNotes(release.Body),
+		ReleaseURL:      strings.TrimSpace(release.HTMLURL),
 	}, nil
 }
 
@@ -85,10 +89,11 @@ func (s *PanelService) StartUpdate() error {
 		return fmt.Errorf("面板网页更新仅支持 Linux 安装环境")
 	}
 
-	latest, err := fetchLatestPanelVersion()
+	release, err := fetchLatestPanelRelease()
 	if err != nil {
 		return fmt.Errorf("检查最新版本失败: %w", err)
 	}
+	latest := release.TagName
 	if !isNewerVersion(latest, config.GetVersion()) {
 		return fmt.Errorf("当前已是最新版本: %s", config.GetVersion())
 	}
@@ -281,25 +286,46 @@ func downloadPanelUpdater() (string, error) {
 	return path, nil
 }
 
-func fetchLatestPanelVersion() (string, error) {
+func fetchLatestPanelRelease() (Release, error) {
 	client := (&SettingService{}).NewProxiedHTTPClient(10 * time.Second)
 	resp, err := client.Get("https://api.github.com/repos/tpxcer/oui/releases/latest")
 	if err != nil {
-		return "", err
+		return Release{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GitHub API 返回状态 %d: %s", resp.StatusCode, resp.Status)
+		return Release{}, fmt.Errorf("GitHub API 返回状态 %d: %s", resp.StatusCode, resp.Status)
 	}
 
 	var release Release
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
+		return Release{}, err
 	}
 	if release.TagName == "" {
-		return "", fmt.Errorf("最新面板发布标签为空")
+		return Release{}, fmt.Errorf("最新面板发布标签为空")
+	}
+	return release, nil
+}
+
+func fetchLatestPanelVersion() (string, error) {
+	release, err := fetchLatestPanelRelease()
+	if err != nil {
+		return "", err
 	}
 	return release.TagName, nil
+}
+
+func normalizePanelReleaseNotes(notes string) string {
+	notes = strings.TrimSpace(notes)
+	if notes == "" {
+		return "本版本暂无更新说明。"
+	}
+	const maxNotes = 4000
+	runes := []rune(notes)
+	if len(runes) > maxNotes {
+		return string(runes[:maxNotes]) + "\n..."
+	}
+	return notes
 }
 
 func resolveUpdateFolders() (string, string) {

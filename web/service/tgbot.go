@@ -968,9 +968,10 @@ func (t *Tgbot) sendPanelUpdateStatus(chatId int64) {
 	}
 	if info.UpdateAvailable {
 		t.SendMsgToTgbot(chatId, fmt.Sprintf(
-			"🆕 <b>OUI 可更新到最新版(<code>%s</code>)</b>\n当前版本：<code>%s</code>",
+			"🆕 <b>OUI 可更新到最新版(<code>%s</code>)</b>\n当前版本：<code>%s</code>%s",
 			html.EscapeString(info.LatestVersion),
 			html.EscapeString(current),
+			formatPanelReleaseNotesForTelegram(info.ReleaseNotes),
 		), tu.InlineKeyboard(
 			tu.InlineKeyboardRow(
 				tu.InlineKeyboardButton(fmt.Sprintf("一键更新到 %s", info.LatestVersion)).WithCallbackData(t.encodeQuery("panel_update_start")),
@@ -1025,8 +1026,9 @@ func (t *Tgbot) startPanelUpdateFromBot(chatId int64) {
 		return
 	}
 	t.SendMsgToTgbot(chatId, fmt.Sprintf(
-		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。",
+		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。%s",
 		html.EscapeString(info.LatestVersion),
+		formatPanelReleaseNotesForTelegram(info.ReleaseNotes),
 	))
 }
 
@@ -1050,11 +1052,16 @@ func (t *Tgbot) sendPendingPanelUpdateNotice() {
 	if notice.RequestedAt > 0 {
 		requestedAt = time.Unix(notice.RequestedAt, 0).Format("2006-01-02 15:04:05")
 	}
+	releaseNotes := ""
+	if info, err := panelService.GetUpdateInfo(); err == nil && normalizeVersionTag(info.LatestVersion) == normalizeVersionTag(notice.TargetVersion) {
+		releaseNotes = info.ReleaseNotes
+	}
 	message := fmt.Sprintf(
-		"✅ <b>OUI 更新成功</b>\n目标版本：<code>%s</code>\n当前版本：<code>%s</code>\n发起时间：<code>%s</code>",
+		"✅ <b>OUI 更新成功</b>\n目标版本：<code>%s</code>\n当前版本：<code>%s</code>\n发起时间：<code>%s</code>%s",
 		html.EscapeString(notice.TargetVersion),
 		html.EscapeString(current),
 		html.EscapeString(requestedAt),
+		formatPanelReleaseNotesForTelegram(releaseNotes),
 	)
 
 	chatIDs := pendingPanelUpdateNoticeRecipients(notice.ChatID)
@@ -1076,6 +1083,19 @@ func (t *Tgbot) sendPendingPanelUpdateNotice() {
 	if err := panelService.ClearPendingUpdateNotice(); err != nil {
 		logger.Warning("failed to clear pending panel update notice:", err)
 	}
+}
+
+func formatPanelReleaseNotesForTelegram(notes string) string {
+	notes = strings.TrimSpace(notes)
+	if notes == "" {
+		return ""
+	}
+	const maxRunes = 1500
+	runes := []rune(notes)
+	if len(runes) > maxRunes {
+		notes = string(runes[:maxRunes]) + "\n..."
+	}
+	return "\n\n📝 <b>本版本更新内容</b>\n<code>" + html.EscapeString(notes) + "</code>"
 }
 
 func pendingPanelUpdateNoticeRecipients(chatID int64) []int64 {

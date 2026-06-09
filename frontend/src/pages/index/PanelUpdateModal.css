@@ -22,3 +22,35 @@
   justify-content: flex-end;
   margin-top: 12px;
 }
+
+.panel-release-notes-modal {
+  margin-top: 12px;
+}
+
+.panel-update-dialog-content p {
+  margin: 0 0 12px;
+}
+
+.panel-release-notes {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.panel-release-notes strong {
+  color: var(--ant-color-text);
+}
+
+.panel-release-notes pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ant-color-text-secondary);
+  font: inherit;
+  line-height: 1.65;
+}

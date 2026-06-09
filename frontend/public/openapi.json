@@ -1424,6 +1424,16 @@
                     },
                     "obj": {}
                   }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "currentVersion": "2026.6.8-3",
+                    "latestVersion": "2026.6.10",
+                    "updateAvailable": true,
+                    "releaseNotes": "## OUI 2026.6.10\n\n- 面板检测更新时会展示本版本更新内容。",
+                    "releaseUrl": "https://github.com/tpxcer/oui/releases/tag/2026.6.10"
+                  }
                 }
               }
             }

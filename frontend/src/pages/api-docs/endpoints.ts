@@ -296,6 +296,7 @@ export const sections: readonly Section[] = [
         method: 'GET',
         path: '/panel/api/server/getPanelUpdateInfo',
         summary: 'Check whether a newer OUI release is available on GitHub.',
+        response: '{\n  "success": true,\n  "obj": {\n    "currentVersion": "2026.6.8-3",\n    "latestVersion": "2026.6.10",\n    "updateAvailable": true,\n    "releaseNotes": "## OUI 2026.6.10\\n\\n- 面板检测更新时会展示本版本更新内容。",\n    "releaseUrl": "https://github.com/tpxcer/oui/releases/tag/2026.6.10"\n  }\n}',
       },
       {
         method: 'GET',

@@ -48,7 +48,17 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
     };
     modal.confirm({
       title: t('pages.index.panelUpdateDialog'),
-      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || ''),
+      content: (
+        <div className="panel-update-dialog-content">
+          <p>{t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '')}</p>
+          {info.releaseNotes && (
+            <div className="panel-release-notes">
+              <strong>本版本更新内容</strong>
+              <pre>{info.releaseNotes}</pre>
+            </div>
+          )}
+        </div>
+      ),
       okText: t('confirm'),
       cancelText: t('cancel'),
       onOk: () => {
@@ -92,6 +102,13 @@ export default function PanelUpdateModal({ open, info, onClose, onBusy }: PanelU
             </div>
           )}
         </div>
+
+        {info.releaseNotes && (
+          <div className="panel-release-notes panel-release-notes-modal">
+            <strong>本版本更新内容</strong>
+            <pre>{info.releaseNotes}</pre>
+          </div>
+        )}
 
         <div className="actions-row">
           <Button

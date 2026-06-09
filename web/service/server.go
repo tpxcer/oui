@@ -123,6 +123,8 @@ type Status struct {
 // Release represents information about a software release from GitHub.
 type Release struct {
 	TagName string `json:"tag_name"` // The tag name of the release
+	Body    string `json:"body"`
+	HTMLURL string `json:"html_url"`
 }
 
 // ServerService provides business logic for server monitoring and management.

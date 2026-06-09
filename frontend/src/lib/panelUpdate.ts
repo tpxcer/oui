@@ -8,6 +8,8 @@ export interface PanelUpdateInfo {
   currentVersion: string;
   latestVersion: string;
   updateAvailable: boolean;
+  releaseNotes?: string;
+  releaseUrl?: string;
 }
 
 const UPDATE_TARGET_KEY = 'oui.panelUpdate.targetVersion';

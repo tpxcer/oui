@@ -64,6 +64,26 @@ const XrayLogModal = lazy(() => import('./XrayLogModal'));
 const VersionModal = lazy(() => import('./VersionModal'));
 import './IndexPage.css';
 
+function panelReleaseNotes(notes?: string) {
+  const text = (notes || '').trim();
+  if (!text) return null;
+  return (
+    <div className="panel-release-notes">
+      <strong>本版本更新内容</strong>
+      <pre>{text}</pre>
+    </div>
+  );
+}
+
+function panelUpdateContent(description: string, notes?: string) {
+  return (
+    <div className="panel-update-dialog-content">
+      <p>{description}</p>
+      {panelReleaseNotes(notes)}
+    </div>
+  );
+}
+
 export default function IndexPage() {
   const { t } = useTranslation();
   const { isDark, isUltra, antdThemeConfig } = useTheme();
@@ -78,6 +98,8 @@ export default function IndexPage() {
     currentVersion: '',
     latestVersion: '',
     updateAvailable: false,
+    releaseNotes: '',
+    releaseUrl: '',
   });
 
   const basePath = window.X_UI_BASE_PATH || '';
@@ -135,6 +157,11 @@ export default function IndexPage() {
         if (!options?.silent) {
           if (msg.obj.updateAvailable) {
             messageApi.info(msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本');
+            modal.info({
+              title: msg.obj.latestVersion ? `发现新版本：${msg.obj.latestVersion}` : '发现新版本',
+              content: panelReleaseNotes(msg.obj.releaseNotes) || '本版本暂无更新说明。',
+              okText: '知道了',
+            });
           } else {
             messageApi.success('当前已是最新版');
           }
@@ -184,7 +211,10 @@ export default function IndexPage() {
     };
     modal.confirm({
       title: t('pages.index.panelUpdateDialog'),
-      content: t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '最新版'),
+      content: panelUpdateContent(
+        t('pages.index.panelUpdateDialogDesc').replace('#version#', info.latestVersion || '最新版'),
+        info.releaseNotes,
+      ),
       okText: t('confirm'),
       cancelText: t('cancel'),
       onOk: () => {
