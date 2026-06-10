@@ -30,14 +30,15 @@ type XrayTrafficJob struct {
 }
 
 type onlineNotifySession struct {
-	email     string
-	remark    string
-	ip        string
-	start     time.Time
-	lastTotal int64
-	up        int64
-	down      int64
-	announced bool
+	email          string
+	remark         string
+	ip             string
+	start          time.Time
+	noTrafficSince time.Time
+	lastTotal      int64
+	up             int64
+	down           int64
+	announced      bool
 }
 
 type onlineNotifyInbound struct {
@@ -65,6 +66,7 @@ var (
 
 const (
 	onlineNotifyConfirmWindow = 5 * time.Minute
+	onlineNotifyOfflineWindow = 10 * time.Minute
 	onlineNotifyMinTraffic    = int64(1 * 1024 * 1024)
 )
 
@@ -285,9 +287,7 @@ func reconcileOnlineNotifySessions(
 			session.remark = meta.remark
 			session.ip = meta.ip
 			st := trafficByEmail[email]
-			if st != nil {
-				session.lastTotal = st.Up + st.Down
-			}
+			session = refreshOnlineNotifyTraffic(session, st, now)
 			if !session.announced && shouldAnnounceOnline(session, now) {
 				session.announced = true
 				onlineTransitions = append(onlineTransitions, onlineNotifyTransition{
@@ -296,6 +296,16 @@ func reconcileOnlineNotifySessions(
 					session: session,
 					traffic: st,
 				})
+			}
+			if shouldAnnounceOffline(session, now) {
+				delete(onlineNotifySessions, key)
+				offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
+					email:   session.email,
+					remark:  session.remark,
+					session: session,
+					traffic: st,
+				})
+				continue
 			}
 			onlineNotifySessions[key] = session
 			continue
@@ -315,34 +325,59 @@ func reconcileOnlineNotifySessions(
 			session.email = key
 		}
 		if _, ok := trackable[key]; !ok {
-			delete(onlineNotifySessions, key)
 			if _, emailStillTrackable := trackableEmails[session.email]; !emailStillTrackable {
+				delete(onlineNotifySessions, key)
 				continue
 			}
 			if !session.announced {
+				delete(onlineNotifySessions, key)
 				continue
 			}
 			if !onlineSet[session.email] || session.ip != "" {
 				st := trafficByEmail[session.email]
+				session = refreshOnlineNotifyTraffic(session, st, now)
+				if shouldAnnounceOffline(session, now) {
+					delete(onlineNotifySessions, key)
+					offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
+						email:   session.email,
+						remark:  session.remark,
+						session: session,
+						traffic: st,
+					})
+					continue
+				}
+				onlineNotifySessions[key] = session
+			} else {
+				delete(onlineNotifySessions, key)
+			}
+			continue
+		}
+		if onlineSet[session.email] {
+			continue
+		}
+
+		st := trafficByEmail[session.email]
+		session = refreshOnlineNotifyTraffic(session, st, now)
+		if !onlineSet[session.email] {
+			if !session.announced {
+				delete(onlineNotifySessions, key)
+				continue
+			}
+			if shouldAnnounceOffline(session, now) {
+				delete(onlineNotifySessions, key)
 				offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
 					email:   session.email,
 					remark:  session.remark,
 					session: session,
 					traffic: st,
 				})
-			}
-			continue
-		}
-
-		st := trafficByEmail[session.email]
-		if st != nil {
-			session.lastTotal = st.Up + st.Down
-		}
-		if !onlineSet[session.email] {
-			delete(onlineNotifySessions, key)
-			if !session.announced {
 				continue
 			}
+			onlineNotifySessions[key] = session
+			continue
+		}
+		if shouldAnnounceOffline(session, now) {
+			delete(onlineNotifySessions, key)
 			offlineTransitions = append(offlineTransitions, onlineNotifyTransition{
 				email:   session.email,
 				remark:  session.remark,
@@ -551,8 +586,44 @@ func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {
 	return session.lastTotal-session.up-session.down >= onlineNotifyMinTraffic
 }
 
+func refreshOnlineNotifyTraffic(session onlineNotifySession, st *xray.ClientTraffic, now time.Time) onlineNotifySession {
+	if st == nil {
+		if session.noTrafficSince.IsZero() {
+			session.noTrafficSince = now
+		}
+		return session
+	}
+
+	total := st.Up + st.Down
+	if total > session.lastTotal {
+		session.lastTotal = total
+		session.noTrafficSince = time.Time{}
+		return session
+	}
+	if total < session.lastTotal {
+		session.lastTotal = total
+		session.noTrafficSince = now
+		return session
+	}
+	if session.noTrafficSince.IsZero() {
+		session.noTrafficSince = now
+	}
+	return session
+}
+
+func shouldAnnounceOffline(session onlineNotifySession, now time.Time) bool {
+	if !session.announced || session.noTrafficSince.IsZero() {
+		return false
+	}
+	return !now.Before(session.noTrafficSince.Add(onlineNotifyOfflineWindow))
+}
+
 func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNotifySession, st *xray.ClientTraffic, now time.Time) {
 	up, down := sessionDelta(session, st)
+	offlineAt := session.noTrafficSince
+	if offlineAt.IsZero() {
+		offlineAt = now
+	}
 	ipLine := ""
 	if ip := strings.TrimSpace(session.ip); ip != "" {
 		ipLine = fmt.Sprintf("🌐 离线 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
@@ -569,8 +640,8 @@ func (j *XrayTrafficJob) sendInboundOfflineNotify(email string, session onlineNo
 		html.EscapeString(email),
 		html.EscapeString(session.remark),
 		ipLine,
-		formatOnlineDuration(now.Sub(session.start)),
-		now.Format("2006-01-02 15:04:05"),
+		formatOnlineDuration(offlineAt.Sub(session.start)),
+		offlineAt.Format("2006-01-02 15:04:05"),
 		common.FormatTraffic(up),
 		common.FormatTraffic(down),
 		common.FormatTraffic(up+down),

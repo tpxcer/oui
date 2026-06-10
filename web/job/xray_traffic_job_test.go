@@ -78,14 +78,27 @@ func TestOnlineNotifyRequiresOneMiBWithinFiveMinutes(t *testing.T) {
 	onlineNotifyMu.Lock()
 	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{}, traffic, now.Add(5*time.Minute))
 	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions before 10 idle minutes = %#v/%#v, want none", online, offline)
+	}
+	if _, exists := onlineNotifySessions["client@example.com"]; !exists {
+		t.Fatalf("session was removed before 10 idle minutes")
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{}, traffic, now.Add(15*time.Minute))
+	onlineNotifyMu.Unlock()
 	if len(online) != 0 {
-		t.Fatalf("online transitions after disappearance = %#v, want none", online)
+		t.Fatalf("online transitions after idle timeout = %#v, want none", online)
 	}
 	if len(offline) != 1 || offline[0].email != "client@example.com" {
 		t.Fatalf("offline transitions = %#v, want one client@example.com", offline)
 	}
+	if got, want := offline[0].session.noTrafficSince, now.Add(4*time.Minute+time.Second); !got.Equal(want) {
+		t.Fatalf("offline time = %s, want earliest no-traffic time %s", got, want)
+	}
 	if _, exists := onlineNotifySessions["client@example.com"]; exists {
-		t.Fatalf("session still exists after disappearance")
+		t.Fatalf("session still exists after idle timeout")
 	}
 }
 
@@ -217,11 +230,92 @@ func TestOnlineNotifyDifferentIPOfflineKeepsRule(t *testing.T) {
 	onlineNotifyMu.Lock()
 	online, offline := reconcileOnlineNotifySessions(trackable, map[string]bool{}, traffic, now.Add(time.Minute))
 	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions before 10 idle minutes = %#v/%#v, want none", online, offline)
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{}, traffic, now.Add(11*time.Minute))
+	onlineNotifyMu.Unlock()
 	if len(online) != 0 {
-		t.Fatalf("online transitions after disappearance = %#v, want none", online)
+		t.Fatalf("online transitions after idle timeout = %#v, want none", online)
 	}
 	if len(offline) != 1 || offline[0].email != "client@example.com" || offline[0].session.ip != "1.1.1.1" {
 		t.Fatalf("offline transitions = %#v, want one ip session", offline)
+	}
+}
+
+func TestOnlineNotifyOfflineWaitsForTenMinutesWithoutTraffic(t *testing.T) {
+	resetOnlineNotifySessions(t)
+
+	now := time.Unix(5000, 0)
+	trackable := map[string]onlineNotifyInbound{
+		"client@example.com": {remark: "node-a"},
+	}
+	traffic := map[string]*xray.ClientTraffic{
+		"client@example.com": {Email: "client@example.com", Up: 0, Down: 0},
+	}
+
+	onlineNotifyMu.Lock()
+	_, _ = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now)
+	onlineNotifyMu.Unlock()
+
+	traffic["client@example.com"] = &xray.ClientTraffic{
+		Email: "client@example.com",
+		Up:    2 * 1024 * 1024,
+		Down:  0,
+	}
+	onlineNotifyMu.Lock()
+	online, offline := reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 1 || len(offline) != 0 {
+		t.Fatalf("announce online transitions = %#v/%#v, want one online", online, offline)
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(3*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions at idle start = %#v/%#v, want none", online, offline)
+	}
+
+	traffic["client@example.com"] = &xray.ClientTraffic{
+		Email: "client@example.com",
+		Up:    3 * 1024 * 1024,
+		Down:  0,
+	}
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(9*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("traffic before timeout should reset idle window = %#v/%#v", online, offline)
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(9*time.Minute+time.Second))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions at reset idle start = %#v/%#v, want none", online, offline)
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(19*time.Minute))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 || len(offline) != 0 {
+		t.Fatalf("transitions before reset idle window expires = %#v/%#v, want none", online, offline)
+	}
+
+	onlineNotifyMu.Lock()
+	online, offline = reconcileOnlineNotifySessions(trackable, map[string]bool{"client@example.com": true}, traffic, now.Add(19*time.Minute+time.Second))
+	onlineNotifyMu.Unlock()
+	if len(online) != 0 {
+		t.Fatalf("online transitions at idle timeout = %#v, want none", online)
+	}
+	if len(offline) != 1 || offline[0].email != "client@example.com" {
+		t.Fatalf("offline transitions at idle timeout = %#v, want one client@example.com", offline)
+	}
+	if got, want := offline[0].session.noTrafficSince, now.Add(9*time.Minute+time.Second); !got.Equal(want) {
+		t.Fatalf("offline noTrafficSince = %s, want %s", got, want)
 	}
 }
 
