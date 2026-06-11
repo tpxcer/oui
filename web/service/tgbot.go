@@ -1026,9 +1026,8 @@ func (t *Tgbot) startPanelUpdateFromBot(chatId int64) {
 		return
 	}
 	t.SendMsgToTgbot(chatId, fmt.Sprintf(
-		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。%s",
+		"✅ <b>已开始后台更新 OUI 到最新版(<code>%s</code>)</b>\n面板服务会自动重启，期间机器人可能短暂离线。",
 		html.EscapeString(info.LatestVersion),
-		formatPanelReleaseNotesForTelegram(info.ReleaseNotes),
 	))
 }
 
@@ -1052,16 +1051,11 @@ func (t *Tgbot) sendPendingPanelUpdateNotice() {
 	if notice.RequestedAt > 0 {
 		requestedAt = time.Unix(notice.RequestedAt, 0).Format("2006-01-02 15:04:05")
 	}
-	releaseNotes := ""
-	if info, err := panelService.GetUpdateInfo(); err == nil && normalizeVersionTag(info.LatestVersion) == normalizeVersionTag(notice.TargetVersion) {
-		releaseNotes = info.ReleaseNotes
-	}
 	message := fmt.Sprintf(
-		"✅ <b>OUI 更新成功</b>\n目标版本：<code>%s</code>\n当前版本：<code>%s</code>\n发起时间：<code>%s</code>%s",
+		"✅ <b>OUI 更新成功</b>\n目标版本：<code>%s</code>\n当前版本：<code>%s</code>\n发起时间：<code>%s</code>",
 		html.EscapeString(notice.TargetVersion),
 		html.EscapeString(current),
 		html.EscapeString(requestedAt),
-		formatPanelReleaseNotesForTelegram(releaseNotes),
 	)
 
 	chatIDs := pendingPanelUpdateNoticeRecipients(notice.ChatID)
