@@ -1160,8 +1160,11 @@ func randomHexFromCrypto(length int) string {
 }
 
 const (
-	tgQuickPortMin = 50000
-	tgQuickPortMax = 65000
+	tgQuickPortMin         = 50000
+	tgQuickPortMax         = 65000
+	tgQuickPortHoppingMin  = 40000
+	tgQuickPortHoppingMax  = 59999
+	tgQuickPortHoppingSize = 200
 )
 
 type tgQuickPreset struct {
@@ -1244,6 +1247,47 @@ func (t *Tgbot) randomQuickPort(transport string) (int, error) {
 		return port, nil
 	}
 	return 0, common.NewError("no free high port found")
+}
+
+func (t *Tgbot) randomQuickPortHoppingRange(targetPort int) (string, error) {
+	inbounds, err := t.inboundService.GetAllInbounds()
+	if err != nil {
+		return "", err
+	}
+	type interval struct {
+		start int
+		end   int
+	}
+	used := make([]interval, 0, len(inbounds)+1)
+	for _, inbound := range inbounds {
+		rule, err := hysteriaPortHoppingRuleFromInbound(inbound)
+		if err != nil || rule == nil {
+			continue
+		}
+		used = append(used, interval{start: rule.Start, end: rule.End})
+	}
+	used = append(used, interval{start: targetPort, end: targetPort})
+
+	maxStart := tgQuickPortHoppingMax - tgQuickPortHoppingSize + 1
+	for range 120 {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(maxStart-tgQuickPortHoppingMin+1)))
+		if err != nil {
+			return "", err
+		}
+		start := tgQuickPortHoppingMin + int(n.Int64())
+		end := start + tgQuickPortHoppingSize - 1
+		overlaps := false
+		for _, item := range used {
+			if start <= item.end && item.start <= end {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			return fmt.Sprintf("%d-%d", start, end), nil
+		}
+	}
+	return "", common.NewError("no free hysteria port hopping range found")
 }
 
 func portLooksFree(port int, transport string) bool {
@@ -1496,6 +1540,10 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
+		portHoppingRange, err := t.randomQuickPortHoppingRange(port)
+		if err != nil {
+			return nil, "", err
+		}
 		tlsSettings["alpn"] = []string{"h3"}
 		auth := t.randomLowerAndNum(16)
 		client := quickHysteriaClient(preset.EmailPrefix, auth)
@@ -1505,10 +1553,18 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 			"clients": []model.Client{client},
 		}
 		stream = map[string]any{
-			"network":          "hysteria",
-			"security":         "tls",
-			"tlsSettings":      tlsSettings,
-			"hysteriaSettings": map[string]any{"version": 2, "auth": auth, "udpIdleTimeout": 60},
+			"network":     "hysteria",
+			"security":    "tls",
+			"tlsSettings": tlsSettings,
+			"hysteriaSettings": map[string]any{
+				"version":        2,
+				"auth":           auth,
+				"udpIdleTimeout": 60,
+				"portHopping": map[string]any{
+					"enable": true,
+					"range":  portHoppingRange,
+				},
+			},
 		}
 	case "vlessReality":
 		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "xtls-rprx-vision")
@@ -1649,9 +1705,10 @@ func (t *Tgbot) createQuickConfig(chatId int64, key string) {
 		return
 	}
 	t.SendMsgToTgbot(chatId, fmt.Sprintf(
-		"✅ 一键配置完成\r\n节点：<code>%s</code>\r\n端口：<code>%d</code>\r\n客户端：<code>%s</code>\r\n防火墙：<code>%s</code>",
+		"✅ 一键配置完成\r\n节点：<code>%s</code>\r\n端口：<code>%d</code>\r\n端口跳跃：<code>%s</code>\r\n客户端：<code>%s</code>\r\n防火墙：<code>%s</code>",
 		html.EscapeString(result.Inbound.Remark),
 		result.Inbound.Port,
+		html.EscapeString(displayQuickPortHopping(result.PortHopping)),
 		html.EscapeString(result.Email),
 		html.EscapeString(result.Firewall),
 	))
@@ -1710,6 +1767,69 @@ func allowInboundPort(port int, transport string) string {
 		return "ufw 未启用，请手动放行端口"
 	}
 	return "未检测到 ufw/firewalld，请手动放行端口"
+}
+
+func displayQuickPortHopping(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "未启用"
+	}
+	return value
+}
+
+func allowInboundPortRange(portRange string, transport string) string {
+	start, end, normalized, err := parseHysteriaPortRange(portRange)
+	if err != nil {
+		return "端口跳跃范围无效：" + err.Error()
+	}
+	protocols := []string{"tcp"}
+	if transport == "udp" {
+		protocols = []string{"udp"}
+	}
+	if msg, handled := allowInboundPortRangeWithHostHardening(start, end, protocols); handled {
+		return msg
+	}
+	ufwInactive := false
+	if path, err := exec.LookPath("ufw"); err == nil {
+		if !isUfwActive(path) {
+			ufwInactive = true
+		} else {
+			var errs []string
+			for _, proto := range protocols {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d:%d/%s", start, end, proto)).Run()
+				cancel()
+				if err != nil {
+					errs = append(errs, err.Error())
+				}
+			}
+			if len(errs) == 0 {
+				return fmt.Sprintf("ufw 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ","))
+			}
+			return "ufw 放行端口跳跃失败：" + strings.Join(errs, "; ")
+		}
+	}
+	if path, err := exec.LookPath("firewall-cmd"); err == nil {
+		var errs []string
+		for _, proto := range protocols {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", fmt.Sprintf("%d-%d/%s", start, end, proto)).Run()
+			cancel()
+			if err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+		if len(errs) == 0 {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = exec.CommandContext(ctx, path, "--reload").Run()
+			cancel()
+			return fmt.Sprintf("firewalld 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ","))
+		}
+		return "firewalld 放行端口跳跃失败：" + strings.Join(errs, "; ")
+	}
+	if ufwInactive {
+		return "ufw 未启用，请手动放行端口跳跃范围"
+	}
+	return "未检测到 ufw/firewalld，请手动放行端口跳跃范围"
 }
 
 const hostHardeningNftPath = "/etc/nftables.d/host_hardening.nft"
@@ -1800,6 +1920,82 @@ func allowInboundPortWithHostHardening(port int, protocols []string) (string, bo
 	return fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), true
 }
 
+func allowInboundPortRangeWithHostHardening(start int, end int, protocols []string) (string, bool) {
+	if start <= 0 || start > 65535 || end <= 0 || end > 65535 || start > end {
+		return fmt.Sprintf("端口跳跃范围无效：%d-%d", start, end), true
+	}
+	if _, err := os.Stat(hostHardeningNftPath); err != nil {
+		if os.IsNotExist(err) {
+			return "", false
+		}
+		return "nftables 配置检测失败：" + err.Error(), true
+	}
+	if _, err := exec.LookPath("nft"); err != nil {
+		return "检测到 host_hardening，但未找到 nft 命令，请手动放行端口跳跃范围", true
+	}
+
+	original, err := os.ReadFile(hostHardeningNftPath)
+	if err != nil {
+		return "读取 nftables 配置失败：" + err.Error(), true
+	}
+	content := string(original)
+	changed := false
+	for _, proto := range protocols {
+		updated, didChange, err := addPortRangeToNftDportRule(content, proto, start, end)
+		if err != nil {
+			return "nftables 放行端口跳跃失败：" + err.Error(), true
+		}
+		content = updated
+		changed = changed || didChange
+	}
+	normalized := fmt.Sprintf("%d-%d", start, end)
+	if !changed {
+		return fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), true
+	}
+
+	dir := filepath.Dir(hostHardeningNftPath)
+	tmp, err := os.CreateTemp(dir, ".host_hardening-*.nft")
+	if err != nil {
+		return "创建 nftables 临时配置失败：" + err.Error(), true
+	}
+	tmpPath := tmp.Name()
+	ok := false
+	defer func() {
+		_ = tmp.Close()
+		if !ok {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.WriteString(content); err != nil {
+		return "写入 nftables 临时配置失败：" + err.Error(), true
+	}
+	if err := tmp.Chmod(0644); err != nil {
+		return "设置 nftables 临时配置权限失败：" + err.Error(), true
+	}
+	if err := tmp.Close(); err != nil {
+		return "关闭 nftables 临时配置失败：" + err.Error(), true
+	}
+	if err := runNftConfigCheck(tmpPath); err != nil {
+		return "nftables 配置校验失败：" + err.Error(), true
+	}
+
+	backupPath := fmt.Sprintf("%s.bak.%s", hostHardeningNftPath, time.Now().Format("20060102150405"))
+	if err := os.WriteFile(backupPath, original, 0644); err != nil {
+		return "备份 nftables 配置失败：" + err.Error(), true
+	}
+	if err := os.Rename(tmpPath, hostHardeningNftPath); err != nil {
+		return "保存 nftables 配置失败：" + err.Error(), true
+	}
+	ok = true
+
+	if err := reloadHostHardeningFirewall(); err != nil {
+		_ = os.WriteFile(hostHardeningNftPath, original, 0644)
+		_ = reloadHostHardeningFirewall()
+		return "nftables 重载失败：" + err.Error(), true
+	}
+	return fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), true
+}
+
 func runNftConfigCheck(path string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	output, err := exec.CommandContext(ctx, "nft", "-c", "-f", path).CombinedOutput()
@@ -1859,6 +2055,56 @@ func addPortToNftDportRule(content, proto string, port int) (string, bool, error
 	slices.Sort(ports)
 	replacement := content[match[2]:match[3]] + formatNftPortSet(ports) + content[match[6]:match[7]]
 	return content[:match[0]] + replacement + content[match[1]:], true, nil
+}
+
+func addPortRangeToNftDportRule(content, proto string, start int, end int) (string, bool, error) {
+	proto = strings.ToLower(strings.TrimSpace(proto))
+	if proto != "tcp" && proto != "udp" {
+		return content, false, fmt.Errorf("unsupported nft protocol: %s", proto)
+	}
+	if start <= 0 || start > 65535 || end <= 0 || end > 65535 || start > end {
+		return content, false, fmt.Errorf("invalid port range: %d-%d", start, end)
+	}
+	entry := fmt.Sprintf("%d-%d", start, end)
+	if start == end {
+		entry = strconv.Itoa(start)
+	}
+
+	re := regexp.MustCompile(`(?m)(\s*` + regexp.QuoteMeta(proto) + `\s+dport\s+\{)([^}]*)((?:\}\s+accept))`)
+	match := re.FindStringSubmatchIndex(content)
+	if match == nil {
+		dropRe := regexp.MustCompile(`(?m)^(\s*)counter\s+drop\s*$`)
+		if !dropRe.MatchString(content) {
+			return content, false, fmt.Errorf("missing %s dport set and counter drop rule", proto)
+		}
+		rule := fmt.Sprintf("${1}%s dport {%s} accept\n${1}counter drop", proto, entry)
+		return dropRe.ReplaceAllString(content, rule), true, nil
+	}
+
+	portsText := content[match[4]:match[5]]
+	entries := parseNftPortSetEntries(portsText)
+	for _, current := range entries {
+		if current == entry {
+			return content, false, nil
+		}
+	}
+	entries = append(entries, entry)
+	replacement := content[match[2]:match[3]] + strings.Join(entries, ", ") + content[match[6]:match[7]]
+	return content[:match[0]] + replacement + content[match[1]:], true, nil
+}
+
+func parseNftPortSetEntries(value string) []string {
+	seen := make(map[string]bool)
+	entries := make([]string, 0)
+	for _, part := range strings.Split(value, ",") {
+		item := strings.TrimSpace(part)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		entries = append(entries, item)
+	}
+	return entries
 }
 
 func parseNftPortSet(value string) ([]int, map[int]bool) {

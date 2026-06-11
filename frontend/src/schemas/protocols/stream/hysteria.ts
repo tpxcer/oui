@@ -22,10 +22,17 @@ export const HysteriaMasqueradeSchema = z.object({
 });
 export type HysteriaMasquerade = z.infer<typeof HysteriaMasqueradeSchema>;
 
+export const HysteriaPortHoppingSchema = z.object({
+  enable: z.boolean().default(false),
+  range: z.string().default(''),
+});
+export type HysteriaPortHopping = z.infer<typeof HysteriaPortHoppingSchema>;
+
 export const HysteriaStreamSettingsSchema = z.object({
   version: z.literal(2).default(2),
   auth: z.string().default(''),
   udpIdleTimeout: z.number().int().min(1).default(60),
+  portHopping: HysteriaPortHoppingSchema.optional(),
   masquerade: HysteriaMasqueradeSchema.optional(),
 });
 export type HysteriaStreamSettings = z.infer<typeof HysteriaStreamSettingsSchema>;

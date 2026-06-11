@@ -115,7 +115,7 @@ export default function FinalMaskForm({ name, network, protocol, form }: FinalMa
       {showUdp && <UdpMasksList base={base} form={form} isHysteria={isHysteria} network={network} />}
       {showQuic && (
         <>
-          <Form.Item label="QUIC Params">
+          <Form.Item label="QUIC 参数">
             <Switch
               checked={hasQuicParams}
               onChange={(v) => {
@@ -135,7 +135,7 @@ function TcpMasksList({ base, form }: { base: (string | number)[]; form: FormIns
     <Form.List name={[...base, 'tcp']}>
       {(fields, { add, remove }) => (
         <>
-          <Form.Item label="TCP Masks">
+          <Form.Item label="TCP 伪装">
             <Button
               type="primary"
               size="small"
@@ -176,18 +176,18 @@ function TcpMaskItem({
   return (
     <div>
       <Divider style={{ margin: 0 }}>
-        TCP Mask {displayIndex}
+        TCP 伪装 {displayIndex}
         <DeleteOutlined className="danger-icon" onClick={onRemove} />
       </Divider>
 
-      <Form.Item label="Type" name={[fieldName, 'type']}>
+      <Form.Item label="类型" name={[fieldName, 'type']}>
         <Select
           onChange={(v) =>
             form.setFieldValue([...absolutePath, 'settings'], defaultTcpMaskSettings(v))
           }
           options={[
-            { value: 'fragment', label: 'Fragment' },
-            { value: 'header-custom', label: 'Header Custom' },
+            { value: 'fragment', label: '分片' },
+            { value: 'header-custom', label: '自定义头' },
             { value: 'sudoku', label: 'Sudoku' },
           ]}
         />
@@ -206,7 +206,7 @@ function TcpMaskItem({
           if (type === 'fragment') {
             return (
               <>
-                <Form.Item label="Packets" name={[fieldName, 'settings', 'packets']}>
+                <Form.Item label="数据包" name={[fieldName, 'settings', 'packets']}>
                   <Select
                     options={[
                       { value: 'tlshello', label: 'tlshello' },
@@ -215,13 +215,13 @@ function TcpMaskItem({
                     ]}
                   />
                 </Form.Item>
-                <Form.Item label="Length" name={[fieldName, 'settings', 'length']}>
+                <Form.Item label="长度" name={[fieldName, 'settings', 'length']}>
                   <Input />
                 </Form.Item>
-                <Form.Item label="Delay" name={[fieldName, 'settings', 'delay']}>
+                <Form.Item label="延迟" name={[fieldName, 'settings', 'delay']}>
                   <Input />
                 </Form.Item>
-                <Form.Item label="Max Split" name={[fieldName, 'settings', 'maxSplit']}>
+                <Form.Item label="最大分片" name={[fieldName, 'settings', 'maxSplit']}>
                   <Input />
                 </Form.Item>
               </>
@@ -230,14 +230,14 @@ function TcpMaskItem({
           if (type === 'sudoku') {
             return (
               <>
-                <Form.Item label="Password" name={[fieldName, 'settings', 'password']}><Input /></Form.Item>
+                <Form.Item label="密码" name={[fieldName, 'settings', 'password']}><Input /></Form.Item>
                 <Form.Item label="ASCII" name={[fieldName, 'settings', 'ascii']}><Input /></Form.Item>
-                <Form.Item label="Custom Table" name={[fieldName, 'settings', 'customTable']}><Input /></Form.Item>
-                <Form.Item label="Custom Tables" name={[fieldName, 'settings', 'customTables']}><Input /></Form.Item>
-                <Form.Item label="Padding Min" name={[fieldName, 'settings', 'paddingMin']}>
+                <Form.Item label="自定义表" name={[fieldName, 'settings', 'customTable']}><Input /></Form.Item>
+                <Form.Item label="自定义表集合" name={[fieldName, 'settings', 'customTables']}><Input /></Form.Item>
+                <Form.Item label="最小填充" name={[fieldName, 'settings', 'paddingMin']}>
                   <InputNumber min={0} />
                 </Form.Item>
-                <Form.Item label="Padding Max" name={[fieldName, 'settings', 'paddingMax']}>
+                <Form.Item label="最大填充" name={[fieldName, 'settings', 'paddingMax']}>
                   <InputNumber min={0} />
                 </Form.Item>
               </>
@@ -284,7 +284,7 @@ function HeaderCustomGroups({
         <Form.List key={groupKey} name={[tcpFieldName, 'settings', groupKey]}>
           {(groups, { add: addGroup, remove: removeGroup }) => (
             <>
-              <Form.Item label={groupKey === 'clients' ? 'Clients' : 'Servers'}>
+              <Form.Item label={groupKey === 'clients' ? '客户端' : '服务端'}>
                 <Button
                   type="primary"
                   size="small"
@@ -295,13 +295,13 @@ function HeaderCustomGroups({
               {groups.map((group, gi) => (
                 <div key={group.key}>
                   <Divider style={{ margin: 0 }}>
-                    {groupKey === 'clients' ? 'Clients' : 'Servers'} Group {gi + 1}
+                    {groupKey === 'clients' ? '客户端' : '服务端'}组 {gi + 1}
                     <DeleteOutlined className="danger-icon" onClick={() => removeGroup(group.name)} />
                   </Divider>
                   <Form.List name={[group.name]}>
                     {(items, { add: addItem, remove: removeItem }) => (
                       <>
-                        <Form.Item label="Items">
+                        <Form.Item label="项目">
                           <Button
                             size="small"
                             icon={<PlusOutlined />}
@@ -338,7 +338,7 @@ function UdpMasksList({
     <Form.List name={[...base, 'udp']}>
       {(fields, { add, remove }) => (
         <>
-          <Form.Item label="UDP Masks">
+          <Form.Item label="UDP 伪装">
             <Button
               type="primary"
               size="small"
@@ -401,18 +401,18 @@ function UdpMaskItem({
         { value: 'mkcp-original', label: 'mKCP Original' },
         { value: 'xdns', label: 'xDNS' },
         { value: 'xicmp', label: 'xICMP' },
-        { value: 'header-custom', label: 'Header Custom' },
-        { value: 'noise', label: 'Noise' },
+        { value: 'header-custom', label: '自定义头' },
+        { value: 'noise', label: '噪声' },
       ];
 
   return (
     <div>
       <Divider style={{ margin: 0 }}>
-        UDP Mask {displayIndex}
+        UDP 伪装 {displayIndex}
         <DeleteOutlined className="danger-icon" onClick={onRemove} />
       </Divider>
 
-      <Form.Item label="Type" name={[fieldName, 'type']}>
+      <Form.Item label="类型" name={[fieldName, 'type']}>
         <Select onChange={onTypeChange} options={options} />
       </Form.Item>
 
@@ -424,10 +424,10 @@ function UdpMaskItem({
           const type = getFieldValue([...absolutePath, 'type']) as string | undefined;
           if (type === 'mkcp-aes128gcm' || type === 'salamander') {
             return (
-              <Form.Item label="Password">
+              <Form.Item label="密码">
                 <Space.Compact block>
                   <Form.Item name={[fieldName, 'settings', 'password']} noStyle>
-                    <Input placeholder="Obfuscation password" style={{ width: 'calc(100% - 32px)' }} />
+                    <Input placeholder="混淆密码" style={{ width: 'calc(100% - 32px)' }} />
                   </Form.Item>
                   <Button
                     icon={<ReloadOutlined />}
@@ -442,14 +442,14 @@ function UdpMaskItem({
           }
           if (type === 'header-dns') {
             return (
-              <Form.Item label="Domain" name={[fieldName, 'settings', 'domain']}>
-                <Input placeholder="e.g., www.example.com" />
+              <Form.Item label="域名" name={[fieldName, 'settings', 'domain']}>
+                <Input placeholder="例如：www.example.com" />
               </Form.Item>
             );
           }
           if (type === 'xdns') {
             return (
-              <Form.Item label="Domains" name={[fieldName, 'settings', 'domains']}>
+              <Form.Item label="域名列表" name={[fieldName, 'settings', 'domains']}>
                 <Select mode="tags" style={{ width: '100%' }} tokenSeparators={[',']} />
               </Form.Item>
             );
@@ -504,7 +504,7 @@ function UdpHeaderCustom({
         <Form.List key={groupKey} name={[udpFieldName, 'settings', groupKey]}>
           {(items, { add, remove }) => (
             <>
-              <Form.Item label={groupKey === 'client' ? 'Client' : 'Server'}>
+              <Form.Item label={groupKey === 'client' ? '客户端' : '服务端'}>
                 <Button
                   type="primary"
                   size="small"
@@ -515,7 +515,7 @@ function UdpHeaderCustom({
               {items.map((item, ci) => (
                 <div key={item.key}>
                   <Divider style={{ margin: 0 }}>
-                    {groupKey === 'client' ? 'Client' : 'Server'} {ci + 1}
+                    {groupKey === 'client' ? '客户端' : '服务端'} {ci + 1}
                     <DeleteOutlined className="danger-icon" onClick={() => remove(item.name)} />
                   </Divider>
                   <ItemEditor
@@ -543,13 +543,13 @@ function NoiseItems({
 }) {
   return (
     <>
-      <Form.Item label="Reset" name={[udpFieldName, 'settings', 'reset']}>
+      <Form.Item label="重置" name={[udpFieldName, 'settings', 'reset']}>
         <InputNumber min={0} />
       </Form.Item>
       <Form.List name={[udpFieldName, 'settings', 'noise']}>
         {(items, { add, remove }) => (
           <>
-            <Form.Item label="Noise">
+            <Form.Item label="噪声">
               <Button
                 type="primary"
                 size="small"
@@ -560,7 +560,7 @@ function NoiseItems({
             {items.map((item, ni) => (
               <div key={item.key}>
                 <Divider style={{ margin: 0 }}>
-                  Noise {ni + 1}
+                  噪声 {ni + 1}
                   <DeleteOutlined className="danger-icon" onClick={() => remove(item.name)} />
                 </Divider>
                 <ItemEditor
@@ -601,12 +601,12 @@ function ItemEditor({
 
   return (
     <>
-      <Form.Item label="Type" name={[fieldName, 'type']}>
+      <Form.Item label="类型" name={[fieldName, 'type']}>
         <Select
           onChange={onTypeChange}
           options={[
-            { value: 'array', label: 'Array' },
-            { value: 'str', label: 'String' },
+            { value: 'array', label: '数组' },
+            { value: 'str', label: '字符串' },
             { value: 'hex', label: 'Hex' },
             { value: 'base64', label: 'Base64' },
           ]}
@@ -614,12 +614,12 @@ function ItemEditor({
       </Form.Item>
 
       {delayMode === 'number' && (
-        <Form.Item label="Delay (ms)" name={[fieldName, 'delay']}>
+        <Form.Item label="延迟（毫秒）" name={[fieldName, 'delay']}>
           <InputNumber min={0} />
         </Form.Item>
       )}
       {delayMode === 'string' && (
-        <Form.Item label="Delay" name={[fieldName, 'delay']}>
+        <Form.Item label="延迟" name={[fieldName, 'delay']}>
           <Input placeholder="10-20" />
         </Form.Item>
       )}
@@ -633,14 +633,14 @@ function ItemEditor({
           if (type === 'array') {
             return (
               <>
-                <Form.Item label="Rand" name={[fieldName, 'rand']}>
+                <Form.Item label="随机值" name={[fieldName, 'rand']}>
                   {delayMode === 'string' ? (
-                    <Input placeholder="0 or 1-8192" />
+                    <Input placeholder="0 或 1-8192" />
                   ) : (
                     <InputNumber min={0} />
                   )}
                 </Form.Item>
-                <Form.Item label="Rand Range" name={[fieldName, 'randRange']}>
+                <Form.Item label="随机范围" name={[fieldName, 'randRange']}>
                   <Input placeholder="0-255" />
                 </Form.Item>
               </>
@@ -648,10 +648,10 @@ function ItemEditor({
           }
           if (type === 'base64') {
             return (
-              <Form.Item label="Packet">
+              <Form.Item label="数据包">
                 <Space.Compact block>
                   <Form.Item name={[fieldName, 'packet']} noStyle>
-                    <Input placeholder="binary data" style={{ width: 'calc(100% - 32px)' }} />
+                    <Input placeholder="二进制数据" style={{ width: 'calc(100% - 32px)' }} />
                   </Form.Item>
                   <Button
                     icon={<ReloadOutlined />}
@@ -662,8 +662,8 @@ function ItemEditor({
             );
           }
           return (
-            <Form.Item label="Packet" name={[fieldName, 'packet']}>
-              <Input placeholder="binary data" />
+            <Form.Item label="数据包" name={[fieldName, 'packet']}>
+              <Input placeholder="二进制数据" />
             </Form.Item>
           );
         }}
@@ -679,7 +679,7 @@ function QuicParamsForm({ base, form }: { base: (string | number)[]; form: FormI
 
   return (
     <>
-      <Form.Item label="Congestion" name={[...base, 'congestion']}>
+      <Form.Item label="拥塞控制" name={[...base, 'congestion']}>
         <Select
           options={[
             { value: 'reno', label: 'Reno' },
@@ -690,34 +690,34 @@ function QuicParamsForm({ base, form }: { base: (string | number)[]; form: FormI
         />
       </Form.Item>
       {congestion === 'bbr' && (
-        <Form.Item label="BBR Profile" name={[...base, 'bbrProfile']}>
+        <Form.Item label="BBR 配置档" name={[...base, 'bbrProfile']}>
           <Select
             allowClear
-            placeholder="standard"
+            placeholder="标准"
             options={[
-              { value: 'conservative', label: 'Conservative' },
-              { value: 'standard', label: 'Standard' },
-              { value: 'aggressive', label: 'Aggressive' },
+              { value: 'conservative', label: '保守' },
+              { value: 'standard', label: '标准' },
+              { value: 'aggressive', label: '激进' },
             ]}
           />
         </Form.Item>
       )}
-      <Form.Item label="Debug" name={[...base, 'debug']} valuePropName="checked">
+      <Form.Item label="调试" name={[...base, 'debug']} valuePropName="checked">
         <Switch />
       </Form.Item>
 
       {(congestion === 'brutal' || congestion === 'force-brutal') && (
         <>
-          <Form.Item label="Brutal Up" name={[...base, 'brutalUp']}>
-            <Input placeholder="e.g. 60 mbps" />
+          <Form.Item label="Brutal 上行" name={[...base, 'brutalUp']}>
+            <Input placeholder="例如：60 mbps" />
           </Form.Item>
-          <Form.Item label="Brutal Down" name={[...base, 'brutalDown']}>
-            <Input placeholder="e.g. 100 mbps" />
+          <Form.Item label="Brutal 下行" name={[...base, 'brutalDown']}>
+            <Input placeholder="例如：100 mbps" />
           </Form.Item>
         </>
       )}
 
-      <Form.Item label="UDP Hop">
+      <Form.Item label="UDP 跳跃">
         <Switch
           checked={hasUdpHop}
           onChange={(v) => {
@@ -727,39 +727,39 @@ function QuicParamsForm({ base, form }: { base: (string | number)[]; form: FormI
       </Form.Item>
       {hasUdpHop && (
         <>
-          <Form.Item label="Hop Ports" name={[...base, 'udpHop', 'ports']}>
-            <Input placeholder="e.g. 20000-50000" />
+          <Form.Item label="跳跃端口" name={[...base, 'udpHop', 'ports']}>
+            <Input placeholder="例如：20000-50000" />
           </Form.Item>
-          <Form.Item label="Hop Interval (s)" name={[...base, 'udpHop', 'interval']}>
-            <Input placeholder="e.g. 5-10" />
+          <Form.Item label="跳跃间隔（秒）" name={[...base, 'udpHop', 'interval']}>
+            <Input placeholder="例如：5-10" />
           </Form.Item>
         </>
       )}
 
-      <Form.Item label="Max Idle Timeout (s)" name={[...base, 'maxIdleTimeout']}>
+      <Form.Item label="最大空闲超时（秒）" name={[...base, 'maxIdleTimeout']}>
         <InputNumber min={4} max={120} />
       </Form.Item>
-      <Form.Item label="Keep Alive Period (s)" name={[...base, 'keepAlivePeriod']}>
+      <Form.Item label="保活周期（秒）" name={[...base, 'keepAlivePeriod']}>
         <InputNumber min={2} max={60} />
       </Form.Item>
-      <Form.Item label="Disable Path MTU Dis" name={[...base, 'disablePathMTUDiscovery']} valuePropName="checked">
+      <Form.Item label="禁用路径 MTU 探测" name={[...base, 'disablePathMTUDiscovery']} valuePropName="checked">
         <Switch />
       </Form.Item>
 
-      <Form.Item label="Max Incoming Streams" name={[...base, 'maxIncomingStreams']}>
-        <InputNumber min={8} placeholder="1024 = default" />
+      <Form.Item label="最大入站流数量" name={[...base, 'maxIncomingStreams']}>
+        <InputNumber min={8} placeholder="1024 = 默认" />
       </Form.Item>
-      <Form.Item label="Init Stream Window" name={[...base, 'initStreamReceiveWindow']}>
-        <InputNumber min={16384} placeholder="8388608 = default" />
+      <Form.Item label="初始流窗口" name={[...base, 'initStreamReceiveWindow']}>
+        <InputNumber min={16384} placeholder="8388608 = 默认" />
       </Form.Item>
-      <Form.Item label="Max Stream Window" name={[...base, 'maxStreamReceiveWindow']}>
-        <InputNumber min={16384} placeholder="8388608 = default" />
+      <Form.Item label="最大流窗口" name={[...base, 'maxStreamReceiveWindow']}>
+        <InputNumber min={16384} placeholder="8388608 = 默认" />
       </Form.Item>
-      <Form.Item label="Init Conn Window" name={[...base, 'initConnectionReceiveWindow']}>
-        <InputNumber min={16384} placeholder="20971520 = default" />
+      <Form.Item label="初始连接窗口" name={[...base, 'initConnectionReceiveWindow']}>
+        <InputNumber min={16384} placeholder="20971520 = 默认" />
       </Form.Item>
-      <Form.Item label="Max Conn Window" name={[...base, 'maxConnectionReceiveWindow']}>
-        <InputNumber min={16384} placeholder="20971520 = default" />
+      <Form.Item label="最大连接窗口" name={[...base, 'maxConnectionReceiveWindow']}>
+        <InputNumber min={16384} placeholder="20971520 = 默认" />
       </Form.Item>
     </>
   );

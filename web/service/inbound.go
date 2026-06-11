@@ -480,6 +480,12 @@ func (s *InboundService) normalizeStreamSettings(inbound *model.Inbound) {
 func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
 	// Normalize streamSettings based on protocol
 	s.normalizeStreamSettings(inbound)
+	if err := validateHysteriaPortHopping(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := s.checkHysteriaPortHoppingConflict(inbound, 0); err != nil {
+		return inbound, false, err
+	}
 
 	conflict, err := s.checkPortConflict(inbound, 0)
 	if err != nil {
@@ -554,10 +560,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 
 	db := database.GetDB()
 	tx := db.Begin()
+	committed := false
 	defer func() {
-		if err == nil {
-			tx.Commit()
-		} else {
+		if !committed {
 			tx.Rollback()
 		}
 	}()
@@ -595,6 +600,12 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 			needRestart = true
 		}
 	}
+
+	if err = tx.Commit().Error; err != nil {
+		return inbound, false, err
+	}
+	committed = true
+	s.syncHysteriaPortHoppingRulesBestEffort()
 
 	return inbound, needRestart, err
 }
@@ -654,7 +665,11 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		}
 	}
 
-	return needRestart, db.Delete(model.Inbound{}, id).Error
+	if err := db.Delete(model.Inbound{}, id).Error; err != nil {
+		return needRestart, err
+	}
+	s.syncHysteriaPortHoppingRulesBestEffort()
+	return needRestart, nil
 }
 
 func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {
@@ -753,6 +768,13 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 	if inbound.Enable == enable {
 		return false, nil
 	}
+	if enable {
+		nextInbound := *inbound
+		nextInbound.Enable = true
+		if err := s.checkHysteriaPortHoppingConflict(&nextInbound, id); err != nil {
+			return false, err
+		}
+	}
 
 	db := database.GetDB()
 	if err := db.Model(model.Inbound{}).Where("id = ?", id).
@@ -760,6 +782,7 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 		return false, err
 	}
 	inbound.Enable = enable
+	s.syncHysteriaPortHoppingRulesBestEffort()
 
 	needRestart := false
 	rt, rterr := s.runtimeFor(inbound)
@@ -807,6 +830,12 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
 	// Normalize streamSettings based on protocol
 	s.normalizeStreamSettings(inbound)
+	if err := validateHysteriaPortHopping(inbound); err != nil {
+		return inbound, false, err
+	}
+	if err := s.checkHysteriaPortHoppingConflict(inbound, inbound.Id); err != nil {
+		return inbound, false, err
+	}
 
 	conflict, err := s.checkPortConflict(inbound, inbound.Id)
 	if err != nil {
@@ -825,12 +854,11 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 
 	db := database.GetDB()
 	tx := db.Begin()
+	committed := false
 
 	defer func() {
-		if err != nil {
+		if !committed {
 			tx.Rollback()
-		} else {
-			tx.Commit()
 		}
 	}()
 
@@ -966,6 +994,11 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	if err = s.clientService.SyncInbound(tx, oldInbound.Id, newClients); err != nil {
 		return inbound, false, err
 	}
+	if err = tx.Commit().Error; err != nil {
+		return inbound, false, err
+	}
+	committed = true
+	s.syncHysteriaPortHoppingRulesBestEffort()
 	return inbound, needRestart, nil
 }
 

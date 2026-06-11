@@ -26,6 +26,7 @@ import {
   DeleteOutlined,
   MinusOutlined,
   PlusOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
 
@@ -733,7 +734,7 @@ export default function InboundFormModal({
 
   const selectedVlessAuth = (() => {
     const enc = typeof vlessEncryption === 'string' ? vlessEncryption : '';
-    if (!enc || enc === 'none') return 'None';
+    if (!enc || enc === 'none') return '无';
     const parts = enc.split('.').filter(Boolean);
     const authKey = parts[parts.length - 1] || '';
     if (!authKey) return t('pages.inbounds.vlessAuthCustom');
@@ -881,6 +882,73 @@ export default function InboundFormModal({
     ? t('pages.clients.submitEdit')
     : t('create');
 
+  const hysteriaPortHoppingFields = protocol === Protocols.HYSTERIA ? (
+    <>
+      <Form.Item
+        label={(
+          <Space size={4}>
+            <span>端口跳跃</span>
+            <Tooltip title="启用后，OUI 会自动把这个 UDP 端口范围转发到当前 Hysteria2 监听端口，并在分享链接中写入 mport。无需手动执行 iptables 命令。">
+              <QuestionCircleOutlined />
+            </Tooltip>
+          </Space>
+        )}
+      >
+        <Form.Item shouldUpdate noStyle>
+          {() => {
+            const hopping = form.getFieldValue([
+              'streamSettings', 'hysteriaSettings', 'portHopping',
+            ]) as { enable?: boolean; range?: string } | undefined;
+            return (
+              <Switch
+                checked={!!hopping?.enable}
+                onChange={(checked) =>
+                  form.setFieldValue(
+                    ['streamSettings', 'hysteriaSettings', 'portHopping'],
+                    checked
+                      ? { enable: true, range: hopping?.range || '48000-50000' }
+                      : { enable: false, range: hopping?.range || '' },
+                  )
+                }
+              />
+            );
+          }}
+        </Form.Item>
+      </Form.Item>
+      <Form.Item shouldUpdate noStyle>
+        {() => {
+          const hopping = form.getFieldValue([
+            'streamSettings', 'hysteriaSettings', 'portHopping',
+          ]) as { enable?: boolean } | undefined;
+          if (!hopping?.enable) return null;
+          return (
+            <Form.Item
+              label="跳跃范围"
+              name={['streamSettings', 'hysteriaSettings', 'portHopping', 'range']}
+              rules={[
+                {
+                  validator: async (_, value: string) => {
+                    const raw = String(value ?? '').trim();
+                    if (!raw) throw new Error('请输入端口跳跃范围');
+                    const m = raw.match(/^(\d{1,5})\s*[-:]\s*(\d{1,5})$/);
+                    if (!m) throw new Error('格式应为 48000-50000');
+                    const start = Number(m[1]);
+                    const end = Number(m[2]);
+                    if (start < 1 || end > 65535 || start > end) {
+                      throw new Error('端口范围必须在 1-65535 之间，且起始端口不能大于结束端口');
+                    }
+                  },
+                },
+              ]}
+            >
+              <Input placeholder="48000-50000" />
+            </Form.Item>
+          );
+        }}
+      </Form.Item>
+    </>
+  ) : null;
+
   const basicTab = (
     <>
       <Form.Item name="tag" hidden noStyle><Input /></Form.Item>
@@ -936,6 +1004,8 @@ export default function InboundFormModal({
       >
         <InputNumber min={1} max={65535} />
       </Form.Item>
+
+      {hysteriaPortHoppingFields}
 
       <Form.Item
         label={
@@ -1009,7 +1079,7 @@ export default function InboundFormModal({
     <Card size="small" className="mt-12" title={t('pages.inbounds.fallbacks.title') || 'Fallbacks'}>
       {fallbacks.length === 0 && (
         <Empty
-          description={t('pages.inbounds.fallbacks.empty') || 'No fallbacks yet'}
+          description={t('pages.inbounds.fallbacks.empty') || '暂无回落配置'}
           styles={{ image: { height: 40 } }}
           style={{ margin: '8px 0 12px' }}
         />
@@ -1023,7 +1093,7 @@ export default function InboundFormModal({
             <Select
               value={record.childId}
               options={fallbackChildOptions}
-              placeholder={t('pages.inbounds.fallbacks.pickInbound') || 'Pick an inbound'}
+              placeholder={t('pages.inbounds.fallbacks.pickInbound') || '选择入站'}
               showSearch={{
                 filterOption: (input, option) =>
                   ((option?.label as string) || '').toLowerCase().includes(input.toLowerCase()),
@@ -1034,14 +1104,14 @@ export default function InboundFormModal({
             <Button
               disabled={idx === 0}
               onClick={() => moveFallback(idx, -1)}
-              title="Move up"
+              title="上移"
             >
               <ArrowUpOutlined />
             </Button>
             <Button
               disabled={idx === fallbacks.length - 1}
               onClick={() => moveFallback(idx, 1)}
-              title="Move down"
+              title="下移"
             >
               <ArrowDownOutlined />
             </Button>
@@ -1052,17 +1122,17 @@ export default function InboundFormModal({
           <Space.Compact block>
             <InputAddon>SNI</InputAddon>
             <Input
-              placeholder={t('pages.inbounds.fallbacks.matchAny') || 'any'}
+              placeholder={t('pages.inbounds.fallbacks.matchAny') || '任意'}
               value={record.name}
               onChange={(e) => updateFallback(record.rowKey, { name: e.target.value })}
             />
             <InputAddon>ALPN</InputAddon>
             <Input
-              placeholder={t('pages.inbounds.fallbacks.matchAny') || 'any'}
+              placeholder={t('pages.inbounds.fallbacks.matchAny') || '任意'}
               value={record.alpn}
               onChange={(e) => updateFallback(record.rowKey, { alpn: e.target.value })}
             />
-            <InputAddon>Path</InputAddon>
+            <InputAddon>路径</InputAddon>
             <Input
               placeholder="/"
               value={record.path}
@@ -1080,16 +1150,16 @@ export default function InboundFormModal({
       ))}
       <Space>
         <Button size="small" onClick={addFallback}>
-          <PlusOutlined /> {t('pages.inbounds.fallbacks.add') || 'Add fallback'}
+          <PlusOutlined /> {t('pages.inbounds.fallbacks.add') || '添加回落'}
         </Button>
         <Button
           size="small"
           onClick={addAllFallbacks}
           disabled={fallbackChildOptions.length === 0
             || fallbacks.length >= fallbackChildOptions.length}
-          title="Add a fallback row for every eligible inbound not yet wired up"
+          title="为所有可用且尚未接入的入站添加回落行"
         >
-          Add all
+          全部添加
         </Button>
       </Space>
     </Card>
@@ -1099,7 +1169,7 @@ export default function InboundFormModal({
     <>
       {protocol === Protocols.WIREGUARD && (
         <>
-          <Form.Item label="Secret key">
+          <Form.Item label="私钥">
             <Space.Compact block>
               <Form.Item name={['settings', 'secretKey']} noStyle>
                 <Input style={{ width: 'calc(100% - 32px)' }} />
@@ -1107,7 +1177,7 @@ export default function InboundFormModal({
               <Button icon={<ReloadOutlined />} onClick={regenInboundWg} />
             </Space.Compact>
           </Form.Item>
-          <Form.Item label="Public key">
+          <Form.Item label="公钥">
             <Input value={wgPubKey} disabled />
           </Form.Item>
           <Form.Item name={['settings', 'mtu']} label="MTU">
@@ -1115,7 +1185,7 @@ export default function InboundFormModal({
           </Form.Item>
           <Form.Item
             name={['settings', 'noKernelTun']}
-            label="No-kernel TUN"
+            label="无内核 TUN"
             valuePropName="checked"
           >
             <Switch />
@@ -1123,7 +1193,7 @@ export default function InboundFormModal({
           <Form.List name={['settings', 'peers']}>
             {(fields, { add, remove }) => (
               <>
-                <Form.Item label="Peers">
+                <Form.Item label="对端">
                   <Button
                     size="small"
                     onClick={() => {
@@ -1136,14 +1206,14 @@ export default function InboundFormModal({
                       });
                     }}
                   >
-                    <PlusOutlined /> Add peer
+                    <PlusOutlined /> 添加对端
                   </Button>
                 </Form.Item>
                 {fields.map((field, idx) => (
                   <div key={field.key} className="wg-peer">
                     <Divider titlePlacement="center">
                       <Space>
-                        <span>Peer {idx + 1}</span>
+                        <span>对端 {idx + 1}</span>
                         {fields.length > 1 && (
                           <Button
                             size="small"
@@ -1154,7 +1224,7 @@ export default function InboundFormModal({
                         )}
                       </Space>
                     </Divider>
-                    <Form.Item label="Secret key">
+                    <Form.Item label="私钥">
                       <Space.Compact block>
                         <Form.Item name={[field.name, 'privateKey']} noStyle>
                           <Input style={{ width: 'calc(100% - 32px)' }} />
@@ -1165,7 +1235,7 @@ export default function InboundFormModal({
                         />
                       </Space.Compact>
                     </Form.Item>
-                    <Form.Item name={[field.name, 'publicKey']} label="Public key">
+                    <Form.Item name={[field.name, 'publicKey']} label="公钥">
                       <Input />
                     </Form.Item>
                     <Form.Item name={[field.name, 'preSharedKey']} label="PSK">
@@ -1173,7 +1243,7 @@ export default function InboundFormModal({
                     </Form.Item>
                     <Form.List name={[field.name, 'allowedIPs']}>
                       {(ipFields, { add: addIp, remove: removeIp }) => (
-                        <Form.Item label="Allowed IPs">
+                        <Form.Item label="允许的 IP">
                           <Button size="small" onClick={() => addIp('')}>
                             <PlusOutlined />
                           </Button>
@@ -1192,7 +1262,7 @@ export default function InboundFormModal({
                         </Form.Item>
                       )}
                     </Form.List>
-                    <Form.Item name={[field.name, 'keepAlive']} label="Keep-alive">
+                    <Form.Item name={[field.name, 'keepAlive']} label="保活">
                       <InputNumber min={0} />
                     </Form.Item>
                   </div>
@@ -1205,7 +1275,7 @@ export default function InboundFormModal({
 
       {protocol === Protocols.TUN && (
         <>
-          <Form.Item name={['settings', 'name']} label="Interface name">
+          <Form.Item name={['settings', 'name']} label="网卡名称">
             <Input placeholder="xray0" />
           </Form.Item>
           <Form.Item name={['settings', 'mtu']} label="MTU">
@@ -1213,7 +1283,7 @@ export default function InboundFormModal({
           </Form.Item>
           <Form.List name={['settings', 'gateway']}>
             {(fields, { add, remove }) => (
-              <Form.Item label="Gateway">
+              <Form.Item label="网关">
                 <Button size="small" onClick={() => add('')}>
                   <PlusOutlined />
                 </Button>
@@ -1249,15 +1319,15 @@ export default function InboundFormModal({
               </Form.Item>
             )}
           </Form.List>
-          <Form.Item name={['settings', 'userLevel']} label="User level">
+          <Form.Item name={['settings', 'userLevel']} label="用户等级">
             <InputNumber min={0} />
           </Form.Item>
           <Form.List name={['settings', 'autoSystemRoutingTable']}>
             {(fields, { add, remove }) => (
               <Form.Item
                 label={
-                  <Tooltip title="Windows-only. CIDRs added to the system routing table automatically so matching traffic goes through TUN.">
-                    Auto system routes
+                  <Tooltip title="仅 Windows。自动把 CIDR 加入系统路由表，让匹配流量通过 TUN。">
+                    自动系统路由
                   </Tooltip>
                 }
               >
@@ -1280,8 +1350,8 @@ export default function InboundFormModal({
           <Form.Item
             name={['settings', 'autoOutboundsInterface']}
             label={
-              <Tooltip title="Physical interface for outbound traffic. Use 'auto' to detect; auto-enabled when Auto system routes is set.">
-                Auto outbounds interface
+              <Tooltip title="出站流量使用的物理网卡。填 auto 表示自动检测；启用自动系统路由时会自动启用。">
+                自动出站网卡
               </Tooltip>
             }
           >
@@ -1292,13 +1362,13 @@ export default function InboundFormModal({
 
       {protocol === Protocols.TUNNEL && (
         <>
-          <Form.Item name={['settings', 'rewriteAddress']} label="Rewrite address">
+          <Form.Item name={['settings', 'rewriteAddress']} label="重写地址">
             <Input />
           </Form.Item>
-          <Form.Item name={['settings', 'rewritePort']} label="Rewrite port">
+          <Form.Item name={['settings', 'rewritePort']} label="重写端口">
             <InputNumber min={0} max={65535} />
           </Form.Item>
-          <Form.Item name={['settings', 'allowedNetwork']} label="Allowed network">
+          <Form.Item name={['settings', 'allowedNetwork']} label="允许网络">
             <Select
               options={[
                 { value: 'tcp,udp', label: 'TCP, UDP' },
@@ -1307,12 +1377,12 @@ export default function InboundFormModal({
               ]}
             />
           </Form.Item>
-          <Form.Item label="Port map" name={['settings', 'portMap']}>
+          <Form.Item label="端口映射" name={['settings', 'portMap']}>
             <HeaderMapEditor mode="v1" />
           </Form.Item>
           <Form.Item
             name={['settings', 'followRedirect']}
-            label="Follow redirect"
+            label="跟随重定向"
             valuePropName="checked"
           >
             <Switch />
@@ -1325,7 +1395,7 @@ export default function InboundFormModal({
           <Form.List name={['settings', 'accounts']}>
             {(fields, { add, remove }) => (
               <>
-                <Form.Item label="Accounts">
+                <Form.Item label="账号">
                   <Button
                     size="small"
                     onClick={() => add({
@@ -1333,7 +1403,7 @@ export default function InboundFormModal({
                       pass: RandomUtil.randomLowerAndNum(12),
                     })}
                   >
-                    <PlusOutlined /> Add
+                    <PlusOutlined /> 添加
                   </Button>
                 </Form.Item>
                 {fields.length > 0 && (
@@ -1342,10 +1412,10 @@ export default function InboundFormModal({
                       <Space.Compact key={field.key} className="mb-8" block>
                         <InputAddon>{String(idx + 1)}</InputAddon>
                         <Form.Item name={[field.name, 'user']} noStyle>
-                          <Input placeholder="Username" />
+                          <Input placeholder="用户名" />
                         </Form.Item>
                         <Form.Item name={[field.name, 'pass']} noStyle>
-                          <Input placeholder="Password" />
+                          <Input placeholder="密码" />
                         </Form.Item>
                         <Button onClick={() => remove(field.name)}>
                           <MinusOutlined />
@@ -1360,7 +1430,7 @@ export default function InboundFormModal({
           {protocol === Protocols.HTTP && (
             <Form.Item
               name={['settings', 'allowTransparent']}
-              label="Allow transparent"
+              label="允许透明代理"
               valuePropName="checked"
             >
               <Switch />
@@ -1368,11 +1438,11 @@ export default function InboundFormModal({
           )}
           {protocol === Protocols.MIXED && (
             <>
-              <Form.Item name={['settings', 'auth']} label="Auth">
+              <Form.Item name={['settings', 'auth']} label="认证">
                 <Select
                   options={[
-                    { value: 'noauth', label: 'noauth' },
-                    { value: 'password', label: 'password' },
+                    { value: 'noauth', label: '无认证' },
+                    { value: 'password', label: '密码' },
                   ]}
                 />
               </Form.Item>
@@ -1395,7 +1465,7 @@ export default function InboundFormModal({
 
       {protocol === Protocols.SHADOWSOCKS && (
         <>
-          <Form.Item name={['settings', 'method']} label="Encryption method">
+          <Form.Item name={['settings', 'method']} label="加密方式">
             <Select
               onChange={(v) => {
                 form.setFieldValue(
@@ -1407,7 +1477,7 @@ export default function InboundFormModal({
             />
           </Form.Item>
           {isSSWith2022 && (
-            <Form.Item label="Password">
+            <Form.Item label="密码">
               <Space.Compact block>
                 <Form.Item name={['settings', 'password']} noStyle>
                   <Input style={{ width: 'calc(100% - 32px)' }} />
@@ -1425,7 +1495,7 @@ export default function InboundFormModal({
               </Space.Compact>
             </Form.Item>
           )}
-          <Form.Item name={['settings', 'network']} label="Network">
+          <Form.Item name={['settings', 'network']} label="网络">
             <Select
               style={{ width: 120 }}
               options={[
@@ -1437,7 +1507,7 @@ export default function InboundFormModal({
           </Form.Item>
           <Form.Item
             name={['settings', 'ivCheck']}
-            label="ivCheck"
+            label="IV 检查"
             valuePropName="checked"
           >
             <Switch />
@@ -1469,7 +1539,7 @@ export default function InboundFormModal({
           </Form.Item>
           {network === 'tcp' && (security === 'tls' || security === 'reality') && (
             <Form.Item
-              label="Vision testseed"
+              label="Vision 测试种子"
               name={['settings', 'testseed']}
               initialValue={[900, 500, 900, 256]}
               normalize={(v: unknown) =>
@@ -1477,9 +1547,9 @@ export default function InboundFormModal({
                   ? v.map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0)
                   : []
               }
-              extra="Applies only to clients using the xtls-rprx-vision flow; ignored otherwise."
+              extra="仅对使用 xtls-rprx-vision 流控的客户端生效；其他情况会被忽略。"
             >
-              <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="four positive integers" />
+              <Select mode="tags" tokenSeparators={[',', ' ']} placeholder="四个正整数" />
             </Form.Item>
           )}
         </>
@@ -1544,7 +1614,7 @@ export default function InboundFormModal({
   const streamTab = (
     <>
       {protocol !== Protocols.HYSTERIA && (
-        <Form.Item label="Transmission" name={['streamSettings', 'network']}>
+        <Form.Item label="传输方式" name={['streamSettings', 'network']}>
           <Select
             style={{ width: '75%' }}
             onChange={onNetworkChange}
@@ -1570,19 +1640,19 @@ export default function InboundFormModal({
       {protocol === Protocols.HYSTERIA && (
         <>
           <Form.Item
-            label="Version"
+            label="版本"
             name={['streamSettings', 'hysteriaSettings', 'version']}
           >
             <InputNumber min={2} max={2} disabled />
           </Form.Item>
           <Form.Item
-            label="UDP idle timeout (s)"
+            label="UDP 空闲超时（秒）"
             name={['streamSettings', 'hysteriaSettings', 'udpIdleTimeout']}
           >
             <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>
 
-          <Form.Item label="Masquerade">
+          <Form.Item label="伪装站点">
             <Form.Item shouldUpdate noStyle>
               {() => {
                 const m = form.getFieldValue([
@@ -1617,35 +1687,35 @@ export default function InboundFormModal({
               return (
                 <>
                   <Form.Item
-                    label="Type"
+                    label="类型"
                     name={['streamSettings', 'hysteriaSettings', 'masquerade', 'type']}
                   >
                     <Select
                       options={[
-                        { value: '', label: 'default (404 page)' },
-                        { value: 'proxy', label: 'proxy (reverse proxy)' },
-                        { value: 'file', label: 'file (serve directory)' },
-                        { value: 'string', label: 'string (fixed body)' },
+                        { value: '', label: '默认（404 页面）' },
+                        { value: 'proxy', label: '反向代理' },
+                        { value: 'file', label: '静态目录' },
+                        { value: 'string', label: '固定响应内容' },
                       ]}
                     />
                   </Form.Item>
                   {m.type === 'proxy' && (
                     <>
                       <Form.Item
-                        label="Upstream URL"
+                        label="上游地址"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'url']}
                       >
                         <Input placeholder="https://www.example.com" />
                       </Form.Item>
                       <Form.Item
-                        label="Rewrite Host"
+                        label="重写 Host"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'rewriteHost']}
                         valuePropName="checked"
                       >
                         <Switch />
                       </Form.Item>
                       <Form.Item
-                        label="Skip TLS verify"
+                        label="跳过 TLS 验证"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'insecure']}
                         valuePropName="checked"
                       >
@@ -1655,7 +1725,7 @@ export default function InboundFormModal({
                   )}
                   {m.type === 'file' && (
                     <Form.Item
-                      label="Directory"
+                      label="目录"
                       name={['streamSettings', 'hysteriaSettings', 'masquerade', 'dir']}
                     >
                       <Input placeholder="/var/www/html" />
@@ -1664,19 +1734,19 @@ export default function InboundFormModal({
                   {m.type === 'string' && (
                     <>
                       <Form.Item
-                        label="Status code"
+                        label="状态码"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'statusCode']}
                       >
                         <InputNumber min={0} max={599} style={{ width: '100%' }} />
                       </Form.Item>
                       <Form.Item
-                        label="Body"
+                        label="响应内容"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'content']}
                       >
                         <Input.TextArea autoSize={{ minRows: 3 }} />
                       </Form.Item>
                       <Form.Item
-                        label="Headers"
+                        label="响应头"
                         name={['streamSettings', 'hysteriaSettings', 'masquerade', 'headers']}
                       >
                         <HeaderMapEditor mode="v1" />
@@ -1694,7 +1764,7 @@ export default function InboundFormModal({
         <>
           <Form.Item
             name={['streamSettings', 'tcpSettings', 'acceptProxyProtocol']}
-            label="Proxy Protocol"
+            label="代理协议（Proxy Protocol）"
             valuePropName="checked"
           >
             <Switch />
@@ -1763,7 +1833,7 @@ export default function InboundFormModal({
               return (
                 <>
                   <Form.Item
-                    label="Response version"
+                    label="响应版本"
                     name={[
                       'streamSettings', 'tcpSettings', 'header',
                       'response', 'version',
@@ -1772,7 +1842,7 @@ export default function InboundFormModal({
                     <Input placeholder="1.1" />
                   </Form.Item>
                   <Form.Item
-                    label="Response status"
+                    label="响应状态码"
                     name={[
                       'streamSettings', 'tcpSettings', 'header',
                       'response', 'status',
@@ -1781,7 +1851,7 @@ export default function InboundFormModal({
                     <Input placeholder="200" />
                   </Form.Item>
                   <Form.Item
-                    label="Response reason"
+                    label="响应原因"
                     name={[
                       'streamSettings', 'tcpSettings', 'header',
                       'response', 'reason',
@@ -1790,7 +1860,7 @@ export default function InboundFormModal({
                     <Input placeholder="OK" />
                   </Form.Item>
                   <Form.Item
-                    label="Response headers"
+                    label="响应头"
                     name={[
                       'streamSettings', 'tcpSettings', 'header',
                       'response', 'headers',
@@ -1809,7 +1879,7 @@ export default function InboundFormModal({
         <>
           <Form.Item
             name={['streamSettings', 'wsSettings', 'acceptProxyProtocol']}
-            label="Proxy Protocol"
+            label="代理协议（Proxy Protocol）"
             valuePropName="checked"
           >
             <Switch />
@@ -1822,12 +1892,12 @@ export default function InboundFormModal({
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'wsSettings', 'heartbeatPeriod']}
-            label="Heartbeat Period"
+            label="心跳间隔"
           >
             <InputNumber min={0} />
           </Form.Item>
           <Form.Item
-            label="Headers"
+            label="请求头"
             name={['streamSettings', 'wsSettings', 'headers']}
           >
             <HeaderMapEditor mode="v1" />
@@ -1839,19 +1909,19 @@ export default function InboundFormModal({
         <>
           <Form.Item
             name={['streamSettings', 'grpcSettings', 'serviceName']}
-            label="Service Name"
+            label="服务名称"
           >
             <Input />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'grpcSettings', 'authority']}
-            label="Authority"
+            label="Authority 伪头"
           >
             <Input />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'grpcSettings', 'multiMode']}
-            label="Multi Mode"
+            label="多路模式"
             valuePropName="checked"
           >
             <Switch />
@@ -1867,7 +1937,7 @@ export default function InboundFormModal({
           <Form.Item name={['streamSettings', 'xhttpSettings', 'path']} label={t('path')}>
             <Input />
           </Form.Item>
-          <Form.Item name={['streamSettings', 'xhttpSettings', 'mode']} label="Mode">
+          <Form.Item name={['streamSettings', 'xhttpSettings', 'mode']} label="模式">
             <Select
               style={{ width: '50%' }}
               options={(['auto', 'packet-up', 'stream-up', 'stream-one'] as const).map((m) => ({
@@ -1880,13 +1950,13 @@ export default function InboundFormModal({
             <>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'scMaxBufferedPosts']}
-                label="Max Buffered Upload"
+                label="最大缓存上传数"
               >
                 <InputNumber />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'scMaxEachPostBytes']}
-                label="Max Upload Size (Byte)"
+                label="单次最大上传大小（字节）"
               >
                 <Input />
               </Form.Item>
@@ -1895,35 +1965,35 @@ export default function InboundFormModal({
           {xhttpMode === 'stream-up' && (
             <Form.Item
               name={['streamSettings', 'xhttpSettings', 'scStreamUpServerSecs']}
-              label="Stream-Up Server"
+              label="流式上行服务端时长"
             >
               <Input />
             </Form.Item>
           )}
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'serverMaxHeaderBytes']}
-            label="Server Max Header Bytes"
+            label="服务端最大请求头字节"
           >
-            <InputNumber min={0} placeholder="0 (default)" />
+            <InputNumber min={0} placeholder="0（默认）" />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'xPaddingBytes']}
-            label="Padding Bytes"
+            label="填充字节"
           >
             <Input />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'uplinkHTTPMethod']}
-            label="Uplink HTTP Method"
+            label="上行 HTTP 方法"
           >
             <Select
               options={[
-                { value: '', label: 'Default (POST)' },
+                { value: '', label: '默认（POST）' },
                 { value: 'POST', label: 'POST' },
                 { value: 'PUT', label: 'PUT' },
                 {
                   value: 'GET',
-                  label: 'GET (packet-up only)',
+                  label: 'GET（仅 packet-up）',
                   disabled: xhttpMode !== 'packet-up',
                 },
               ]}
@@ -1931,7 +2001,7 @@ export default function InboundFormModal({
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'xPaddingObfsMode']}
-            label="Padding Obfs Mode"
+            label="填充混淆模式"
             valuePropName="checked"
           >
             <Switch />
@@ -1940,23 +2010,23 @@ export default function InboundFormModal({
             <>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'xPaddingKey']}
-                label="Padding Key"
+                label="填充键名"
               >
                 <Input placeholder="x_padding" />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'xPaddingHeader']}
-                label="Padding Header"
+                label="填充请求头"
               >
                 <Input placeholder="X-Padding" />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'xPaddingPlacement']}
-                label="Padding Placement"
+                label="填充位置"
               >
                 <Select
                   options={[
-                    { value: '', label: 'Default (queryInHeader)' },
+                    { value: '', label: '默认（queryInHeader）' },
                     { value: 'queryInHeader', label: 'queryInHeader' },
                     { value: 'header', label: 'header' },
                     { value: 'cookie', label: 'cookie' },
@@ -1966,11 +2036,11 @@ export default function InboundFormModal({
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'xPaddingMethod']}
-                label="Padding Method"
+                label="填充方法"
               >
                 <Select
                   options={[
-                    { value: '', label: 'Default (repeat-x)' },
+                    { value: '', label: '默认（repeat-x）' },
                     { value: 'repeat-x', label: 'repeat-x' },
                     { value: 'tokenish', label: 'tokenish' },
                   ]}
@@ -1980,11 +2050,11 @@ export default function InboundFormModal({
           )}
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'sessionPlacement']}
-            label="Session Placement"
+            label="会话 ID 位置"
           >
             <Select
               options={[
-                { value: '', label: 'Default (path)' },
+                { value: '', label: '默认（path）' },
                 { value: 'path', label: 'path' },
                 { value: 'header', label: 'header' },
                 { value: 'cookie', label: 'cookie' },
@@ -1995,18 +2065,18 @@ export default function InboundFormModal({
           {xhttpSessionPlacement && xhttpSessionPlacement !== 'path' && (
             <Form.Item
               name={['streamSettings', 'xhttpSettings', 'sessionKey']}
-              label="Session Key"
+              label="会话键名"
             >
               <Input placeholder="x_session" />
             </Form.Item>
           )}
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'seqPlacement']}
-            label="Sequence Placement"
+            label="序号位置"
           >
             <Select
               options={[
-                { value: '', label: 'Default (path)' },
+                { value: '', label: '默认（path）' },
                 { value: 'path', label: 'path' },
                 { value: 'header', label: 'header' },
                 { value: 'cookie', label: 'cookie' },
@@ -2017,7 +2087,7 @@ export default function InboundFormModal({
           {xhttpSeqPlacement && xhttpSeqPlacement !== 'path' && (
             <Form.Item
               name={['streamSettings', 'xhttpSettings', 'seqKey']}
-              label="Sequence Key"
+              label="序号键名"
             >
               <Input placeholder="x_seq" />
             </Form.Item>
@@ -2026,11 +2096,11 @@ export default function InboundFormModal({
             <>
               <Form.Item
                 name={['streamSettings', 'xhttpSettings', 'uplinkDataPlacement']}
-                label="Uplink Data Placement"
+                label="上行数据位置"
               >
                 <Select
                   options={[
-                    { value: '', label: 'Default (body)' },
+                    { value: '', label: '默认（body）' },
                     { value: 'body', label: 'body' },
                     { value: 'header', label: 'header' },
                     { value: 'cookie', label: 'cookie' },
@@ -2041,7 +2111,7 @@ export default function InboundFormModal({
               {xhttpUplinkPlacement && xhttpUplinkPlacement !== 'body' && (
                 <Form.Item
                   name={['streamSettings', 'xhttpSettings', 'uplinkDataKey']}
-                  label="Uplink Data Key"
+                  label="上行数据键名"
                 >
                   <Input placeholder="x_data" />
                 </Form.Item>
@@ -2050,7 +2120,7 @@ export default function InboundFormModal({
           )}
           <Form.Item
             name={['streamSettings', 'xhttpSettings', 'noSSEHeader']}
-            label="No SSE Header"
+            label="不发送 SSE 头"
             valuePropName="checked"
           >
             <Switch />
@@ -2062,7 +2132,7 @@ export default function InboundFormModal({
         <>
           <Form.Item
             name={['streamSettings', 'httpupgradeSettings', 'acceptProxyProtocol']}
-            label="Proxy Protocol"
+            label="代理协议（Proxy Protocol）"
             valuePropName="checked"
           >
             <Switch />
@@ -2080,7 +2150,7 @@ export default function InboundFormModal({
             <Input />
           </Form.Item>
           <Form.Item
-            label="Headers"
+            label="请求头"
             name={['streamSettings', 'httpupgradeSettings', 'headers']}
           >
             <HeaderMapEditor mode="v1" />
@@ -2093,24 +2163,24 @@ export default function InboundFormModal({
           <Form.Item name={['streamSettings', 'kcpSettings', 'mtu']} label="MTU">
             <InputNumber min={576} max={1460} />
           </Form.Item>
-          <Form.Item name={['streamSettings', 'kcpSettings', 'tti']} label="TTI (ms)">
+          <Form.Item name={['streamSettings', 'kcpSettings', 'tti']} label="TTI（毫秒）">
             <InputNumber min={10} max={100} />
           </Form.Item>
-          <Form.Item name={['streamSettings', 'kcpSettings', 'uplinkCapacity']} label="Uplink (MB/s)">
+          <Form.Item name={['streamSettings', 'kcpSettings', 'uplinkCapacity']} label="上行容量（MB/s）">
             <InputNumber min={0} />
           </Form.Item>
-          <Form.Item name={['streamSettings', 'kcpSettings', 'downlinkCapacity']} label="Downlink (MB/s)">
+          <Form.Item name={['streamSettings', 'kcpSettings', 'downlinkCapacity']} label="下行容量（MB/s）">
             <InputNumber min={0} />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'kcpSettings', 'cwndMultiplier']}
-            label="CWND Multiplier"
+            label="CWND 倍数"
           >
             <InputNumber min={1} />
           </Form.Item>
           <Form.Item
             name={['streamSettings', 'kcpSettings', 'maxSendingWindow']}
-            label="Max Sending Window"
+            label="最大发送窗口"
           >
             <InputNumber min={0} />
           </Form.Item>
@@ -2130,7 +2200,7 @@ export default function InboundFormModal({
           const on = Array.isArray(arr) && arr.length > 0;
           return (
             <>
-              <Form.Item label="External Proxy">
+              <Form.Item label="外部代理">
                 <Switch checked={on} onChange={toggleExternalProxy} />
               </Form.Item>
               {on && (
@@ -2196,14 +2266,14 @@ export default function InboundFormModal({
                                 return (
                                   <Space.Compact style={{ marginTop: 6 }} block>
                                     <Form.Item name={[field.name, 'sni']} noStyle>
-                                      <Input style={{ width: '30%' }} placeholder="SNI (defaults to host)" />
+                                      <Input style={{ width: '30%' }} placeholder="SNI（默认使用主机名）" />
                                     </Form.Item>
                                     <Form.Item name={[field.name, 'fingerprint']} noStyle>
                                       <Select
                                         style={{ width: '30%' }}
-                                        placeholder="Fingerprint"
+                                        placeholder="指纹"
                                         options={[
-                                          { value: '', label: 'Default' },
+                                          { value: '', label: '默认' },
                                           ...Object.values(UTLS_FINGERPRINT).map((fp) => ({
                                             value: fp,
                                             label: fp,
@@ -2251,79 +2321,79 @@ export default function InboundFormModal({
           const on = !!sock && typeof sock === 'object' && Object.keys(sock).length > 0;
           return (
             <>
-              <Form.Item label="Sockopt">
+              <Form.Item label="Sockopt 套接字选项">
                 <Switch checked={on} onChange={toggleSockopt} />
               </Form.Item>
               {on && (
                 <>
-                  <Form.Item name={['streamSettings', 'sockopt', 'mark']} label="Route Mark">
+                  <Form.Item name={['streamSettings', 'sockopt', 'mark']} label="路由标记">
                     <InputNumber min={0} />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpKeepAliveInterval']}
-                    label="TCP Keep Alive Interval"
+                    label="TCP 保活间隔"
                   >
                     <InputNumber min={0} />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpKeepAliveIdle']}
-                    label="TCP Keep Alive Idle"
+                    label="TCP 保活空闲时间"
                   >
                     <InputNumber min={0} />
                   </Form.Item>
-                  <Form.Item name={['streamSettings', 'sockopt', 'tcpMaxSeg']} label="TCP Max Seg">
+                  <Form.Item name={['streamSettings', 'sockopt', 'tcpMaxSeg']} label="TCP 最大分段">
                     <InputNumber min={0} />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpUserTimeout']}
-                    label="TCP User Timeout"
+                    label="TCP 用户超时"
                   >
                     <InputNumber min={0} />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpWindowClamp']}
-                    label="TCP Window Clamp"
+                    label="TCP 窗口限制"
                   >
                     <InputNumber min={0} />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'acceptProxyProtocol']}
-                    label="Proxy Protocol"
+                    label="代理协议（Proxy Protocol）"
                     valuePropName="checked"
                   >
                     <Switch />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpFastOpen']}
-                    label="TCP Fast Open"
+                    label="TCP 快速打开"
                     valuePropName="checked"
                   >
                     <Switch />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpMptcp']}
-                    label="Multipath TCP"
+                    label="多路径 TCP"
                     valuePropName="checked"
                   >
                     <Switch />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'penetrate']}
-                    label="Penetrate"
+                    label="穿透"
                     valuePropName="checked"
                   >
                     <Switch />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'V6Only']}
-                    label="V6 Only"
+                    label="仅 IPv6"
                     valuePropName="checked"
                   >
                     <Switch />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'domainStrategy']}
-                    label="Domain Strategy"
+                    label="域名策略"
                   >
                     <Select
                       style={{ width: '50%' }}
@@ -2332,14 +2402,14 @@ export default function InboundFormModal({
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'tcpcongestion']}
-                    label="TCP Congestion"
+                    label="TCP 拥塞控制"
                   >
                     <Select
                       style={{ width: '50%' }}
                       options={Object.values(TCP_CONGESTION_OPTION).map((c) => ({ value: c, label: c }))}
                     />
                   </Form.Item>
-                  <Form.Item name={['streamSettings', 'sockopt', 'tproxy']} label="TProxy">
+                  <Form.Item name={['streamSettings', 'sockopt', 'tproxy']} label="透明代理（TProxy）">
                     <Select
                       style={{ width: '50%' }}
                       options={[
@@ -2349,18 +2419,18 @@ export default function InboundFormModal({
                       ]}
                     />
                   </Form.Item>
-                  <Form.Item name={['streamSettings', 'sockopt', 'dialerProxy']} label="Dialer Proxy">
+                  <Form.Item name={['streamSettings', 'sockopt', 'dialerProxy']} label="拨号代理">
                     <Input />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'interfaceName']}
-                    label="Interface Name"
+                    label="网卡名称"
                   >
                     <Input />
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'trustedXForwardedFor']}
-                    label="Trusted X-Forwarded-For"
+                    label="可信 X-Forwarded-For"
                   >
                     <Select
                       mode="tags"
@@ -2376,7 +2446,7 @@ export default function InboundFormModal({
                   </Form.Item>
                   <Form.Item
                     name={['streamSettings', 'sockopt', 'addressPortStrategy']}
-                    label="Address+port strategy"
+                    label="地址和端口策略"
                   >
                     <Select
                       style={{ width: '50%' }}
@@ -2389,7 +2459,7 @@ export default function InboundFormModal({
                       const hasHe = he != null;
                       return (
                         <>
-                          <Form.Item label="Happy Eyeballs">
+                          <Form.Item label="快速双栈连接（Happy Eyeballs）">
                             <Switch
                               checked={hasHe}
                               onChange={(v) => {
@@ -2404,26 +2474,26 @@ export default function InboundFormModal({
                             <>
                               <Form.Item
                                 name={['streamSettings', 'sockopt', 'happyEyeballs', 'tryDelayMs']}
-                                label="Try delay (ms)"
+                                label="尝试延迟（毫秒）"
                               >
-                                <InputNumber min={0} placeholder="0 disabled — 250 recommended" />
+                                <InputNumber min={0} placeholder="0 为禁用，建议 250" />
                               </Form.Item>
                               <Form.Item
                                 name={['streamSettings', 'sockopt', 'happyEyeballs', 'prioritizeIPv6']}
-                                label="Prioritize IPv6"
+                                label="优先 IPv6"
                                 valuePropName="checked"
                               >
                                 <Switch />
                               </Form.Item>
                               <Form.Item
                                 name={['streamSettings', 'sockopt', 'happyEyeballs', 'interleave']}
-                                label="Interleave"
+                                label="交错"
                               >
                                 <InputNumber min={1} />
                               </Form.Item>
                               <Form.Item
                                 name={['streamSettings', 'sockopt', 'happyEyeballs', 'maxConcurrentTry']}
-                                label="Max concurrent try"
+                                label="最大并发尝试"
                               >
                                 <InputNumber min={0} />
                               </Form.Item>
@@ -2436,20 +2506,20 @@ export default function InboundFormModal({
                   <Form.List name={['streamSettings', 'sockopt', 'customSockopt']}>
                     {(fields, { add, remove }) => (
                       <>
-                        <Form.Item label="Custom sockopt">
+                        <Form.Item label="自定义 sockopt">
                           <Button
                             type="dashed"
                             size="small"
                             onClick={() => add({ type: 'int', level: '6', opt: '', value: '' })}
                           >
-                            + Add custom option
+                            + 添加自定义选项
                           </Button>
                         </Form.Item>
                         {fields.map((field) => (
                           <Space.Compact key={field.key} style={{ display: 'flex', marginBottom: 8 }}>
                             <Form.Item name={[field.name, 'system']} noStyle>
                               <Select
-                                placeholder="all"
+                                placeholder="全部"
                                 allowClear
                                 style={{ width: 100 }}
                                 options={[
@@ -2469,13 +2539,13 @@ export default function InboundFormModal({
                               />
                             </Form.Item>
                             <Form.Item name={[field.name, 'level']} noStyle>
-                              <Input placeholder="level (6=TCP)" style={{ width: 100 }} />
+                              <Input placeholder="级别（6=TCP）" style={{ width: 100 }} />
                             </Form.Item>
                             <Form.Item name={[field.name, 'opt']} noStyle>
-                              <Input placeholder="opt" style={{ width: 120 }} />
+                              <Input placeholder="选项名" style={{ width: 120 }} />
                             </Form.Item>
                             <Form.Item name={[field.name, 'value']} noStyle>
-                              <Input placeholder="value" style={{ flex: 1 }} />
+                              <Input placeholder="值" style={{ flex: 1 }} />
                             </Form.Item>
                             <Button danger onClick={() => remove(field.name)}>−</Button>
                           </Space.Compact>
@@ -2527,7 +2597,7 @@ export default function InboundFormModal({
                 disabled={!tlsOk}
                 onChange={(e) => onSecurityChange(e.target.value)}
               >
-                {!tlsOnly && <Radio.Button value="none">None</Radio.Button>}
+                {!tlsOnly && <Radio.Button value="none">无</Radio.Button>}
                 <Radio.Button value="tls">TLS</Radio.Button>
                 {realityOk && <Radio.Button value="reality">Reality</Radio.Button>}
               </Radio.Group>
@@ -2548,17 +2618,17 @@ export default function InboundFormModal({
           return (
             <>
               <Form.Item name={['streamSettings', 'tlsSettings', 'serverName']} label="SNI">
-                <Input placeholder="Server Name Indication" />
+                <Input placeholder="服务器名称指示" />
               </Form.Item>
-              <Form.Item name={['streamSettings', 'tlsSettings', 'cipherSuites']} label="Cipher Suites">
+              <Form.Item name={['streamSettings', 'tlsSettings', 'cipherSuites']} label="加密套件">
                 <Select
                   options={[
-                    { value: '', label: 'Auto' },
+                    { value: '', label: '自动' },
                     ...Object.entries(TLS_CIPHER_OPTION).map(([k, v]) => ({ value: v, label: k })),
                   ]}
                 />
               </Form.Item>
-              <Form.Item label="Min/Max Version">
+              <Form.Item label="最小/最大版本">
                 <Space.Compact block>
                   <Form.Item name={['streamSettings', 'tlsSettings', 'minVersion']} noStyle>
                     <Select
@@ -2580,7 +2650,7 @@ export default function InboundFormModal({
               >
                 <Select
                   options={[
-                    { value: '', label: 'None' },
+                    { value: '', label: '无' },
                     ...Object.values(UTLS_FINGERPRINT).map((fp) => ({ value: fp, label: fp })),
                   ]}
                 />
@@ -2595,21 +2665,21 @@ export default function InboundFormModal({
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'tlsSettings', 'rejectUnknownSni']}
-                label="Reject Unknown SNI"
+                label="拒绝未知 SNI"
                 valuePropName="checked"
               >
                 <Switch />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'tlsSettings', 'disableSystemRoot']}
-                label="Disable System Root"
+                label="禁用系统根证书"
                 valuePropName="checked"
               >
                 <Switch />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'tlsSettings', 'enableSessionResumption']}
-                label="Session Resumption"
+                label="会话恢复"
                 valuePropName="checked"
               >
                 <Switch />
@@ -2658,7 +2728,7 @@ export default function InboundFormModal({
                               danger
                               onClick={() => remove(certField.name)}
                             >
-                              <MinusOutlined /> Remove
+                              <MinusOutlined /> 移除
                             </Button>
                           </Form.Item>
                         )}
@@ -2698,7 +2768,7 @@ export default function InboundFormModal({
                                       {t('pages.inbounds.setDefaultCert')}
                                     </Button>
                                     <Button danger onClick={() => clearCertFiles(certField.name)}>
-                                      Clear
+                                      清除
                                     </Button>
                                   </Space>
                                 </Form.Item>
@@ -2735,14 +2805,14 @@ export default function InboundFormModal({
                         </Form.Item>
                         <Form.Item
                           name={[certField.name, 'oneTimeLoading']}
-                          label="One Time Loading"
+                          label="一次性加载"
                           valuePropName="checked"
                         >
                           <Switch />
                         </Form.Item>
                         <Form.Item
                           name={[certField.name, 'usage']}
-                          label="Usage Option"
+                          label="用途选项"
                         >
                           <Select
                             style={{ width: '50%' }}
@@ -2765,7 +2835,7 @@ export default function InboundFormModal({
                             return (
                               <Form.Item
                                 name={[certField.name, 'buildChain']}
-                                label="Build Chain"
+                                label="构建证书链"
                                 valuePropName="checked"
                               >
                                 <Switch />
@@ -2779,21 +2849,21 @@ export default function InboundFormModal({
                 )}
               </Form.List>
 
-              <Form.Item name={['streamSettings', 'tlsSettings', 'echServerKeys']} label="ECH key">
+              <Form.Item name={['streamSettings', 'tlsSettings', 'echServerKeys']} label="ECH 密钥">
                 <Input />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'tlsSettings', 'settings', 'echConfigList']}
-                label="ECH config"
+                label="ECH 配置"
               >
                 <Input />
               </Form.Item>
               <Form.Item label=" ">
                 <Space>
                   <Button type="primary" loading={saving} onClick={getNewEchCert}>
-                    Get New ECH Cert
+                    生成 ECH 证书
                   </Button>
-                  <Button danger onClick={clearEchCert}>Clear</Button>
+                  <Button danger onClick={clearEchCert}>清除</Button>
                 </Space>
               </Form.Item>
             </>
@@ -2814,7 +2884,7 @@ export default function InboundFormModal({
             <>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'show']}
-                label="Show"
+                label="显示调试信息"
                 valuePropName="checked"
               >
                 <Switch />
@@ -2830,7 +2900,7 @@ export default function InboundFormModal({
                   options={Object.values(UTLS_FINGERPRINT).map((fp) => ({ value: fp, label: fp }))}
                 />
               </Form.Item>
-              <Form.Item label="Target">
+              <Form.Item label="目标地址">
                 <Space.Compact block>
                   <Form.Item name={['streamSettings', 'realitySettings', 'target']} noStyle>
                     <Input style={{ width: 'calc(100% - 32px)' }} />
@@ -2851,23 +2921,23 @@ export default function InboundFormModal({
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'maxTimediff']}
-                label="Max Time Diff (ms)"
+                label="最大时间差（毫秒）"
               >
                 <InputNumber min={0} />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'minClientVer']}
-                label="Min Client Ver"
+                label="最低客户端版本"
               >
                 <Input placeholder="25.9.11" />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'maxClientVer']}
-                label="Max Client Ver"
+                label="最高客户端版本"
               >
                 <Input placeholder="25.9.11" />
               </Form.Item>
-              <Form.Item label="Short IDs">
+              <Form.Item label="短 ID">
                 <Space.Compact block style={{ display: 'flex' }}>
                   <Form.Item
                     name={['streamSettings', 'realitySettings', 'shortIds']}
@@ -2899,29 +2969,29 @@ export default function InboundFormModal({
               <Form.Item label=" ">
                 <Space>
                   <Button type="primary" loading={saving} onClick={genRealityKeypair}>
-                    Get New Cert
+                    生成证书
                   </Button>
-                  <Button danger onClick={clearRealityKeypair}>Clear</Button>
+                  <Button danger onClick={clearRealityKeypair}>清除</Button>
                 </Space>
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'mldsa65Seed']}
-                label="mldsa65 Seed"
+                label="mldsa65 种子"
               >
                 <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
               </Form.Item>
               <Form.Item
                 name={['streamSettings', 'realitySettings', 'settings', 'mldsa65Verify']}
-                label="mldsa65 Verify"
+                label="mldsa65 校验"
               >
                 <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
               </Form.Item>
               <Form.Item label=" ">
                 <Space>
                   <Button type="primary" loading={saving} onClick={genMldsa65}>
-                    Get New Seed
+                    生成种子
                   </Button>
-                  <Button danger onClick={clearMldsa65}>Clear</Button>
+                  <Button danger onClick={clearMldsa65}>清除</Button>
                 </Space>
               </Form.Item>
             </>

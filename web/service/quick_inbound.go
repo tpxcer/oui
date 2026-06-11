@@ -15,6 +15,7 @@ type QuickInboundResult struct {
 	Inbound     *model.Inbound `json:"inbound"`
 	Email       string         `json:"email"`
 	Firewall    string         `json:"firewall"`
+	PortHopping string         `json:"portHopping"`
 	PresetKey   string         `json:"presetKey"`
 	PresetLabel string         `json:"presetLabel"`
 }
@@ -75,10 +76,16 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	}
 	websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
 
+	portHopping := hysteriaPortHoppingRangeFromInbound(created)
+	firewall := allowInboundPort(created.Port, preset.Transport)
+	if portHopping != "" {
+		firewall += "；" + allowInboundPortRange(portHopping, preset.Transport)
+	}
 	return &QuickInboundResult{
 		Inbound:     created,
 		Email:       email,
-		Firewall:    allowInboundPort(created.Port, preset.Transport),
+		Firewall:    firewall,
+		PortHopping: portHopping,
 		PresetKey:   preset.Key,
 		PresetLabel: preset.Label,
 	}, nil

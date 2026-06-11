@@ -405,7 +405,13 @@ export function parseHysteria2Link(link: string): Raw | null {
     network: 'hysteria',
     security: 'tls',
     hysteriaSettings: {
-      version: 2, auth, udpIdleTimeout: 60,
+      version: 2,
+      auth,
+      udpIdleTimeout: 60,
+      portHopping: {
+        enable: !!params.get('mport'),
+        range: params.get('mport') ?? '',
+      },
     },
     tlsSettings: {
       serverName: params.get('sni') ?? '',

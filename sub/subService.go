@@ -550,6 +550,9 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 			}
 		}
 	}
+	if portHopping := service.HysteriaPortHoppingRangeFromInbound(inbound); portHopping != "" {
+		params["mport"] = portHopping
+	}
 
 	// salamander obfs (Hysteria2). The panel-side link generator already
 	// emits these; keep the subscription output in sync so a client has

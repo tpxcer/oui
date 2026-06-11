@@ -379,6 +379,9 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 		APIPort:        func() int { return s.xrayService.GetXrayAPIPort() },
 		SetNeedRestart: func() { s.xrayService.SetToNeedRestart() },
 	}))
+	if err := (&service.InboundService{}).SyncHysteriaPortHoppingRules(); err != nil {
+		logger.Warning("sync hysteria port hopping on startup failed:", err)
+	}
 
 	s.customGeoService = service.NewCustomGeoService()
 

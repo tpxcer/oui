@@ -586,6 +586,12 @@ export function genHysteriaLink(input: GenHysteriaLinkInput): string {
   if (tls.alpn.length > 0) params.set('alpn', tls.alpn.join(','));
   if (tls.settings.echConfigList.length > 0) params.set('ech', tls.settings.echConfigList);
   if (tls.serverName.length > 0) params.set('sni', tls.serverName);
+  const portHopping = (stream as { hysteriaSettings?: { portHopping?: { enable?: boolean; range?: string } } })
+    .hysteriaSettings?.portHopping;
+  const portHoppingRange = portHopping?.range?.trim() ?? '';
+  if (portHopping?.enable && portHoppingRange.length > 0) {
+    params.set('mport', portHoppingRange);
+  }
 
   const udpMasks = stream.finalmask?.udp;
   if (Array.isArray(udpMasks)) {
