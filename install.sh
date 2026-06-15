@@ -952,9 +952,9 @@ EOF
             else
                 echo -e "${yellow}SSL 证书：已跳过，面板仅使用 HTTP。请配合反向代理或 SSH 隧道。${plain}"
             fi
-        else
+        elif [[ -z "${existing_webBasePath}" ]]; then
             local config_webBasePath=$(gen_random_string 18)
-            echo -e "${yellow}Web 访问路径缺失或过短，正在生成新的访问路径...${plain}"
+            echo -e "${yellow}Web 访问路径缺失，正在生成新的访问路径...${plain}"
             ${xui_folder}/x-ui setting -webBasePath "${config_webBasePath}"
             echo -e "${green}新的 Web 访问路径：${config_webBasePath}${plain}"
 
@@ -972,6 +972,8 @@ EOF
                 # 如果证书已存在，仅展示访问地址
                 echo -e "${green}访问地址：https://${server_ip}:${existing_port}/${config_webBasePath}${plain}"
             fi
+        else
+            echo -e "${yellow}当前 Web 访问路径较短：/${existing_webBasePath}。为避免影响现有登录地址，安装脚本不会自动修改。${plain}"
         fi
     else
         if [[ "$existing_hasDefaultCredential" == "true" ]]; then

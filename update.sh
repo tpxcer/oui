@@ -877,13 +877,15 @@ config_after_update() {
         done
     fi
 
-    # 修复缺失或过短的 Web 访问路径
-    if [[ ${#existing_webBasePath} -lt 4 ]]; then
-        echo -e "${yellow}Web 访问路径缺失或过短，正在生成新的访问路径...${plain}"
+    # 修复缺失的 Web 访问路径。已有自定义路径即使较短也不应在更新时被自动改写。
+    if [[ -z "${existing_webBasePath}" ]]; then
+        echo -e "${yellow}Web 访问路径缺失，正在生成新的访问路径...${plain}"
         local config_webBasePath=$(gen_random_string 18)
         ${xui_folder}/x-ui setting -webBasePath "${config_webBasePath}"
         existing_webBasePath="${config_webBasePath}"
         echo -e "${green}新的 Web 访问路径：${config_webBasePath}${plain}"
+    elif [[ ${#existing_webBasePath} -lt 4 ]]; then
+        echo -e "${yellow}当前 Web 访问路径较短：/${existing_webBasePath}。为避免影响现有登录地址，更新不会自动修改。${plain}"
     fi
 
     # 如果缺少 SSL，引导配置
