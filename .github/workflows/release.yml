@@ -50,6 +50,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set release version from tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: printf '%s\n' "${{ github.ref_name }}" > config/version
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
