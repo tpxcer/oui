@@ -22,6 +22,7 @@ function getSharedClient(): SharedClient {
 }
 
 let invalidateTimer: number | null = null;
+const pendingInvalidations = new Set<'inbounds' | 'clients'>();
 
 export function useWebSocketBridge() {
   const queryClient = useQueryClient();
@@ -32,14 +33,18 @@ export function useWebSocketBridge() {
     const onInvalidate: Handler = (payload) => {
       const p = payload as { type?: string } | undefined;
       if (!p || (p.type !== 'inbounds' && p.type !== 'clients')) return;
+      pendingInvalidations.add(p.type);
       if (invalidateTimer != null) clearTimeout(invalidateTimer);
       invalidateTimer = window.setTimeout(() => {
+        const types = new Set(pendingInvalidations);
+        pendingInvalidations.clear();
         invalidateTimer = null;
-        if (p.type === 'inbounds') {
-          queryClient.invalidateQueries({ queryKey: ['inbounds'] });
+        if (types.has('inbounds')) {
+          queryClient.invalidateQueries({ queryKey: keys.inbounds.root() });
           queryClient.invalidateQueries({ queryKey: keys.xray.config() });
-        } else {
-          queryClient.invalidateQueries({ queryKey: ['clients'] });
+        }
+        if (types.has('clients')) {
+          queryClient.invalidateQueries({ queryKey: keys.clients.root() });
         }
       }, 200);
     };
@@ -74,6 +79,7 @@ export function useWebSocketBridge() {
         clearTimeout(invalidateTimer);
         invalidateTimer = null;
       }
+      pendingInvalidations.clear();
     };
   }, [queryClient]);
 }

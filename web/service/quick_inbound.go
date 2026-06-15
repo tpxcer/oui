@@ -75,6 +75,7 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 		return nil, err
 	}
 	websocket.BroadcastInvalidate(websocket.MessageTypeInbounds)
+	websocket.BroadcastInvalidate(websocket.MessageTypeClients)
 
 	portHopping := hysteriaPortHoppingRangeFromInbound(created)
 	firewall := allowInboundPort(created.Port, preset.Transport)

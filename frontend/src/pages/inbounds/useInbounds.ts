@@ -259,6 +259,7 @@ export function useInbounds() {
     // the client add/edit modal until a full page reload.
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: keys.inbounds.root() }),
+      queryClient.invalidateQueries({ queryKey: keys.clients.root() }),
       queryClient.invalidateQueries({ queryKey: keys.clients.onlines() }),
       queryClient.invalidateQueries({ queryKey: keys.clients.lastOnline() }),
     ]);
