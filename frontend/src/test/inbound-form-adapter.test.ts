@@ -111,6 +111,61 @@ describe('rawInboundToFormValues', () => {
     const result = InboundFormSchema.safeParse(values);
     expect(result.success).toBe(true);
   });
+
+  it('hydrates TLS file certificate mode for quick-created Hysteria2 inbounds', () => {
+    const values = rawInboundToFormValues({
+      ...vlessRow,
+      protocol: 'hysteria',
+      settings: {
+        version: 2,
+        clients: [{
+          id: '79fd5405-4693-46f7-b206-3721283732b0',
+          auth: 'lknclxt498hf3z20',
+          email: 'hy2-odzc7k',
+          limitIp: 0,
+          totalGB: 0,
+          expiryTime: 0,
+          enable: true,
+          tgId: 0,
+          subId: '6qr55kmf5l8tr0w1',
+          comment: '',
+          reset: 0,
+        }],
+      },
+      streamSettings: {
+        network: 'hysteria',
+        security: 'tls',
+        hysteriaSettings: {
+          version: 2,
+          udpIdleTimeout: 60,
+          portHopping: { enable: true, range: '43276-43475' },
+        },
+        tlsSettings: {
+          serverName: 't.fook.top',
+          minVersion: '1.2',
+          maxVersion: '1.3',
+          certificates: [{
+            certificateFile: '/root/cert/t.fook.top/fullchain.pem',
+            keyFile: '/root/cert/t.fook.top/privkey.pem',
+            oneTimeLoading: false,
+            usage: 'encipherment',
+            buildChain: false,
+          }],
+          alpn: ['h3'],
+          echServerKeys: '',
+          settings: { fingerprint: 'chrome', echConfigList: '' },
+        },
+      },
+    });
+
+    const stream = values.streamSettings as unknown as {
+      tlsSettings: { certificates: Record<string, unknown>[] };
+    };
+    const cert = stream.tlsSettings.certificates[0];
+    expect(cert.useFile).toBe(true);
+    expect(cert.certificateFile).toBe('/root/cert/t.fook.top/fullchain.pem');
+    expect(cert.keyFile).toBe('/root/cert/t.fook.top/privkey.pem');
+  });
 });
 
 describe('formValuesToWirePayload', () => {
@@ -186,5 +241,33 @@ describe('formValuesToWirePayload', () => {
     expect(replay.up).toBe(original.up);
     expect(replay.down).toBe(original.down);
     expect(replay.streamSettings).toEqual(original.streamSettings);
+  });
+
+  it('strips TLS certificate UI mode before writing wire JSON', () => {
+    const values = rawInboundToFormValues({
+      ...vlessRow,
+      streamSettings: {
+        network: 'tcp',
+        security: 'tls',
+        tcpSettings: { header: { type: 'none' } },
+        tlsSettings: {
+          serverName: 'example.test',
+          certificates: [{
+            useFile: true,
+            certificateFile: '/root/cert/example.test/fullchain.pem',
+            keyFile: '/root/cert/example.test/privkey.pem',
+            oneTimeLoading: false,
+            usage: 'encipherment',
+            buildChain: false,
+          }],
+        },
+      },
+    });
+
+    const payload = formValuesToWirePayload(values);
+    const stream = JSON.parse(payload.streamSettings);
+    expect(stream.tlsSettings.certificates[0].useFile).toBeUndefined();
+    expect(stream.tlsSettings.certificates[0].certificateFile).toBe('/root/cert/example.test/fullchain.pem');
+    expect(stream.tlsSettings.certificates[0].keyFile).toBe('/root/cert/example.test/privkey.pem');
   });
 });

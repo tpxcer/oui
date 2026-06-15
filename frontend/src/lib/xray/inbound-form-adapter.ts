@@ -114,6 +114,37 @@ function healStreamNetworkKey(stream: Record<string, unknown>): void {
   }
 }
 
+function hasText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function hasListItems(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function hydrateTlsCertificateMode(stream: Record<string, unknown>): void {
+  const tlsSettings = stream.tlsSettings;
+  if (!tlsSettings || typeof tlsSettings !== 'object' || Array.isArray(tlsSettings)) return;
+
+  const certificates = (tlsSettings as Record<string, unknown>).certificates;
+  if (!Array.isArray(certificates)) return;
+
+  for (const cert of certificates) {
+    if (!cert || typeof cert !== 'object' || Array.isArray(cert)) continue;
+
+    const entry = cert as Record<string, unknown>;
+    if (typeof entry.useFile === 'boolean') continue;
+
+    const hasFileCert = hasText(entry.certificateFile) || hasText(entry.keyFile);
+    const hasInlineCert = hasListItems(entry.certificate) || hasListItems(entry.key);
+    if (hasFileCert) {
+      entry.useFile = true;
+    } else if (hasInlineCert) {
+      entry.useFile = false;
+    }
+  }
+}
+
 // Map a raw DB row (settings/streamSettings/sniffing as string OR object)
 // into the typed InboundFormValues. Does NOT validate against the schema —
 // callers that want a hard guarantee should follow up with
@@ -126,7 +157,9 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     ? (rawStream as StreamSettings)
     : undefined;
   if (streamSettings) {
-    healStreamNetworkKey(streamSettings as unknown as Record<string, unknown>);
+    const streamRecord = streamSettings as unknown as Record<string, unknown>;
+    healStreamNetworkKey(streamRecord);
+    hydrateTlsCertificateMode(streamRecord);
   }
   const sniffing = coerceJsonObject(row.sniffing) as unknown as Sniffing;
 
@@ -256,6 +289,15 @@ export function dropLegacyOptionalEmpties(
     const hs = stream.hysteriaSettings as { auth?: string } | undefined;
     if (hs && typeof hs === 'object' && (hs.auth === '' || hs.auth == null)) {
       delete hs.auth;
+    }
+
+    const tlsSettings = stream.tlsSettings as { certificates?: unknown[] } | undefined;
+    if (tlsSettings && Array.isArray(tlsSettings.certificates)) {
+      for (const cert of tlsSettings.certificates) {
+        if (cert && typeof cert === 'object' && !Array.isArray(cert)) {
+          delete (cert as Record<string, unknown>).useFile;
+        }
+      }
     }
   }
 }
