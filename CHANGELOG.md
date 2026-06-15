@@ -5,6 +5,11 @@
 - `CHANGELOG.md`：保留历史版本说明。
 - `config/release-notes/latest.md`：写入当前待发布版本说明，GitHub Release 会自动使用它作为发布正文。
 
+## 2026.6.15-1
+
+- 优化面板更新中的下载图标：更新时云朵保持静止，只让向下箭头上下移动，避免整朵云一直旋转。
+- 同步调整 OUI 卡片上的更新按钮状态，开始更新后也使用新的下载动效。
+
 ## 2026.6.15
 
 - 修复命令行证书设置不一致：`x-ui setting -webCert/-webCertKey` 现在会真正写入面板证书路径，仍兼容 `x-ui cert -webCert/-webCertKey`。

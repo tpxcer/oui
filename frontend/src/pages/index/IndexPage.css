@@ -28,6 +28,54 @@
   color: var(--ant-color-warning);
 }
 
+.index-page .panel-download-icon {
+  position: relative;
+  display: inline-flex;
+  width: 1em;
+  height: 1em;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  font-size: 1em;
+  line-height: 1;
+  vertical-align: -0.125em;
+}
+
+.index-page .panel-download-icon .anticon {
+  color: currentColor;
+  line-height: 1;
+}
+
+.index-page .panel-download-cloud {
+  position: absolute;
+  inset: 0;
+  font-size: 1em;
+}
+
+.index-page .panel-download-arrow {
+  position: absolute;
+  top: 0.18em;
+  left: 50%;
+  font-size: 0.54em;
+  transform: translateX(-50%);
+}
+
+.index-page .panel-download-icon.is-active .panel-download-arrow {
+  animation: panel-download-arrow 0.9s ease-in-out infinite;
+}
+
+@keyframes panel-download-arrow {
+  0%,
+  100% {
+    transform: translate(-50%, -0.08em);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate(-50%, 0.18em);
+    opacity: 1;
+  }
+}
+
 .index-page .action-disabled {
   cursor: wait;
   opacity: 0.72;
@@ -62,7 +110,8 @@
   justify-items: center;
 }
 
-.index-page .index-update-lock-card .anticon {
+.index-page .index-update-lock-card > .anticon,
+.index-page .index-update-lock-card > .panel-download-icon {
   color: var(--ant-color-primary);
   font-size: 24px;
 }

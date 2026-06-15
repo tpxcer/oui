@@ -19,6 +19,7 @@ import {
 import {
   BarsOutlined,
   ControlOutlined,
+  CloudOutlined,
   CloudServerOutlined,
   CloudDownloadOutlined,
   CloudUploadOutlined,
@@ -81,6 +82,15 @@ function panelUpdateContent(description: string, notes?: string) {
       <p>{description}</p>
       {panelReleaseNotes(notes)}
     </div>
+  );
+}
+
+function PanelDownloadIcon({ active = false }: { active?: boolean }) {
+  return (
+    <span className={`panel-download-icon${active ? ' is-active' : ''}`} aria-hidden="true">
+      <CloudOutlined className="panel-download-cloud" />
+      <ArrowDownOutlined className="panel-download-arrow" />
+    </span>
   );
 }
 
@@ -317,7 +327,7 @@ export default function IndexPage() {
             {updatingPanel && (
               <div className="index-update-lock" role="status" aria-live="polite">
                 <div className="index-update-lock-card">
-                  <CloudDownloadOutlined spin />
+                  <PanelDownloadIcon active />
                   <strong>{panelUpdateInfo.latestVersion ? `正在更新到 ${panelUpdateInfo.latestVersion}` : '正在更新到最新版本'}</strong>
                   <Progress percent={Math.round(updateProgress)} showInfo={false} />
                   <small>{Math.round(updateProgress)}%</small>
@@ -394,7 +404,7 @@ export default function IndexPage() {
                           onClick={handlePanelUpdateAction}
                         >
                           {panelUpdateInfo.updateAvailable ? (
-                            <CloudDownloadOutlined spin={updatingPanel} />
+                            <PanelDownloadIcon active={updatingPanel} />
                           ) : (
                             <SyncOutlined spin={checkingUpdate} />
                           )}
