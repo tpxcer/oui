@@ -176,12 +176,7 @@ func (s *AllSetting) CheckValid() error {
 		}
 	}
 
-	if !strings.HasPrefix(s.WebBasePath, "/") {
-		s.WebBasePath = "/" + s.WebBasePath
-	}
-	if !strings.HasSuffix(s.WebBasePath, "/") {
-		s.WebBasePath += "/"
-	}
+	s.WebBasePath = normalizeWebBasePath(s.WebBasePath)
 	if !strings.HasPrefix(s.SubPath, "/") {
 		s.SubPath = "/" + s.SubPath
 	}
@@ -222,4 +217,13 @@ func (s *AllSetting) CheckValid() error {
 	}
 
 	return nil
+}
+
+func normalizeWebBasePath(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	basePath = "/" + strings.Trim(basePath, "/")
+	if basePath == "/" {
+		return "/"
+	}
+	return basePath
 }

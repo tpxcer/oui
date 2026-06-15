@@ -660,6 +660,7 @@ prompt_and_setup_ssl() {
                 fi
             else
                 echo -e "${red}域名证书配置失败。${plain}"
+                SSL_SCHEME="http"
                 SSL_HOST="${server_ip}"
             fi
             ;;
@@ -685,6 +686,7 @@ prompt_and_setup_ssl() {
                 echo -e "${green}Let's Encrypt IP 证书配置成功。${plain}"
             else
                 echo -e "${red}IP 证书配置失败，请检查 80 端口是否开放。${plain}"
+                SSL_SCHEME="http"
                 SSL_HOST="${server_ip}"
             fi
             ;;
@@ -785,6 +787,7 @@ prompt_and_setup_ssl() {
             ;;
         *)
             echo -e "${red}无效选项，已跳过 SSL 配置。${plain}"
+            SSL_SCHEME="http"
             SSL_HOST="${server_ip}"
             ;;
     esac

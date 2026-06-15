@@ -558,6 +558,9 @@ func main() {
 		if getApiToken {
 			GetApiToken(getApiToken)
 		}
+		if webCertFile != "" || webKeyFile != "" {
+			updateCert(webCertFile, webKeyFile)
+		}
 		if (tgbottoken != "") || (tgbotchatid != "") || (tgbotRuntime != "") {
 			updateTgbotSetting(tgbottoken, tgbotchatid, tgbotRuntime)
 		}

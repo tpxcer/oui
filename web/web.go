@@ -169,13 +169,15 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	routeBasePath := normalizeRouteBasePath(basePath)
+	publicBasePath := publicBasePath(routeBasePath)
 	engine.Use(gzip.Gzip(gzip.DefaultCompression))
-	assetsBasePath := basePath + "assets/"
+	assetsBasePath := publicBasePath + "assets/"
 
 	store := cookie.NewStore(secret)
 	// Configure default session cookie options, including expiration (MaxAge)
 	sessionOptions := sessions.Options{
-		Path:     basePath,
+		Path:     publicBasePath,
 		HttpOnly: true,
 		Secure:   directHTTPS,
 		SameSite: http.SameSiteLaxMode,
@@ -186,7 +188,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	store.Options(sessionOptions)
 	engine.Use(sessions.Sessions("oui", store))
 	engine.Use(func(c *gin.Context) {
-		c.Set("base_path", basePath)
+		c.Set("base_path", publicBasePath)
 	})
 	engine.Use(func(c *gin.Context) {
 		uri := c.Request.RequestURI
@@ -208,14 +210,15 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	// so the Vite watcher's incremental rebuilds show up without
 	// restarting the binary; in prod we serve the embedded dist FS
 	// rooted at `dist/assets/`.
+	assetsRoute := joinRoutePath(routeBasePath, "assets")
 	if config.IsDebug() {
-		engine.StaticFS(basePath+"assets", http.FS(os.DirFS("web/dist/assets")))
+		engine.StaticFS(assetsRoute, http.FS(os.DirFS("web/dist/assets")))
 	} else {
-		engine.StaticFS(basePath+"assets", http.FS(&wrapDistFS{FS: distFS}))
+		engine.StaticFS(assetsRoute, http.FS(&wrapDistFS{FS: distFS}))
 	}
 
 	// Apply the redirect middleware (`/xui` to `/panel`)
-	engine.Use(middleware.RedirectMiddleware(basePath))
+	engine.Use(middleware.RedirectMiddleware(routeBasePath))
 
 	// Hand the embedded `dist/` filesystem to the controller package
 	// before any HTML-serving controller is constructed. Phase 8
@@ -223,7 +226,7 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	// rendering a legacy template.
 	controller.SetDistFS(distFS)
 
-	g := engine.Group(basePath)
+	g := engine.Group(routeBasePath)
 
 	s.index = controller.NewIndexController(g)
 	s.panel = controller.NewXUIController(g)
@@ -251,6 +254,29 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 	})
 
 	return engine, nil
+}
+
+func normalizeRouteBasePath(basePath string) string {
+	basePath = "/" + strings.Trim(basePath, "/")
+	if basePath == "/" {
+		return ""
+	}
+	return basePath
+}
+
+func publicBasePath(routeBasePath string) string {
+	if routeBasePath == "" {
+		return "/"
+	}
+	return routeBasePath + "/"
+}
+
+func joinRoutePath(basePath, path string) string {
+	path = strings.Trim(path, "/")
+	if basePath == "" {
+		return "/" + path
+	}
+	return basePath + "/" + path
 }
 
 // startTask schedules background jobs (Xray checks, traffic jobs, cron

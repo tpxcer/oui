@@ -536,13 +536,7 @@ func (s *SettingService) GetSecret() ([]byte, error) {
 }
 
 func (s *SettingService) SetBasePath(basePath string) error {
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
-	}
-	if !strings.HasSuffix(basePath, "/") {
-		basePath += "/"
-	}
-	return s.setString("webBasePath", basePath)
+	return s.setString("webBasePath", normalizeWebBasePath(basePath))
 }
 
 func (s *SettingService) GetBasePath() (string, error) {
@@ -550,13 +544,16 @@ func (s *SettingService) GetBasePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(basePath, "/") {
-		basePath = "/" + basePath
+	return normalizeWebBasePath(basePath), nil
+}
+
+func normalizeWebBasePath(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	basePath = "/" + strings.Trim(basePath, "/")
+	if basePath == "/" {
+		return "/"
 	}
-	if !strings.HasSuffix(basePath, "/") {
-		basePath += "/"
-	}
-	return basePath, nil
+	return basePath
 }
 
 func (s *SettingService) GetTimeLocation() (*time.Location, error) {

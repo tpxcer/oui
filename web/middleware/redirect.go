@@ -21,7 +21,7 @@ func RedirectMiddleware(basePath string) gin.HandlerFunc {
 
 		path := c.Request.URL.Path
 		for from, to := range redirects {
-			from, to = basePath+from, basePath+to
+			from, to = joinRoutePath(basePath, from), joinRoutePath(basePath, to)
 
 			if strings.HasPrefix(path, from) {
 				newPath := to + path[len(from):]
@@ -34,4 +34,13 @@ func RedirectMiddleware(basePath string) gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func joinRoutePath(basePath, path string) string {
+	basePath = strings.TrimRight(basePath, "/")
+	path = strings.Trim(path, "/")
+	if basePath == "" {
+		return "/" + path
+	}
+	return basePath + "/" + path
 }

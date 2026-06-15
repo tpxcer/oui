@@ -176,6 +176,36 @@ func TestUpdateAllSettingRequiresTelegramChatIDWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestWebBasePathIsStoredWithoutTrailingSlash(t *testing.T) {
+	setupSettingTestDB(t)
+	s := &SettingService{}
+
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", "/"},
+		{"/", "/"},
+		{"abc", "/abc"},
+		{"/abc", "/abc"},
+		{"/abc/", "/abc"},
+		{"///abc///", "/abc"},
+	}
+
+	for _, tc := range cases {
+		if err := s.SetBasePath(tc.in); err != nil {
+			t.Fatalf("SetBasePath(%q): %v", tc.in, err)
+		}
+		got, err := s.GetBasePath()
+		if err != nil {
+			t.Fatalf("GetBasePath(%q): %v", tc.in, err)
+		}
+		if got != tc.want {
+			t.Fatalf("base path for %q = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestSanitizePublicHTTPURLBlocksPrivateAddressUnlessAllowed(t *testing.T) {
 	if _, err := SanitizePublicHTTPURL("http://127.0.0.1:8080/hook", false); err == nil {
 		t.Fatal("expected localhost URL to be blocked")

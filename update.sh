@@ -658,17 +658,20 @@ prompt_and_setup_ssl() {
     local server_ip="$3"
 
     local ssl_choice=""
+    SSL_SCHEME="https"
 
     echo -e "${yellow}请选择 SSL 证书配置方式：${plain}"
     echo -e "${green}1.${plain} Let's Encrypt 域名证书（90 天有效，自动续期）"
     echo -e "${green}2.${plain} Let's Encrypt IP 证书（约 6 天有效，自动续期）"
     echo -e "${green}3.${plain} 自定义 SSL 证书（填写已有证书路径）"
+    echo -e "${green}4.${plain} 跳过 SSL（高级：仅适合反向代理或 SSH 隧道场景）"
     echo -e "${blue}提示：${plain}选项 1 和 2 需要开放 80 端口；选项 3 需要手动填写证书路径。"
+    echo -e "${blue}提示：${plain}选项 4 会让面板使用明文 HTTP，仅建议在 nginx/Caddy 或 SSH 隧道后使用。"
     read -rp "请选择（默认 2，IP 证书）：" ssl_choice
     ssl_choice="${ssl_choice// /}" # Trim whitespace
 
-    # Default to 2 (IP cert) if input is empty or invalid (not 1 or 3)
-    if [[ "$ssl_choice" != "1" && "$ssl_choice" != "3" ]]; then
+    # Default to 2 (IP cert) if input is empty or invalid (not 1, 3 or 4)
+    if [[ "$ssl_choice" != "1" && "$ssl_choice" != "3" && "$ssl_choice" != "4" ]]; then
         ssl_choice="2"
     fi
 
@@ -691,6 +694,7 @@ prompt_and_setup_ssl() {
                 fi
             else
                 echo -e "${red}域名证书配置失败。${plain}"
+                SSL_SCHEME="http"
                 SSL_HOST="${server_ip}"
             fi
             ;;
@@ -716,6 +720,7 @@ prompt_and_setup_ssl() {
                 echo -e "${green}Let's Encrypt IP 证书配置成功。${plain}"
             else
                 echo -e "${red}IP 证书配置失败，请检查 80 端口是否开放。${plain}"
+                SSL_SCHEME="http"
                 SSL_HOST="${server_ip}"
             fi
 
@@ -787,8 +792,44 @@ prompt_and_setup_ssl() {
 
             systemctl restart x-ui > /dev/null 2>&1 || rc-service x-ui restart > /dev/null 2>&1
             ;;
+        4)
+            echo ""
+            echo -e "${red}面板将不配置 SSL/TLS。${plain}"
+            echo -e "${yellow}登录信息和 Cookie 会通过明文 HTTP 传输。${plain}"
+            echo -e "${yellow}仅在以下场景相对安全：${plain}"
+            echo -e "${yellow}  - 前面已有反向代理（nginx、Caddy、Traefik）负责 TLS；或${plain}"
+            echo -e "${yellow}  - 只通过 SSH 隧道访问面板。${plain}"
+            echo ""
+
+            SSL_SCHEME="http"
+            SSL_HOST="${server_ip}"
+
+            local bind_local=""
+            read -rp "是否只监听 127.0.0.1？（推荐，可强制走 SSH 隧道或反向代理）[y/N]：" bind_local
+            if [[ "$bind_local" == "y" || "$bind_local" == "Y" ]]; then
+                ${xui_folder}/x-ui setting -listenIP "127.0.0.1" > /dev/null 2>&1
+                SSL_HOST="127.0.0.1"
+                echo -e "${green}面板已仅监听 127.0.0.1，公网无法直接访问。${plain}"
+                echo ""
+                echo -e "${green}SSH 端口转发，可在本地这样打开面板：${plain}"
+                echo -e "  标准 SSH 命令："
+                echo -e "  ${yellow}ssh -L 2222:127.0.0.1:${panel_port} root@${server_ip}${plain}"
+                echo -e "  使用 SSH 密钥时："
+                echo -e "  ${yellow}ssh -i <sshkeypath> -L 2222:127.0.0.1:${panel_port} root@${server_ip}${plain}"
+                echo -e "  然后在浏览器打开："
+                echo -e "  ${yellow}http://localhost:2222/${web_base_path}${plain}"
+                echo ""
+                echo -e "${yellow}也可以让 nginx/Caddy 反代到 127.0.0.1:${panel_port}，由反向代理负责 TLS。${plain}"
+            else
+                echo -e "${yellow}面板将以明文 HTTP 监听所有网卡，请确认前方已有其它组件负责 TLS。${plain}"
+            fi
+
+            systemctl restart x-ui > /dev/null 2>&1 || rc-service x-ui restart > /dev/null 2>&1
+            echo -e "${green}已跳过 SSL 配置。${plain}"
+            ;;
         *)
             echo -e "${red}无效选项，已跳过 SSL 配置。${plain}"
+            SSL_SCHEME="http"
             SSL_HOST="${server_ip}"
             ;;
     esac
@@ -862,9 +903,13 @@ config_after_update() {
         echo -e "${green}═══════════════════════════════════════════${plain}"
         echo -e "${green}     面板访问信息                          ${plain}"
         echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e "${green}访问地址：https://${SSL_HOST}:${existing_port}/${existing_webBasePath}${plain}"
+        echo -e "${green}访问地址：${SSL_SCHEME}://${SSL_HOST}:${existing_port}/${existing_webBasePath}${plain}"
         echo -e "${green}═══════════════════════════════════════════${plain}"
-        echo -e "${yellow}SSL 证书：已启用并配置完成。${plain}"
+        if [[ "$SSL_SCHEME" == "https" ]]; then
+            echo -e "${yellow}SSL 证书：已启用并配置完成。${plain}"
+        else
+            echo -e "${yellow}SSL 证书：未启用，面板当前使用 HTTP。请配合反向代理或 SSH 隧道。${plain}"
+        fi
     else
         echo -e "${green}SSL 证书已配置。${plain}"
         # 展示已有证书访问地址

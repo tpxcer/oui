@@ -966,10 +966,11 @@ delete_ports() {
             exit 1
         fi
 
-        # Split numbers into an array
+        # Split numbers into an array and delete from high to low because UFW renumbers rules after each deletion.
         IFS=',' read -ra RULE_NUMBERS <<< "$rule_numbers"
+        IFS=$'\n' RULE_NUMBERS=($(printf '%s\n' "${RULE_NUMBERS[@]}" | sort -rn))
+        unset IFS
         for rule_number in "${RULE_NUMBERS[@]}"; do
-            # Delete the rule by number
             ufw delete "$rule_number" || echo "删除规则序号 $rule_number 失败"
         done
 
@@ -2104,6 +2105,13 @@ remove_iplimit() {
             before_show_menu
             ;;
         2)
+            echo -e "${red}此操作会完整卸载 Fail2Ban，并删除 /etc/fail2ban 目录。${plain}"
+            confirm "确认继续卸载 Fail2Ban 和 IP Limit 吗？" "n"
+            if [[ $? != 0 ]]; then
+                echo -e "${yellow}操作已取消。${plain}\n"
+                before_show_menu
+                return
+            fi
             rm -rf /etc/fail2ban
             if [[ $release == "alpine" ]]; then
                 rc-service fail2ban stop
