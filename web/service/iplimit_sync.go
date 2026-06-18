@@ -194,6 +194,20 @@ func (s *InboundService) SyncClientIPLimitBansForInbound(clientEmail string, inb
 	return nil
 }
 
+func (s *InboundService) IsClientIPLimitCurrentlyBanned(clientEmail, ip string, port int) bool {
+	clientEmail = strings.TrimSpace(clientEmail)
+	ip = strings.TrimSpace(ip)
+	if clientEmail == "" || ip == "" || port <= 0 || port > 65535 {
+		return false
+	}
+	for _, ban := range s.currentIPLimitBanStatesForEmail(clientEmail, port) {
+		if ban.IP == ip && ban.Port == port {
+			return true
+		}
+	}
+	return false
+}
+
 func incrementClientLimitInSettings(rawSettings string, clientEmail string) (string, int, int, bool, error) {
 	settings := map[string]any{}
 	if err := json.Unmarshal([]byte(rawSettings), &settings); err != nil {
@@ -374,8 +388,11 @@ func allowedIPLimitIPs(limitIP int, tracked []IPLimitIPWithTimestamp, currentBan
 	for _, item := range tracked {
 		add(item.IP, item.Timestamp)
 	}
-	for _, ban := range currentBans {
-		add(ban.IP, ban.Timestamp)
+
+	if len(firstSeen) < limitIP {
+		for _, ban := range currentBans {
+			add(ban.IP, ban.Timestamp)
+		}
 	}
 
 	entries := make([]IPLimitIPWithTimestamp, 0, len(firstSeen))

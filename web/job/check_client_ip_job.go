@@ -480,20 +480,24 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	var keptLive []IPWithTimestamp
 	var bannedLive []IPWithTimestamp
 	keptLive, bannedLive = selectIPLimitExcess(ipMap, liveIps, limitIp)
+	hadExcessLive := len(bannedLive) > 0
 	inboundSvc := service.InboundService{}
 	if err := inboundSvc.SyncClientIPLimitBansForInbound(clientEmail, inbound, limitIp, toServiceIPLimitIPs(sortedIps(ipMap))); err != nil {
 		logger.Warningf("[LIMIT_IP] failed to sync allowed bans for %s: %v", clientEmail, err)
 	}
 	if len(bannedLive) > 0 {
-		activeBanned := make([]IPWithTimestamp, 0, len(bannedLive))
+		newBanned := make([]IPWithTimestamp, 0, len(bannedLive))
 		for _, ipTime := range bannedLive {
 			if inboundSvc.IsClientIPLimitTemporarilyUnbanned(clientEmail, ipTime.IP, inbound.Port, time.Now()) {
 				keptLive = append(keptLive, ipTime)
 				continue
 			}
-			activeBanned = append(activeBanned, ipTime)
+			if inboundSvc.IsClientIPLimitCurrentlyBanned(clientEmail, ipTime.IP, inbound.Port) {
+				continue
+			}
+			newBanned = append(newBanned, ipTime)
 		}
-		bannedLive = activeBanned
+		bannedLive = newBanned
 	}
 	if len(bannedLive) > 0 {
 		shouldCleanLog = true
@@ -528,7 +532,7 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		// The firewall rule above cuts only the excess source IP on this
 		// inbound port. Do not remove/re-add the Xray user here: that is a
 		// client-level operation and can drop every device using this client.
-	} else {
+	} else if !hadExcessLive {
 		keptLive = liveIps
 	}
 

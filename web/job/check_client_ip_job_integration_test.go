@@ -257,6 +257,50 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	}
 }
 
+func TestUpdateInboundClientIps_AlreadyBannedExcessIpDoesNotNotifyAgain(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "already-banned-excess"
+	seedInboundWithClient(t, "inbound-already-banned-excess", email, 1)
+
+	now := time.Now().Unix()
+	row := seedClientIps(t, email, []IPWithTimestamp{
+		{IP: "10.1.0.1", Timestamp: now - 60},
+	})
+	writeIPLimitBannedLog(t, "2026/06/05 10:00:00 BAN   [Email] = already-banned-excess [Port] = 4321 [IP] = 192.0.2.9 exceeded IP limit.\n")
+
+	j := NewCheckClientIpJob()
+	live := []IPWithTimestamp{
+		{IP: "10.1.0.1", Timestamp: now - 5},
+		{IP: "192.0.2.9", Timestamp: now},
+	}
+
+	shouldCleanLog := j.updateInboundClientIps(row, email, live)
+
+	if shouldCleanLog {
+		t.Fatalf("already-banned excess IP must not trigger another notification/log cleanup")
+	}
+	if len(j.disAllowedIps) != 0 {
+		t.Fatalf("already-banned excess IP must not be queued again, got %v", j.disAllowedIps)
+	}
+
+	persisted := ipSet(readClientIps(t, email))
+	if _, ok := persisted["10.1.0.1"]; !ok {
+		t.Errorf("original IP 10.1.0.1 must still be persisted; got %v", persisted)
+	}
+	if _, ok := persisted["192.0.2.9"]; ok {
+		t.Errorf("already-banned IP 192.0.2.9 must NOT be persisted as allowed; got %v", persisted)
+	}
+
+	body := readIPLimitBannedLog(t)
+	if got := strings.Count(body, "BAN   [Email] = already-banned-excess [Port] = 4321 [IP] = 192.0.2.9"); got != 1 {
+		t.Fatalf("expected no repeated BAN entries, got %d\nfull log:\n%s", got, body)
+	}
+	if body, err := os.ReadFile(readIpLimitLogPath()); err == nil && strings.Contains(string(body), "Disconnecting OLD IP = 192.0.2.9") {
+		t.Fatalf("3xipl.log should not get a repeated ban line\nfull log:\n%s", string(body))
+	}
+}
+
 func TestUpdateInboundClientIps_TemporaryUnbanSkipsRebanWithoutChangingLimit(t *testing.T) {
 	setupIntegrationDB(t)
 
