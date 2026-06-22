@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Key, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Button,
   Card,
+  Checkbox,
   Dropdown,
   Modal,
   Popover,
@@ -193,6 +194,7 @@ interface InboundListProps {
   onQuickCreate: (key: QuickCreateKey) => void;
   onGeneralAction: (key: GeneralAction) => void;
   onRowAction: (action: { key: RowAction; dbInbound: DBInboundRecord }) => void;
+  onBulkDelete: (dbInbounds: DBInboundRecord[]) => Promise<boolean>;
 }
 
 type SortKey =
@@ -305,12 +307,14 @@ export default function InboundList({
   onQuickCreate,
   onGeneralAction,
   onRowAction,
+  onBulkDelete,
 }: InboundListProps) {
   const { t } = useTranslation();
   const { datepicker } = useDatepicker();
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>(null);
   const [statsRecord, setStatsRecord] = useState<DBInboundRecord | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
 
   const onSwitchEnable = useCallback(async (dbInbound: DBInboundRecord, next: boolean) => {
     const previous = dbInbound.enable;
@@ -332,6 +336,46 @@ export default function InboundList({
     const sorted = [...dbInbounds].sort((a, b) => fn(a, b, { nodesById, clientCount }));
     return sortOrder === 'descend' ? sorted.reverse() : sorted;
   }, [dbInbounds, sortKey, sortOrder, nodesById, clientCount]);
+
+  useEffect(() => {
+    const existing = new Set(dbInbounds.map((row) => row.id));
+    setSelectedRowKeys((prev) => prev.filter((id) => existing.has(id)));
+  }, [dbInbounds]);
+
+  const selectedRows = useMemo(() => {
+    const selected = new Set(selectedRowKeys);
+    return sortedInbounds.filter((row) => selected.has(row.id));
+  }, [sortedInbounds, selectedRowKeys]);
+
+  const selectedSet = useMemo(() => new Set(selectedRowKeys), [selectedRowKeys]);
+
+  const rowSelection = useMemo(() => ({
+    selectedRowKeys,
+    columnWidth: 34,
+    onChange: (keys: Key[]) => setSelectedRowKeys(keys.map((key) => Number(key))),
+  }), [selectedRowKeys]);
+
+  const allSelected = sortedInbounds.length > 0 && selectedRows.length === sortedInbounds.length;
+  const someSelected = selectedRows.length > 0 && selectedRows.length < sortedInbounds.length;
+
+  function toggleSelected(id: number, checked: boolean) {
+    setSelectedRowKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id); else next.delete(id);
+      return Array.from(next);
+    });
+  }
+
+  function selectAll(checked: boolean) {
+    setSelectedRowKeys(checked ? sortedInbounds.map((row) => row.id) : []);
+  }
+
+  async function handleBulkDelete() {
+    if (selectedRows.length === 0) return;
+    const ok = await onBulkDelete(selectedRows);
+    if (ok) setSelectedRowKeys([]);
+  }
+
   const rowNumberById = useMemo(() => {
     const rows = new Map<number, number>();
     sortedInbounds.forEach((record, index) => rows.set(record.id, index + 1));
@@ -360,7 +404,7 @@ export default function InboundList({
         title: 'ID',
         dataIndex: 'id',
         key: 'id',
-        align: 'right',
+        align: 'center',
         width: 30,
         ...sorterFor('id'),
         render: (_, record) => rowNumber(record),
@@ -439,7 +483,7 @@ export default function InboundList({
       {
         title: t('pages.inbounds.protocol'),
         key: 'protocol',
-        align: 'left',
+        align: 'center',
         width: 130,
         ...sorterFor('protocol'),
         render: (_, record) => {
@@ -468,7 +512,7 @@ export default function InboundList({
       {
         title: t('clients'),
         key: 'clients',
-        align: 'left',
+        align: 'center',
         width: 50,
         ...sorterFor('clients'),
         render: (_, record) => {
@@ -633,12 +677,31 @@ export default function InboundList({
               {!isMobile && t('pages.inbounds.generalActions')}
             </Button>
           </Dropdown>
+          {selectedRows.length > 0 && (
+            <Button danger icon={<DeleteOutlined />} onClick={handleBulkDelete}>
+              {t('pages.inbounds.deleteSelected', { count: selectedRows.length })}
+            </Button>
+          )}
         </Space>
       )}
     >
       <Space orientation="vertical" style={{ width: '100%' }}>
         {isMobile ? (
           <div className="inbound-cards">
+            {sortedInbounds.length > 0 && (
+              <div className="card-bulk-bar">
+                <Checkbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={(e) => selectAll(e.target.checked)}
+                >
+                  {t('pages.clients.selectAll')}
+                </Checkbox>
+                {selectedRows.length > 0 && (
+                  <span className="bulk-count">{selectedRows.length}</span>
+                )}
+              </div>
+            )}
             {sortedInbounds.length === 0 ? (
               <div className="card-empty">
                 <ImportOutlined style={{ fontSize: 28, opacity: 0.5 }} />
@@ -646,8 +709,12 @@ export default function InboundList({
               </div>
             ) : (
               sortedInbounds.map((record) => (
-                <div key={record.id} className="inbound-card">
+                <div key={record.id} className={`inbound-card${selectedSet.has(record.id) ? ' is-selected' : ''}`}>
                   <div className="card-head">
+                    <Checkbox
+                      checked={selectedSet.has(record.id)}
+                      onChange={(e) => toggleSelected(record.id, e.target.checked)}
+                    />
                     <span className="card-id">#{rowNumber(record)}</span>
                     <span className="tag-name">{record.remark}</span>
                     <div className="card-actions" onClick={(e) => e.stopPropagation()}>
@@ -680,6 +747,7 @@ export default function InboundList({
             columns={columns}
             dataSource={sortedInbounds}
             rowKey={(r) => r.id}
+            rowSelection={rowSelection}
             pagination={paginationFor(sortedInbounds)}
             scroll={{ x: 1000 }}
             style={{ marginTop: 10 }}

@@ -1,4 +1,4 @@
-import { lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, useCallback, useEffect, useMemo, useState, type Key } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Badge,
@@ -351,6 +351,16 @@ export default function ClientsPage() {
     return 'green';
   }
 
+  function lastOnlineLabel(row: ClientRecord) {
+    const ts = row.traffic?.lastOnline || 0;
+    return ts > 0 ? IntlUtil.formatDate(ts, datepicker) : '—';
+  }
+
+  function lastOnlineRelative(row: ClientRecord) {
+    const ts = row.traffic?.lastOnline || 0;
+    return ts > 0 ? IntlUtil.formatRelativeTime(ts) : '—';
+  }
+
   async function onToggleEnable(row: ClientRecord, next: boolean) {
     setTogglingEmail(row.email);
     try {
@@ -567,6 +577,21 @@ export default function ClientsPage() {
       },
     },
     {
+      title: t('pages.clients.recentOnline'),
+      key: 'lastOnline',
+      align: 'center',
+      width: 150,
+      render: (_v, record) => {
+        const ts = record.traffic?.lastOnline || 0;
+        if (ts <= 0) return <span style={{ color: 'rgba(0,0,0,0.45)' }}>—</span>;
+        return (
+          <Tooltip title={lastOnlineLabel(record)}>
+            <Tag>{lastOnlineRelative(record)}</Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
       title: t('pages.clients.client'),
       key: 'email',
       render: (_v, record) => (
@@ -665,7 +690,7 @@ export default function ClientsPage() {
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, togglingEmail, clientBucket, isOnline, inboundsById, filters]);
+  ], [t, togglingEmail, clientBucket, isOnline, inboundsById, filters, datepicker]);
 
   const tablePagination = {
     current: currentPage,
@@ -679,7 +704,7 @@ export default function ClientsPage() {
 
   const rowSelection = {
     selectedRowKeys,
-    onChange: (keys: React.Key[]) => setSelectedRowKeys(keys as string[]),
+    onChange: (keys: Key[]) => setSelectedRowKeys(keys as string[]),
   };
 
   function toggleSelect(email: string, checked: boolean) {
@@ -996,6 +1021,9 @@ export default function ClientsPage() {
                                     <span className="tag-name">{row.email}</span>
                                     {bucket === 'depleted' && <Tag color="red" className="status-tag">{t('depleted')}</Tag>}
                                     {bucket === 'expiring' && <Tag color="orange" className="status-tag">{t('depletingSoon')}</Tag>}
+                                    <Tooltip title={lastOnlineLabel(row)}>
+                                      <Tag className="status-tag">{lastOnlineRelative(row)}</Tag>
+                                    </Tooltip>
                                     <div className="card-actions" onClick={(e) => e.stopPropagation()}>
                                       <Tooltip title={t('pages.clients.moreInformation')}>
                                         <InfoCircleOutlined className="row-action-trigger" onClick={() => onShowInfo(row)} />

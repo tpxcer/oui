@@ -71,6 +71,11 @@ interface ClientMatchTarget {
   password?: string;
 }
 
+interface DeleteInboundTarget {
+  id: number;
+  remark?: string;
+}
+
 export default function InboundsPage() {
   const { t } = useTranslation();
   const { isDark, isUltra, antdThemeConfig } = useTheme();
@@ -374,6 +379,57 @@ export default function InboundsPage() {
     });
   }, [modal, refresh, t]);
 
+  const confirmBulkDelete = useCallback((targets: DeleteInboundTarget[]) => new Promise<boolean>((resolve) => {
+    const uniqueTargets = Array.from(new Map(targets.map((target) => [target.id, target])).values());
+    if (uniqueTargets.length === 0) {
+      resolve(false);
+      return;
+    }
+
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+
+    modal.confirm({
+      title: t('pages.inbounds.bulkDeleteConfirmTitle', { count: uniqueTargets.length }),
+      content: t('pages.inbounds.bulkDeleteConfirmContent'),
+      okText: t('delete'),
+      okType: 'danger',
+      cancelText: t('cancel'),
+      onCancel: () => finish(false),
+      onOk: async () => {
+        let deleted = 0;
+        let firstError = '';
+        try {
+          for (const inbound of uniqueTargets) {
+            const msg = await HttpUtil.post(`/panel/api/inbounds/del/${inbound.id}`);
+            if (msg?.success) {
+              deleted += 1;
+            } else if (!firstError) {
+              firstError = msg?.msg || '';
+            }
+          }
+          await refresh();
+          const failed = uniqueTargets.length - deleted;
+          if (failed === 0) {
+            messageApi.success(t('pages.inbounds.toasts.bulkDeleted', { count: deleted }));
+          } else {
+            const mixed = t('pages.inbounds.toasts.bulkDeletedMixed', { ok: deleted, failed });
+            messageApi.warning(firstError ? `${mixed} — ${firstError}` : mixed);
+          }
+          finish(failed === 0);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : t('somethingWentWrong');
+          messageApi.error(message);
+          finish(false);
+        }
+      },
+    });
+  }), [modal, refresh, t, messageApi]);
+
   const confirmResetTraffic = useCallback((dbInbound: DBInbound) => {
     modal.confirm({
       title: t('pages.inbounds.resetConfirmTitle', { remark: dbInbound.remark }),
@@ -581,6 +637,7 @@ export default function InboundsPage() {
                       onQuickCreate={onQuickCreate}
                       onGeneralAction={onGeneralAction}
                       onRowAction={({ key, dbInbound }) => onRowAction({ key, dbInbound: dbInbound as unknown as DBInbound })}
+                      onBulkDelete={confirmBulkDelete}
                     />
                   </Col>
                 </Row>
