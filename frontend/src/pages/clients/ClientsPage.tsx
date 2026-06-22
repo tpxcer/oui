@@ -529,6 +529,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.actions'),
       key: 'actions',
+      align: 'center',
       width: 200,
       render: (_v, record) => (
         <Space size={4}>
@@ -553,6 +554,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.enabled'),
       key: 'enable',
+      align: 'center',
       width: 80,
       render: (_v, record) => (
         <Switch
@@ -566,6 +568,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.online'),
       key: 'online',
+      align: 'center',
       width: 90,
       render: (_v, record) => {
         const bucket = clientBucket(record);
@@ -594,6 +597,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.client'),
       key: 'email',
+      align: 'center',
       render: (_v, record) => (
         <div className="email-cell">
           <span className="email">{record.email}</span>
@@ -605,6 +609,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.group'),
       key: 'group',
+      align: 'center',
       width: 130,
       render: (_v, record) => {
         if (!record.group) return <span style={{ color: 'rgba(0,0,0,0.45)' }}>—</span>;
@@ -628,6 +633,7 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.attachedInbounds'),
       key: 'inboundIds',
+      align: 'center',
       width: 170,
       render: (_v, record) => {
         const ids = record.inboundIds || [];
@@ -672,17 +678,20 @@ export default function ClientsPage() {
     {
       title: t('pages.clients.traffic'),
       key: 'traffic',
+      align: 'center',
       render: (_v, record) => trafficLabel(record),
     },
     {
       title: t('pages.clients.remaining'),
       key: 'remaining',
+      align: 'center',
       width: 130,
       render: (_v, record) => <Tag color={remainingColor(record)}>{remainingLabel(record)}</Tag>,
     },
     {
       title: t('pages.clients.duration'),
       key: 'expiryTime',
+      align: 'center',
       render: (_v, record) => (
         <Tooltip title={expiryLabel(record)}>
           <Tag color={expiryColor(record)}>{record.expiryTime ? expiryRelative(record) : '∞'}</Tag>

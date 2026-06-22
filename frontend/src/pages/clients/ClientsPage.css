@@ -80,6 +80,8 @@
 .email-cell {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .email-cell .email {
@@ -94,6 +96,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 220px;
+}
+
+.clients-page .ant-table-selection-column {
+  text-align: center;
 }
 
 .client-cards {
