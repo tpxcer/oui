@@ -80,6 +80,7 @@ export default function XrayPage() {
     outboundTestUrl,
     setOutboundTestUrl,
     inboundTags,
+    inboundTagRemarks,
     clientReverseTags,
     restartResult,
     outboundsTraffic,
@@ -339,6 +340,7 @@ export default function XrayPage() {
                               templateSettings={templateSettings}
                               setTemplateSettings={setTemplateSettings}
                               inboundTags={inboundTags}
+                              inboundTagRemarks={inboundTagRemarks}
                               clientReverseTags={clientReverseTags}
                               isMobile={isMobile}
                             />
@@ -360,6 +362,7 @@ export default function XrayPage() {
                               outboundTestStates={outboundTestStates}
                               testingAll={testingAll}
                               inboundTags={inboundTags}
+                              inboundTagRemarks={inboundTagRemarks}
                               isMobile={isMobile}
                               onResetTraffic={resetOutboundsTraffic}
                               onTest={onTestOutbound}

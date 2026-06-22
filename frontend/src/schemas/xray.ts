@@ -37,6 +37,7 @@ export const XraySettingsValueSchema = z.object({
 export const XrayConfigPayloadSchema = z.object({
   xraySetting: XraySettingsValueSchema,
   inboundTags: z.array(z.string()).optional(),
+  inboundTagRemarks: z.record(z.string(), z.string()).optional(),
   clientReverseTags: z.array(z.string()).optional(),
   outboundTestUrl: z.string().optional(),
 }).loose();

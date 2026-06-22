@@ -13,10 +13,10 @@ func TestGetInboundTagsFiltersCurrentEnabledLocalUser(t *testing.T) {
 
 	nodeID := 7
 	rows := []model.Inbound{
-		{UserId: 1, Enable: true, Tag: "inbound-50001"},
-		{UserId: 1, Enable: false, Tag: "inbound-disabled"},
-		{UserId: 2, Enable: true, Tag: "inbound-other-user"},
-		{UserId: 1, Enable: true, Tag: "inbound-remote", NodeID: &nodeID},
+		{UserId: 1, Enable: true, Tag: "inbound-50001", Remark: "Hp"},
+		{UserId: 1, Enable: false, Tag: "inbound-disabled", Remark: "Disabled"},
+		{UserId: 2, Enable: true, Tag: "inbound-other-user", Remark: "Other"},
+		{UserId: 1, Enable: true, Tag: "inbound-remote", Remark: "Remote", NodeID: &nodeID},
 		{UserId: 1, Enable: true, Tag: ""},
 	}
 	if err := database.GetDB().Create(&rows).Error; err != nil {
@@ -33,5 +33,17 @@ func TestGetInboundTagsFiltersCurrentEnabledLocalUser(t *testing.T) {
 	}
 	if len(tags) != 1 || tags[0] != "inbound-50001" {
 		t.Fatalf("tags = %#v, want only current enabled local user's tag", tags)
+	}
+
+	rawRemarks, err := (&InboundService{}).GetInboundTagRemarks(1)
+	if err != nil {
+		t.Fatalf("GetInboundTagRemarks: %v", err)
+	}
+	var remarks map[string]string
+	if err := json.Unmarshal([]byte(rawRemarks), &remarks); err != nil {
+		t.Fatalf("unmarshal remarks: %v", err)
+	}
+	if len(remarks) != 1 || remarks["inbound-50001"] != "Hp" {
+		t.Fatalf("remarks = %#v, want only current enabled local user's inbound remark", remarks)
 	}
 }

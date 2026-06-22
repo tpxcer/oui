@@ -60,6 +60,7 @@ import {
 } from '@/lib/xray/protocol-capabilities';
 import { SSMethodSchema } from '@/schemas/protocols/inbound/shadowsocks';
 import { antdRule } from '@/utils/zodForm';
+import { buildInboundTagOptions, type InboundTagRemarks } from './inboundTagOptions';
 import './OutboundFormModal.css';
 
 // Pattern A rewrite of OutboundFormModal. Built as a sibling `.new.tsx`
@@ -72,6 +73,7 @@ interface OutboundFormModalProps {
   outbound: Record<string, unknown> | null;
   existingTags: string[];
   inboundTags: string[];
+  inboundTagRemarks: InboundTagRemarks;
   onClose: () => void;
   onConfirm: (outbound: Record<string, unknown>) => void;
 }
@@ -180,6 +182,7 @@ export default function OutboundFormModal({
   outbound: outboundProp,
   existingTags,
   inboundTags,
+  inboundTagRemarks,
   onClose,
   onConfirm,
 }: OutboundFormModalProps) {
@@ -343,6 +346,10 @@ export default function OutboundFormModal({
     if (isEdit && (outboundProp?.tag as string | undefined) === myTag) return false;
     return (existingTags || []).includes(myTag);
   }, [tag, existingTags, isEdit, outboundProp]);
+  const inboundTagOptions = useMemo(
+    () => buildInboundTagOptions(inboundTags || [], inboundTagRemarks),
+    [inboundTags, inboundTagRemarks],
+  );
 
   // Bridge form ↔ JSON tab: when leaving the JSON tab back to Basic, push
   // any edits into form state. When entering JSON tab, snapshot current
@@ -579,7 +586,7 @@ export default function OutboundFormModal({
                           allowClear
                           showSearch
                           placeholder={t('pages.xray.rules.inboundTags')}
-                          options={(inboundTags || []).map((tag) => ({ value: tag, label: tag }))}
+                          options={inboundTagOptions}
                         />
                       </Form.Item>
                     )}

@@ -43,6 +43,7 @@ export interface UseXraySettingResult {
   outboundTestUrl: string;
   setOutboundTestUrl: (v: string) => void;
   inboundTags: string[];
+  inboundTagRemarks: Record<string, string>;
   clientReverseTags: string[];
   restartResult: string;
   outboundsTraffic: OutboundTrafficRow[];
@@ -110,6 +111,7 @@ export function useXraySetting(): UseXraySettingResult {
   const [templateSettings, setTemplateSettingsState] = useState<XraySettingsValue | null>(null);
   const [outboundTestUrl, setOutboundTestUrlState] = useState(DEFAULT_TEST_URL);
   const [inboundTags, setInboundTags] = useState<string[]>([]);
+  const [inboundTagRemarks, setInboundTagRemarks] = useState<Record<string, string>>({});
   const [clientReverseTags, setClientReverseTags] = useState<string[]>([]);
   const [restartResult, setRestartResult] = useState('');
   const [outboundTestStates, setOutboundTestStates] = useState<Record<number, OutboundTestState>>({});
@@ -138,6 +140,7 @@ export function useXraySetting(): UseXraySettingResult {
     oldXraySettingRef.current = pretty;
     syncingRef.current = false;
     setInboundTags(obj.inboundTags || []);
+    setInboundTagRemarks(obj.inboundTagRemarks || {});
     setClientReverseTags(obj.clientReverseTags || []);
     const nextUrl = obj.outboundTestUrl || DEFAULT_TEST_URL;
     setOutboundTestUrlState(nextUrl);
@@ -338,6 +341,7 @@ export function useXraySetting(): UseXraySettingResult {
       outboundTestUrl,
       setOutboundTestUrl,
       inboundTags,
+      inboundTagRemarks,
       clientReverseTags,
       restartResult,
       outboundsTraffic,
@@ -364,6 +368,7 @@ export function useXraySetting(): UseXraySettingResult {
       outboundTestUrl,
       setOutboundTestUrl,
       inboundTags,
+      inboundTagRemarks,
       clientReverseTags,
       restartResult,
       outboundsTraffic,

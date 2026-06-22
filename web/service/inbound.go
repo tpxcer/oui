@@ -2282,6 +2282,32 @@ func (s *InboundService) GetInboundTags(userID int) (string, error) {
 	return string(tags), nil
 }
 
+func (s *InboundService) GetInboundTagRemarks(userID int) (string, error) {
+	db := database.GetDB()
+	var rows []struct {
+		Tag    string
+		Remark string
+	}
+	err := db.Model(model.Inbound{}).
+		Select("tag", "remark").
+		Where("user_id = ? AND node_id IS NULL AND enable = ? AND tag <> ''", userID, true).
+		Order("id ASC").
+		Find(&rows).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return "", err
+	}
+
+	remarks := make(map[string]string, len(rows))
+	for _, row := range rows {
+		if strings.TrimSpace(row.Tag) == "" {
+			continue
+		}
+		remarks[row.Tag] = strings.TrimSpace(row.Remark)
+	}
+	body, _ := json.Marshal(remarks)
+	return string(body), nil
+}
+
 func (s *InboundService) GetClientReverseTags() (string, error) {
 	db := database.GetDB()
 	var inbounds []model.Inbound

@@ -37,6 +37,7 @@ import { SizeFormatter } from '@/utils';
 import { OutboundProtocols as Protocols } from '@/schemas/primitives';
 import OutboundFormModal from './OutboundFormModal';
 import type { XraySettingsValue, SetTemplate, OutboundTestState, OutboundTrafficRow } from '@/hooks/useXraySetting';
+import type { InboundTagRemarks } from './inboundTagOptions';
 import './OutboundsTab.css';
 
 interface OutboundsTabProps {
@@ -46,6 +47,7 @@ interface OutboundsTabProps {
   outboundTestStates: Record<number, OutboundTestState>;
   testingAll: boolean;
   inboundTags: string[];
+  inboundTagRemarks: InboundTagRemarks;
   isMobile: boolean;
   onResetTraffic: (tag: string) => void;
   onTest: (index: number, mode: string) => void;
@@ -114,6 +116,7 @@ export default function OutboundsTab({
   outboundTestStates,
   testingAll,
   inboundTags,
+  inboundTagRemarks,
   isMobile,
   onResetTraffic,
   onTest,
@@ -507,6 +510,7 @@ export default function OutboundsTab({
           outbound={editingOutbound}
           existingTags={existingTags}
           inboundTags={inboundTags}
+          inboundTagRemarks={inboundTagRemarks}
           onClose={() => setModalOpen(false)}
           onConfirm={onConfirm}
         />

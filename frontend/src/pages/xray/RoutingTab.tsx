@@ -18,12 +18,14 @@ import RuleFormModal from './RuleFormModal';
 import type { RoutingRule } from './RuleFormModal';
 import type { XraySettingsValue, SetTemplate } from '@/hooks/useXraySetting';
 import type { RuleObject } from '@/schemas/routing';
+import { buildInboundTagOptions, type InboundTagRemarks } from './inboundTagOptions';
 import './RoutingTab.css';
 
 interface RoutingTabProps {
   templateSettings: XraySettingsValue | null;
   setTemplateSettings: SetTemplate;
   inboundTags: string[];
+  inboundTagRemarks: InboundTagRemarks;
   clientReverseTags: string[];
   isMobile: boolean;
 }
@@ -67,6 +69,7 @@ export default function RoutingTab({
   templateSettings,
   setTemplateSettings,
   inboundTags,
+  inboundTagRemarks,
   clientReverseTags,
   isMobile,
 }: RoutingTabProps) {
@@ -126,15 +129,8 @@ export default function RoutingTab({
   );
 
   const inboundTagOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const tag of inboundTags || []) {
-      if (!tag || seen.has(tag)) continue;
-      seen.add(tag);
-      out.push(tag);
-    }
-    return out;
-  }, [inboundTags]);
+    return buildInboundTagOptions(inboundTags || [], inboundTagRemarks);
+  }, [inboundTags, inboundTagRemarks]);
 
   const outboundTagOptions = useMemo(() => {
     const out = new Set<string>(['']);
@@ -512,7 +508,7 @@ export default function RoutingTab({
         <RuleFormModal
           open={ruleModalOpen}
           rule={editingRule}
-          inboundTags={inboundTagOptions}
+          inboundTagOptions={inboundTagOptions}
           outboundTags={outboundTagOptions}
           balancerTags={balancerTagOptions}
           onClose={() => setRuleModalOpen(false)}

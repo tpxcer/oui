@@ -78,6 +78,11 @@ func (a *XraySettingController) getXraySetting(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
 		return
 	}
+	inboundTagRemarks, err := a.InboundService.GetInboundTagRemarks(user.Id)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
+		return
+	}
 	if pruned, changed, err := service.PruneRoutingInboundTags(xraySetting, inboundTagList); err != nil {
 		jsonMsg(c, I18nWeb(c, "pages.settings.toasts.getSettings"), err)
 		return
@@ -95,6 +100,7 @@ func (a *XraySettingController) getXraySetting(c *gin.Context) {
 	xrayResponse := map[string]any{
 		"xraySetting":       json.RawMessage(xraySetting),
 		"inboundTags":       json.RawMessage(inboundTags),
+		"inboundTagRemarks": json.RawMessage(inboundTagRemarks),
 		"clientReverseTags": json.RawMessage(clientReverseTags),
 		"outboundTestUrl":   outboundTestUrl,
 	}

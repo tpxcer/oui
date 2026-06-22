@@ -26,7 +26,7 @@ export interface RoutingRule {
 interface RuleFormModalProps {
   open: boolean;
   rule: RoutingRule | null;
-  inboundTags: string[];
+  inboundTagOptions: Array<{ value: string; label: string }>;
   outboundTags: string[];
   balancerTags: string[];
   onClose: () => void;
@@ -62,7 +62,7 @@ function csv(value: string): string[] {
 export default function RuleFormModal({
   open,
   rule,
-  inboundTags,
+  inboundTagOptions,
   outboundTags,
   balancerTags,
   onClose,
@@ -269,7 +269,7 @@ export default function RuleFormModal({
             mode="multiple"
             value={form.inboundTag}
             onChange={(v) => update('inboundTag', v)}
-            options={inboundTags.map((tag) => ({ value: tag, label: tag }))}
+            options={inboundTagOptions}
           />
         </Form.Item>
 
