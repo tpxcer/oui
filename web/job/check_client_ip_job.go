@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mhsanaei/3x-ui/v3/database"
@@ -33,9 +34,11 @@ type IPWithTimestamp struct {
 
 // CheckClientIpJob monitors client IP addresses from access logs and manages IP blocking based on configured limits.
 type CheckClientIpJob struct {
-	lastClear     int64
-	disAllowedIps []string
-	tgbotService  service.Tgbot
+	lastClear               int64
+	disAllowedIps           []string
+	tgbotService            service.Tgbot
+	notifyMu                sync.Mutex
+	lastIPLimitCutoffNotify map[string]time.Time
 }
 
 var job *CheckClientIpJob
@@ -59,9 +62,13 @@ var job *CheckClientIpJob
 // in a bounded time and free its slot.
 const ipStaleAfterSeconds = int64(30 * 60)
 
+const ipLimitCutoffNotifyCooldown = 10 * time.Minute
+
 // NewCheckClientIpJob creates a new client IP monitoring job instance.
 func NewCheckClientIpJob() *CheckClientIpJob {
-	job = new(CheckClientIpJob)
+	job = &CheckClientIpJob{
+		lastIPLimitCutoffNotify: make(map[string]time.Time),
+	}
 	return job
 }
 
@@ -563,10 +570,50 @@ func (j *CheckClientIpJob) sendIPLimitCutoffNotify(clientEmail string, inbound *
 	if len(bannedLive) == 0 {
 		return
 	}
+	now := time.Now()
+	port := 0
+	if inbound != nil {
+		port = inbound.Port
+	}
+	key := ipLimitCutoffNotifyKey(clientEmail, port, bannedLive)
+	if !j.shouldSendIPLimitCutoffNotify(key, now) {
+		return
+	}
 	j.tgbotService.SendMsgToTgbotAdmins(
-		buildIPLimitCutoffNotifyMessage(clientEmail, inbound, limitIp, keptLive, bannedLive, time.Now()),
-		j.buildIPLimitCutoffKeyboard(clientEmail, inbound.Port, bannedLive),
+		buildIPLimitCutoffNotifyMessage(clientEmail, inbound, limitIp, keptLive, bannedLive, now),
+		j.buildIPLimitCutoffKeyboard(clientEmail, port, bannedLive),
 	)
+}
+
+func ipLimitCutoffNotifyKey(clientEmail string, port int, bannedLive []IPWithTimestamp) string {
+	ips := make([]string, 0, len(bannedLive))
+	for _, ipTime := range bannedLive {
+		ips = append(ips, ipTime.IP)
+	}
+	sort.Strings(ips)
+	return fmt.Sprintf("%s|%d|%s", clientEmail, port, strings.Join(ips, ","))
+}
+
+func (j *CheckClientIpJob) shouldSendIPLimitCutoffNotify(key string, now time.Time) bool {
+	j.notifyMu.Lock()
+	defer j.notifyMu.Unlock()
+
+	if j.lastIPLimitCutoffNotify == nil {
+		j.lastIPLimitCutoffNotify = make(map[string]time.Time)
+	}
+
+	for existingKey, last := range j.lastIPLimitCutoffNotify {
+		if now.Sub(last) > 2*ipLimitCutoffNotifyCooldown {
+			delete(j.lastIPLimitCutoffNotify, existingKey)
+		}
+	}
+
+	last, exists := j.lastIPLimitCutoffNotify[key]
+	if exists && now.Sub(last) < ipLimitCutoffNotifyCooldown {
+		return false
+	}
+	j.lastIPLimitCutoffNotify[key] = now
+	return true
 }
 
 func buildIPLimitCutoffNotifyMessage(clientEmail string, inbound *model.Inbound, limitIp int, keptLive, bannedLive []IPWithTimestamp, now time.Time) string {

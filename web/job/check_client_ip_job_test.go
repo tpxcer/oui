@@ -255,3 +255,34 @@ func TestBuildIPLimitCutoffKeyboardUsesIPLimitSettings(t *testing.T) {
 		t.Fatalf("set IP count callback = %q, want %q", callbacks[len(callbacks)-1], "ip_limit user@example.com")
 	}
 }
+
+func TestIPLimitCutoffNotifyCooldownSuppressesSameTarget(t *testing.T) {
+	j := NewCheckClientIpJob()
+	now := time.Date(2026, 6, 23, 10, 0, 0, 0, time.Local)
+	banned := []IPWithTimestamp{{IP: "192.0.2.9", Timestamp: now.Unix()}}
+	key := ipLimitCutoffNotifyKey("user@example.com", 4321, banned)
+
+	if !j.shouldSendIPLimitCutoffNotify(key, now) {
+		t.Fatal("first notification should be sent")
+	}
+	if j.shouldSendIPLimitCutoffNotify(key, now.Add(time.Minute)) {
+		t.Fatal("same target inside cooldown should be suppressed")
+	}
+	if !j.shouldSendIPLimitCutoffNotify(key, now.Add(ipLimitCutoffNotifyCooldown+time.Second)) {
+		t.Fatal("same target after cooldown should be sent again")
+	}
+}
+
+func TestIPLimitCutoffNotifyCooldownAllowsDifferentIP(t *testing.T) {
+	j := NewCheckClientIpJob()
+	now := time.Date(2026, 6, 23, 10, 0, 0, 0, time.Local)
+	first := []IPWithTimestamp{{IP: "192.0.2.9", Timestamp: now.Unix()}}
+	second := []IPWithTimestamp{{IP: "198.51.100.9", Timestamp: now.Add(time.Minute).Unix()}}
+
+	if !j.shouldSendIPLimitCutoffNotify(ipLimitCutoffNotifyKey("user@example.com", 4321, first), now) {
+		t.Fatal("first notification should be sent")
+	}
+	if !j.shouldSendIPLimitCutoffNotify(ipLimitCutoffNotifyKey("user@example.com", 4321, second), now.Add(time.Minute)) {
+		t.Fatal("different banned IP should not be suppressed")
+	}
+}
