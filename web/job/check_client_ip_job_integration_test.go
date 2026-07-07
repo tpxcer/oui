@@ -351,6 +351,56 @@ func TestUpdateInboundClientIps_TemporaryUnbanSkipsRebanWithoutChangingLimit(t *
 	}
 }
 
+func TestUpdateInboundClientIps_ExactEmailDoesNotMatchLongerEmail(t *testing.T) {
+	setupIntegrationDB(t)
+
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-llzmm",
+		Email:   "llzmm",
+		LimitIP: 1,
+		Enable:  true,
+		Port:    60401,
+	})
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-llz",
+		Email:   "llz",
+		LimitIP: 1,
+		Enable:  true,
+		Port:    54883,
+	})
+
+	now := time.Now().Unix()
+	row := seedClientIps(t, "llz", []IPWithTimestamp{
+		{IP: "182.143.200.102", Timestamp: now - ipStaleAfterSeconds - 60},
+	})
+
+	j := NewCheckClientIpJob()
+	shouldCleanLog := j.updateInboundClientIps(row, "llz", []IPWithTimestamp{
+		{IP: "182.143.200.102", Timestamp: now - ipStaleAfterSeconds - 60},
+		{IP: "118.114.148.17", Timestamp: now},
+	})
+
+	if shouldCleanLog {
+		t.Fatal("stale longer-email regression case should not trigger a ban")
+	}
+
+	got := ipSet(readClientIps(t, "llz"))
+	if _, ok := got["182.143.200.102"]; ok {
+		t.Fatalf("stale IP from exact-email client should be evicted, got %v", got)
+	}
+	if got["118.114.148.17"] != now {
+		t.Fatalf("fresh exact-email IP should remain with timestamp %d, got %v", now, got)
+	}
+
+	inbound, err := j.getInboundByEmail("llz")
+	if err != nil {
+		t.Fatalf("get inbound by exact email: %v", err)
+	}
+	if inbound.Port != 54883 {
+		t.Fatalf("short email llz must not match llzmm inbound first, got port %d", inbound.Port)
+	}
+}
+
 func TestSyncClientIPLimitBans_LimitZeroUnbansImmediately(t *testing.T) {
 	setupIntegrationDB(t)
 

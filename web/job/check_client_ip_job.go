@@ -671,12 +671,38 @@ func (j *CheckClientIpJob) buildIPLimitCutoffKeyboard(clientEmail string, port i
 
 func (j *CheckClientIpJob) getInboundByEmail(clientEmail string) (*model.Inbound, error) {
 	db := database.GetDB()
-	inbound := &model.Inbound{}
+	clientEmail = strings.TrimSpace(clientEmail)
+	if clientEmail == "" {
+		return nil, fmt.Errorf("empty client email")
+	}
 
-	err := db.Model(&model.Inbound{}).Where("settings LIKE ?", "%"+clientEmail+"%").First(inbound).Error
+	var inbounds []*model.Inbound
+	err := db.Model(&model.Inbound{}).
+		Where("settings LIKE ?", "%"+clientEmail+"%").
+		Order("id asc").
+		Find(&inbounds).Error
 	if err != nil {
 		return nil, err
 	}
 
-	return inbound, nil
+	for _, inbound := range inbounds {
+		if inboundSettingsHasClientEmail(inbound.Settings, clientEmail) {
+			return inbound, nil
+		}
+	}
+
+	return nil, fmt.Errorf("inbound not found for client email %s", clientEmail)
+}
+
+func inboundSettingsHasClientEmail(rawSettings string, clientEmail string) bool {
+	settings := map[string][]model.Client{}
+	if err := json.Unmarshal([]byte(rawSettings), &settings); err != nil {
+		return false
+	}
+	for _, client := range settings["clients"] {
+		if client.Email == clientEmail {
+			return true
+		}
+	}
+	return false
 }
