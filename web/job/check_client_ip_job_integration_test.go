@@ -355,27 +355,27 @@ func TestUpdateInboundClientIps_ExactEmailDoesNotMatchLongerEmail(t *testing.T) 
 	setupIntegrationDB(t)
 
 	seedInboundWithClientOptions(t, inboundSeedOptions{
-		Tag:     "inbound-llzmm",
-		Email:   "llzmm",
+		Tag:     "inbound-user-a-plus",
+		Email:   "user-a-plus",
 		LimitIP: 1,
 		Enable:  true,
 		Port:    60401,
 	})
 	seedInboundWithClientOptions(t, inboundSeedOptions{
-		Tag:     "inbound-llz",
-		Email:   "llz",
+		Tag:     "inbound-user-a",
+		Email:   "user-a",
 		LimitIP: 1,
 		Enable:  true,
 		Port:    54883,
 	})
 
 	now := time.Now().Unix()
-	row := seedClientIps(t, "llz", []IPWithTimestamp{
+	row := seedClientIps(t, "user-a", []IPWithTimestamp{
 		{IP: "182.143.200.102", Timestamp: now - ipStaleAfterSeconds - 60},
 	})
 
 	j := NewCheckClientIpJob()
-	shouldCleanLog := j.updateInboundClientIps(row, "llz", []IPWithTimestamp{
+	shouldCleanLog := j.updateInboundClientIps(row, "user-a", []IPWithTimestamp{
 		{IP: "182.143.200.102", Timestamp: now - ipStaleAfterSeconds - 60},
 		{IP: "118.114.148.17", Timestamp: now},
 	})
@@ -384,7 +384,7 @@ func TestUpdateInboundClientIps_ExactEmailDoesNotMatchLongerEmail(t *testing.T) 
 		t.Fatal("stale longer-email regression case should not trigger a ban")
 	}
 
-	got := ipSet(readClientIps(t, "llz"))
+	got := ipSet(readClientIps(t, "user-a"))
 	if _, ok := got["182.143.200.102"]; ok {
 		t.Fatalf("stale IP from exact-email client should be evicted, got %v", got)
 	}
@@ -392,12 +392,12 @@ func TestUpdateInboundClientIps_ExactEmailDoesNotMatchLongerEmail(t *testing.T) 
 		t.Fatalf("fresh exact-email IP should remain with timestamp %d, got %v", now, got)
 	}
 
-	inbound, err := j.getInboundByEmail("llz")
+	inbound, err := j.getInboundByEmail("user-a")
 	if err != nil {
 		t.Fatalf("get inbound by exact email: %v", err)
 	}
 	if inbound.Port != 54883 {
-		t.Fatalf("short email llz must not match llzmm inbound first, got port %d", inbound.Port)
+		t.Fatalf("short email user-a must not match user-a-plus inbound first, got port %d", inbound.Port)
 	}
 }
 
