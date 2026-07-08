@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 const outDir = path.resolve(__dirname, '../web/dist');
 const BACKEND_TARGET = 'http://localhost:2053';
+const enableBuildSourcemap = process.env.VITE_SOURCEMAP === 'true';
 
 function resolveDBPath() {
   const envFolder = process.env.XUI_DB_FOLDER;
@@ -203,7 +204,7 @@ export default defineConfig({
   build: {
     outDir,
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: enableBuildSourcemap,
     target: 'es2020',
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

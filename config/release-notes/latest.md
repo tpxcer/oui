@@ -1,5 +1,6 @@
-## OUI 2026.7.9
+## OUI 2026.7.9-1
 
-- 修复 Telegram 一键创建 VLESS Reality Vision / XHTTP Reality 时使用不稳定 Reality 目标导致新节点无法连接的问题。
-- TG 一键 Reality 现在会从已验证可用的目标中选择，并同步写入 `target`、`serverNames` 和 XHTTP `host`，避免 Reality 握手失败。
-- 增加回归测试，防止一键 Reality 再次回退到已知不可用目标。
+- 优化 GitHub 发版流程：前端资源只构建一次，各架构打包复用同一份 `web/dist`，减少重复构建和网络失败概率。
+- 发布构建默认不再生成 sourcemap，减小面板前端资源体积；需要调试时可用 `VITE_SOURCEMAP=true` 显式开启。
+- 新增 Xray access/error 日志大小保护：后台每小时检查一次，超过 100MB 时保留最多 3 份备份并截断当前日志，避免日志长期膨胀占满磁盘。
+- 改进 Xray 日志路径读取逻辑，避免异常日志配置导致读取 access log 路径时出错。

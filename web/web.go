@@ -317,6 +317,9 @@ func (s *Server) startTask(restartXray bool) {
 	// check client ips from log file every day
 	s.cron.AddJob("@daily", job.NewClearLogsJob())
 
+	// keep Xray access/error logs bounded without changing configured paths
+	s.cron.AddJob("@hourly", job.NewXrayLogRotateJob())
+
 	// Inbound traffic reset jobs
 	// Run every hour
 	s.cron.AddJob("@hourly", job.NewPeriodicTrafficResetJob("hourly"))

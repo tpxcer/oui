@@ -126,29 +126,69 @@ func GetAccessPersistentPrevLogPath() string {
 	return config.GetLogFolder() + "/3xipl-ap.prev.log"
 }
 
-// GetAccessLogPath reads the Xray config and returns the access log file path.
-func GetAccessLogPath() (string, error) {
-	config, err := os.ReadFile(GetConfigPath())
+func readConfigLogMap() (map[string]any, error) {
+	configData, err := os.ReadFile(GetConfigPath())
 	if err != nil {
 		logger.Warningf("Failed to read configuration file: %s", err)
-		return "", err
+		return nil, err
 	}
 
 	jsonConfig := map[string]any{}
-	err = json.Unmarshal([]byte(config), &jsonConfig)
-	if err != nil {
+	if err = json.Unmarshal(configData, &jsonConfig); err != nil {
 		logger.Warningf("Failed to parse JSON configuration: %s", err)
-		return "", err
+		return nil, err
 	}
 
-	if jsonConfig["log"] != nil {
-		jsonLog := jsonConfig["log"].(map[string]any)
-		if jsonLog["access"] != nil {
-			accessLogPath := jsonLog["access"].(string)
-			return accessLogPath, nil
-		}
+	rawLog, ok := jsonConfig["log"]
+	if !ok || rawLog == nil {
+		return nil, nil
 	}
-	return "", err
+	jsonLog, ok := rawLog.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("xray log config is not an object")
+	}
+	return jsonLog, nil
+}
+
+// GetAccessLogPath reads the Xray config and returns the access log file path.
+func GetAccessLogPath() (string, error) {
+	jsonLog, err := readConfigLogMap()
+	if err != nil {
+		return "", err
+	}
+	if jsonLog == nil {
+		return "", nil
+	}
+	accessLogPath, _ := jsonLog["access"].(string)
+	return accessLogPath, nil
+}
+
+// GetConfiguredLogPaths returns configured Xray access/error log paths that
+// point to real files. Disabled log values such as "none" are ignored.
+func GetConfiguredLogPaths() ([]string, error) {
+	jsonLog, err := readConfigLogMap()
+	if err != nil {
+		return nil, err
+	}
+	if jsonLog == nil {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool, 2)
+	paths := make([]string, 0, 2)
+	for _, key := range []string{"access", "error"} {
+		value, _ := jsonLog[key].(string)
+		value = strings.TrimSpace(value)
+		if value == "" || strings.EqualFold(value, "none") {
+			continue
+		}
+		if seen[value] {
+			continue
+		}
+		seen[value] = true
+		paths = append(paths, value)
+	}
+	return paths, nil
 }
 
 // stopProcess calls Stop on the given Process instance.
