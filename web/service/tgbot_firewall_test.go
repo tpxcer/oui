@@ -83,3 +83,29 @@ func TestQuickHysteriaClientGeneratesUUIDAndAuth(t *testing.T) {
 		t.Fatalf("email = %q, want hy2-*", client.Email)
 	}
 }
+
+func TestQuickRealityTargetsAvoidKnownBadDefault(t *testing.T) {
+	if len(quickRealityTargets) == 0 {
+		t.Fatal("expected at least one quick Reality target")
+	}
+	for _, target := range quickRealityTargets {
+		if strings.Contains(target.Target, "microsoft.com") {
+			t.Fatalf("quick Reality target %q should not use microsoft.com", target.Target)
+		}
+		if !strings.HasSuffix(target.Target, ":443") {
+			t.Fatalf("quick Reality target %q should use port 443", target.Target)
+		}
+		if len(target.ServerNames) == 0 || strings.TrimSpace(target.ServerNames[0]) == "" {
+			t.Fatalf("quick Reality target %q should include a primary SNI", target.Target)
+		}
+	}
+}
+
+func TestQuickRealityServerNameUsesPrimarySNI(t *testing.T) {
+	got := quickRealityServerName(map[string]any{
+		"serverNames": []string{"meta.com", "www.meta.com"},
+	})
+	if got != "meta.com" {
+		t.Fatalf("quickRealityServerName() = %q, want meta.com", got)
+	}
+}

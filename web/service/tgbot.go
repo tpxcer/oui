@@ -1153,6 +1153,38 @@ func randomHexFromCrypto(length int) string {
 	return string(bytes)
 }
 
+type quickRealityTarget struct {
+	Target      string
+	ServerNames []string
+}
+
+var quickRealityTargets = []quickRealityTarget{
+	{Target: "meta.com:443", ServerNames: []string{"meta.com", "www.meta.com"}},
+	{Target: "tesla.com:443", ServerNames: []string{"tesla.com", "www.tesla.com"}},
+}
+
+func randomQuickRealityTarget() quickRealityTarget {
+	if len(quickRealityTargets) == 0 {
+		return quickRealityTarget{Target: "meta.com:443", ServerNames: []string{"meta.com", "www.meta.com"}}
+	}
+	randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(quickRealityTargets))))
+	if err != nil {
+		return quickRealityTargets[0]
+	}
+	return quickRealityTargets[randomIndex.Int64()]
+}
+
+func quickRealityServerName(settings map[string]any) string {
+	if names, ok := settings["serverNames"].([]string); ok {
+		for _, name := range names {
+			if strings.TrimSpace(name) != "" {
+				return name
+			}
+		}
+	}
+	return quickRealityTargets[0].ServerNames[0]
+}
+
 const (
 	tgQuickPortMin         = 50000
 	tgQuickPortMax         = 65000
@@ -1457,12 +1489,14 @@ func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
 	if privateKey == "" || publicKey == "" {
 		return nil, common.NewError("invalid x25519 cert")
 	}
-	serverName := "www.microsoft.com"
+	target := randomQuickRealityTarget()
+	serverNames := append([]string(nil), target.ServerNames...)
+	serverName := serverNames[0]
 	return map[string]any{
 		"show":         false,
 		"xver":         0,
-		"target":       serverName + ":443",
-		"serverNames":  []string{serverName},
+		"target":       target.Target,
+		"serverNames":  serverNames,
 		"privateKey":   privateKey,
 		"minClientVer": "",
 		"maxClientVer": "",
@@ -1616,6 +1650,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
+		realityHost := quickRealityServerName(realitySettings)
 		settings = map[string]any{
 			"clients":    []model.Client{client},
 			"decryption": "none",
@@ -1627,7 +1662,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 			"realitySettings": realitySettings,
 			"xhttpSettings": map[string]any{
 				"path":                 "/" + t.randomLowerAndNum(8),
-				"host":                 "www.microsoft.com",
+				"host":                 realityHost,
 				"mode":                 "auto",
 				"xPaddingBytes":        "100-1000",
 				"xPaddingObfsMode":     false,

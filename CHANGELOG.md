@@ -5,6 +5,12 @@
 - `CHANGELOG.md`：保留历史版本说明。
 - `config/release-notes/latest.md`：写入当前待发布版本说明，GitHub Release 会自动使用它作为发布正文。
 
+## 2026.7.9
+
+- 修复 Telegram 一键创建 VLESS Reality Vision / XHTTP Reality 时使用不稳定 Reality 目标导致新节点无法连接的问题。
+- TG 一键 Reality 现在会从已验证可用的目标中选择，并同步写入 `target`、`serverNames` 和 XHTTP `host`，避免 Reality 握手失败。
+- 增加回归测试，防止一键 Reality 再次回退到已知不可用目标。
+
 ## 2026.7.8
 
 - 修复面板生成 VLESS Reality 分享链接时缺少 `sni` 参数的问题。
