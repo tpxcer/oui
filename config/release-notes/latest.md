@@ -1,5 +1,5 @@
-## OUI 2026.7.9-2
+## OUI 2026.7.9-3
 
-- 修复 VLESS Reality / XHTTP Reality 链接偶发无法连接的问题：订阅和单独链接现在固定使用第一个主 SNI，不再随机选到不可用备用 SNI。
-- TG 一键 Reality 目标只写入已验证的主 SNI，避免服务端配置包含会导致 Reality 握手失败的备用域名。
-- 增加回归测试，覆盖普通订阅链接和 JSON 订阅的 Reality SNI 选择规则。
+- 修复 Hysteria2 端口跳跃在 Clash/Mihomo 订阅中缺少 `ports` 字段的问题。
+- 使用 Clash/Mihomo 类客户端导入一键创建的 Hysteria2 节点时，会正确携带端口跳跃范围，避免客户端只使用基础端口导致连接失败。
+- 增加回归测试，覆盖启用和未启用端口跳跃两种 Hysteria2 YAML 输出。

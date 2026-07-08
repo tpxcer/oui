@@ -5,6 +5,12 @@
 - `CHANGELOG.md`：保留历史版本说明。
 - `config/release-notes/latest.md`：写入当前待发布版本说明，GitHub Release 会自动使用它作为发布正文。
 
+## 2026.7.9-3
+
+- 修复 Hysteria2 端口跳跃在 Clash/Mihomo 订阅中缺少 `ports` 字段的问题。
+- 使用 Clash/Mihomo 类客户端导入一键创建的 Hysteria2 节点时，会正确携带端口跳跃范围，避免客户端只使用基础端口导致连接失败。
+- 增加回归测试，覆盖启用和未启用端口跳跃两种 Hysteria2 YAML 输出。
+
 ## 2026.7.9
 
 - 修复 Telegram 一键创建 VLESS Reality Vision / XHTTP Reality 时使用不稳定 Reality 目标导致新节点无法连接的问题。

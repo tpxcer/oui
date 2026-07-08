@@ -245,6 +245,11 @@ func (s *SubClashService) buildHysteriaProxy(inbound *model.Inbound, client mode
 
 	var rawStream map[string]any
 	_ = json.Unmarshal([]byte(inbound.StreamSettings), &rawStream)
+	if proxyType == "hysteria2" {
+		if portHopping := service.HysteriaPortHoppingRangeFromInbound(inbound); portHopping != "" {
+			proxy["ports"] = portHopping
+		}
+	}
 
 	// TLS details — hysteria always uses TLS.
 	if tlsSettings, ok := rawStream["tlsSettings"].(map[string]any); ok {
