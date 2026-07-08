@@ -1207,7 +1207,7 @@ var tgQuickPresets = map[string]tgQuickPreset{
 	"hysteria2": {
 		Key:         "hysteria2",
 		Label:       "Hysteria2",
-		Remark:      "Hysteria2 一键节点",
+		Remark:      "HY2",
 		Protocol:    model.Hysteria,
 		EmailPrefix: "hy2",
 		NeedTLSCert: true,
@@ -1216,7 +1216,7 @@ var tgQuickPresets = map[string]tgQuickPreset{
 	"vlessReality": {
 		Key:         "vlessReality",
 		Label:       "VLESS Reality Vision",
-		Remark:      "VLESS Reality Vision 一键节点",
+		Remark:      "VL-RV",
 		Protocol:    model.VLESS,
 		EmailPrefix: "vless",
 		Transport:   "tcp",
@@ -1224,7 +1224,7 @@ var tgQuickPresets = map[string]tgQuickPreset{
 	"vlessXhttpTls": {
 		Key:         "vlessXhttpTls",
 		Label:       "VLESS XHTTP TLS",
-		Remark:      "VLESS Encryption XHTTP TLS 一键节点",
+		Remark:      "VL-XHTTP-TLS",
 		Protocol:    model.VLESS,
 		EmailPrefix: "xhttp",
 		NeedTLSCert: true,
@@ -1233,7 +1233,7 @@ var tgQuickPresets = map[string]tgQuickPreset{
 	"vlessXhttpReality": {
 		Key:         "vlessXhttpReality",
 		Label:       "VLESS XHTTP Reality",
-		Remark:      "VLESS XHTTP Reality 一键节点",
+		Remark:      "VL-XHTTP-R",
 		Protocol:    model.VLESS,
 		EmailPrefix: "xhttp-r",
 		Transport:   "tcp",

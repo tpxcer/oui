@@ -619,7 +619,7 @@
                     "presetKey": "vlessXhttpReality",
                     "presetLabel": "VLESS XHTTP Reality",
                     "inbound": {
-                      "remark": "VLESS XHTTP Reality 一键节点",
+                      "remark": "VL-XHTTP-R",
                       "port": 61234,
                       "protocol": "vless"
                     }

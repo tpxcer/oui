@@ -5,6 +5,12 @@
 - `CHANGELOG.md`：保留历史版本说明。
 - `config/release-notes/latest.md`：写入当前待发布版本说明，GitHub Release 会自动使用它作为发布正文。
 
+## 2026.7.9-4
+
+- 优化一键创建节点的默认备注名称，改为更短的英文节点类型简称。
+- 新默认备注不再包含中文：`HY2`、`VL-RV`、`VL-XHTTP-TLS`、`VL-XHTTP-R`。
+- 增加回归测试，防止一键创建默认备注再次出现中文或过长名称。
+
 ## 2026.7.9-3
 
 - 修复 Hysteria2 端口跳跃在 Clash/Mihomo 订阅中缺少 `ports` 字段的问题。

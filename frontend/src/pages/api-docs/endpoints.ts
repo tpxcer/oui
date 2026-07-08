@@ -147,7 +147,7 @@ export const sections: readonly Section[] = [
         summary: 'Create one high-port preset inbound and one client in a single request. Supported presets: hysteria2, vlessReality, vlessXhttpTls, vlessXhttpReality. The server picks a free port in 50000-65000 and attempts to open the matching firewall port.',
         body: '{\n  "preset": "vlessXhttpReality"\n}',
         response:
-          '{\n  "success": true,\n  "obj": {\n    "email": "xhttp-r-a1b2c3",\n    "firewall": "ufw: 已放行 61234/tcp",\n    "presetKey": "vlessXhttpReality",\n    "presetLabel": "VLESS XHTTP Reality",\n    "inbound": {\n      "remark": "VLESS XHTTP Reality 一键节点",\n      "port": 61234,\n      "protocol": "vless"\n    }\n  }\n}',
+          '{\n  "success": true,\n  "obj": {\n    "email": "xhttp-r-a1b2c3",\n    "firewall": "ufw: 已放行 61234/tcp",\n    "presetKey": "vlessXhttpReality",\n    "presetLabel": "VLESS XHTTP Reality",\n    "inbound": {\n      "remark": "VL-XHTTP-R",\n      "port": 61234,\n      "protocol": "vless"\n    }\n  }\n}',
       },
       {
         method: 'POST',
