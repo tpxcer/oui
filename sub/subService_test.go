@@ -239,6 +239,40 @@ func TestBuildXhttpExtra_LeavesDefaultClientSideFieldsOut(t *testing.T) {
 	}
 }
 
+func TestApplyShareRealityParamsUsesPrimarySNI(t *testing.T) {
+	params := map[string]string{}
+	applyShareRealityParams(map[string]any{
+		"realitySettings": map[string]any{
+			"serverNames": []any{"primary.example.com", "bad.example.com"},
+			"shortIds":    []any{"abcd1234"},
+			"settings": map[string]any{
+				"publicKey":   "public-key",
+				"fingerprint": "chrome",
+			},
+		},
+	}, params)
+
+	if params["sni"] != "primary.example.com" {
+		t.Fatalf("sni = %q, want primary.example.com", params["sni"])
+	}
+}
+
+func TestSubJsonRealityDataUsesPrimarySNI(t *testing.T) {
+	svc := &SubJsonService{}
+	got := svc.realityData(map[string]any{
+		"serverNames": []any{"primary.example.com", "bad.example.com"},
+		"shortIds":    []any{"abcd1234"},
+		"settings": map[string]any{
+			"publicKey":   "public-key",
+			"fingerprint": "chrome",
+		},
+	})
+
+	if got["serverName"] != "primary.example.com" {
+		t.Fatalf("serverName = %q, want primary.example.com", got["serverName"])
+	}
+}
+
 func TestCloneStringMap(t *testing.T) {
 	src := map[string]string{"a": "1", "b": "2"}
 	dst := cloneStringMap(src)

@@ -294,7 +294,12 @@ func (s *SubJsonService) realityData(rData map[string]any) map[string]any {
 	}
 	serverNames, ok := rData["serverNames"].([]any)
 	if ok && len(serverNames) > 0 {
-		rltyData["serverName"] = serverNames[random.Num(len(serverNames))].(string)
+		for _, name := range serverNames {
+			if serverName, ok := name.(string); ok && strings.TrimSpace(serverName) != "" {
+				rltyData["serverName"] = serverName
+				break
+			}
+		}
 	} else {
 		rltyData["serverName"] = ""
 	}

@@ -1159,13 +1159,13 @@ type quickRealityTarget struct {
 }
 
 var quickRealityTargets = []quickRealityTarget{
-	{Target: "meta.com:443", ServerNames: []string{"meta.com", "www.meta.com"}},
-	{Target: "tesla.com:443", ServerNames: []string{"tesla.com", "www.tesla.com"}},
+	{Target: "meta.com:443", ServerNames: []string{"meta.com"}},
+	{Target: "tesla.com:443", ServerNames: []string{"tesla.com"}},
 }
 
 func randomQuickRealityTarget() quickRealityTarget {
 	if len(quickRealityTargets) == 0 {
-		return quickRealityTarget{Target: "meta.com:443", ServerNames: []string{"meta.com", "www.meta.com"}}
+		return quickRealityTarget{Target: "meta.com:443", ServerNames: []string{"meta.com"}}
 	}
 	randomIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(quickRealityTargets))))
 	if err != nil {

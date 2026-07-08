@@ -98,6 +98,9 @@ func TestQuickRealityTargetsAvoidKnownBadDefault(t *testing.T) {
 		if len(target.ServerNames) == 0 || strings.TrimSpace(target.ServerNames[0]) == "" {
 			t.Fatalf("quick Reality target %q should include a primary SNI", target.Target)
 		}
+		if len(target.ServerNames) != 1 {
+			t.Fatalf("quick Reality target %q should keep one verified SNI, got %v", target.Target, target.ServerNames)
+		}
 	}
 }
 
