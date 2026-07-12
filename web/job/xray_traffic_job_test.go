@@ -1,10 +1,10 @@
 package job
 
 import (
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/mhsanaei/3x-ui/v3/web/service"
 	"github.com/mhsanaei/3x-ui/v3/xray"
 )
 
@@ -351,40 +351,13 @@ func TestLatestOnlineNotifyClientIPSupportsLegacyStringArray(t *testing.T) {
 	}
 }
 
-func TestFormatOnlineNotifyGeoLocationDeduplicatesFields(t *testing.T) {
-	got := formatOnlineNotifyGeoLocation(service.NodeGeoLocation{
-		Location: "中国四川省成都市",
-		Country:  "中国",
-		Province: "四川省",
-		City:     "成都市",
-		District: "成都市",
-		Detail:   "锦江区",
-	})
-	want := "中国四川省成都市"
+func TestBuildOnlineNotifyIPLinesDoesNotIncludeLocation(t *testing.T) {
+	got := new(XrayTrafficJob).buildOnlineNotifyIPLines("", "203.0.113.1")
+	want := "🌐 IP 地址：<code>203.0.113.1</code>\n"
 	if got != want {
-		t.Fatalf("formatOnlineNotifyGeoLocation = %q, want %q", got, want)
+		t.Fatalf("buildOnlineNotifyIPLines = %q, want %q", got, want)
 	}
-}
-
-func TestFormatOnlineNotifyGeoLocationFallsBackToParts(t *testing.T) {
-	got := formatOnlineNotifyGeoLocation(service.NodeGeoLocation{
-		Country:  "中国",
-		Province: "四川省",
-		City:     "成都市",
-		District: "成都市",
-		Detail:   "锦江区",
-	})
-	want := "中国 四川省 成都市 锦江区"
-	if got != want {
-		t.Fatalf("formatOnlineNotifyGeoLocation = %q, want %q", got, want)
-	}
-}
-
-func TestFormatOnlineNotifyLocationOrUnknown(t *testing.T) {
-	if got := formatOnlineNotifyLocationOrUnknown(service.NodeGeoLocation{}); got != "未知" {
-		t.Fatalf("formatOnlineNotifyLocationOrUnknown empty = %q, want 未知", got)
-	}
-	if got := formatOnlineNotifyLocationOrUnknown(service.NodeGeoLocation{City: "资阳", Detail: "中国电信"}); got != "资阳 中国电信" {
-		t.Fatalf("formatOnlineNotifyLocationOrUnknown parts = %q, want 资阳 中国电信", got)
+	if strings.Contains(got, "归属地") {
+		t.Fatalf("buildOnlineNotifyIPLines still contains location: %q", got)
 	}
 }

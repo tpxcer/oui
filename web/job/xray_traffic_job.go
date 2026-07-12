@@ -1,7 +1,6 @@
 package job
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -400,13 +399,7 @@ func (j *XrayTrafficJob) buildOnlineNotifyIPLines(email string, ip string) strin
 	if ip == "" {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	attribution := j.serverService.LookupIPAttribution(ctx, ip)
-
-	lines := fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
-	lines += fmt.Sprintf("📍 归属地：<code>%s</code>\n", html.EscapeString(formatOnlineNotifyLocationOrUnknown(attribution)))
-	return lines
+	return fmt.Sprintf("🌐 IP 地址：<code>%s</code>\n", html.EscapeString(ip))
 }
 
 func (j *XrayTrafficJob) latestOnlineNotifyClientIP(email string) string {
@@ -539,41 +532,6 @@ func onlineNotifyRemarkForIPIndex(remark string, index int) string {
 		return remark
 	}
 	return fmt.Sprintf("%s(ip%d)", remark, index+1)
-}
-
-func formatOnlineNotifyGeoLocation(geo service.NodeGeoLocation) string {
-	if location := strings.TrimSpace(geo.Location); location != "" {
-		return location
-	}
-	parts := []string{
-		geo.Country,
-		geo.Province,
-		geo.City,
-		geo.District,
-		geo.Detail,
-	}
-	seen := make(map[string]struct{}, len(parts))
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if _, ok := seen[part]; ok {
-			continue
-		}
-		seen[part] = struct{}{}
-		out = append(out, part)
-	}
-	return strings.Join(out, " ")
-}
-
-func formatOnlineNotifyLocationOrUnknown(geo service.NodeGeoLocation) string {
-	location := strings.TrimSpace(formatOnlineNotifyGeoLocation(geo))
-	if location == "" {
-		return "未知"
-	}
-	return location
 }
 
 func shouldAnnounceOnline(session onlineNotifySession, now time.Time) bool {
