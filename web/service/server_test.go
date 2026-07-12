@@ -53,9 +53,10 @@ func TestIPAttributionFailureCacheTTL(t *testing.T) {
 func TestDecodeIPWhoNodeGeo(t *testing.T) {
 	geo, err := decodeIPWhoNodeGeo(strings.NewReader(`{
 		"success": true,
-		"country": "China",
-		"region": "Sichuan",
-		"city": "Chengdu",
+		"country": "Netherlands",
+		"country_code": "NL",
+		"region": "Groningen",
+		"city": "Groningen",
 		"latitude": 30.67,
 		"longitude": 104.06,
 		"connection": {"isp": "Example ISP", "org": "Example Org"}
@@ -63,11 +64,45 @@ func TestDecodeIPWhoNodeGeo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if geo.Source != "ipwho" || geo.Country != "China" || geo.Province != "Sichuan" || geo.City != "Chengdu" {
+	if geo.Source != "ipwho" || geo.Country != "荷兰" || geo.Province != "Groningen" || geo.City != "Groningen" {
 		t.Fatalf("unexpected ipwho geo: %#v", geo)
 	}
-	if geo.Detail != "Example ISP" || geo.Location != "ChinaSichuanChengduExample ISP" {
+	if geo.Detail != "Example ISP" || geo.Location != "荷兰GroningenExample ISP" {
 		t.Fatalf("unexpected ipwho detail/location: %#v", geo)
+	}
+}
+
+func TestNormalizeChineseAttributionDropsEnglishGeoParts(t *testing.T) {
+	geo := normalizeChineseAttribution(NodeGeoLocation{
+		Country:  "美国",
+		Province: "加利福尼亚州",
+		City:     "San Francisco",
+		Detail:   "Google Cloud",
+		Location: "美国加利福尼亚州San FranciscoGoogle Cloud",
+	})
+	if geo.Country != "美国" || geo.Province != "加利福尼亚州" || geo.City != "" {
+		t.Fatalf("unexpected normalized geo: %#v", geo)
+	}
+	if geo.Location != "美国加利福尼亚州" || geo.Detail != "Google Cloud" {
+		t.Fatalf("unexpected normalized location/detail: %#v", geo)
+	}
+}
+
+func TestFetchIPAttributionPrefersChinesePrimary(t *testing.T) {
+	fallbackCalled := false
+	primary := func(context.Context, string) (NodeGeoLocation, error) {
+		return NodeGeoLocation{Source: "ip9", Country: "荷兰", Province: "格罗宁根", City: "埃姆斯哈文"}, nil
+	}
+	fallback := func(context.Context, string) (NodeGeoLocation, error) {
+		fallbackCalled = true
+		return NodeGeoLocation{Source: "ipwho", Country: "荷兰"}, nil
+	}
+	geo, err := fetchIPAttributionNodeGeoWith(context.Background(), "34.6.139.141", primary, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallbackCalled || geo.Source != "ip9" || geo.Location != "荷兰格罗宁根埃姆斯哈文" {
+		t.Fatalf("unexpected primary geo: %#v, fallbackCalled=%v", geo, fallbackCalled)
 	}
 }
 
@@ -76,13 +111,13 @@ func TestFetchIPAttributionFallsBackToIP9(t *testing.T) {
 		return NodeGeoLocation{}, errors.New("primary unavailable")
 	}
 	fallback := func(context.Context, string) (NodeGeoLocation, error) {
-		return NodeGeoLocation{Source: "ip9", Location: "ChinaSichuanChengdu"}, nil
+		return NodeGeoLocation{Source: "ip9", Country: "中国", Province: "四川", City: "成都"}, nil
 	}
 	geo, err := fetchIPAttributionNodeGeoWith(context.Background(), "203.0.113.1", primary, fallback)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if geo.Source != "ip9" || geo.Location != "ChinaSichuanChengdu" {
+	if geo.Source != "ip9" || geo.Location != "中国四川成都" {
 		t.Fatalf("unexpected fallback geo: %#v", geo)
 	}
 }
@@ -95,7 +130,7 @@ func TestFetchIPAttributionReturnsBothErrors(t *testing.T) {
 		return NodeGeoLocation{}, errors.New("fallback unavailable")
 	}
 	_, err := fetchIPAttributionNodeGeoWith(context.Background(), "203.0.113.1", primary, fallback)
-	if err == nil || !strings.Contains(err.Error(), "ipwho: primary unavailable") || !strings.Contains(err.Error(), "ip9: fallback unavailable") {
+	if err == nil || !strings.Contains(err.Error(), "ip9: primary unavailable") || !strings.Contains(err.Error(), "ipwho: fallback unavailable") {
 		t.Fatalf("unexpected attribution error: %v", err)
 	}
 }

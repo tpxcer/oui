@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/mhsanaei/3x-ui/v3/config"
 	"github.com/mhsanaei/3x-ui/v3/database"
@@ -37,6 +38,8 @@ import (
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
+	"golang.org/x/text/language"
+	"golang.org/x/text/language/display"
 )
 
 // ProcessState represents the current state of a system process.
@@ -453,17 +456,19 @@ func (s *ServerService) LookupIPAttribution(ctx context.Context, ip string) Node
 type ipAttributionFetcher func(context.Context, string) (NodeGeoLocation, error)
 
 func fetchIPAttributionNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
-	return fetchIPAttributionNodeGeoWith(ctx, ip, fetchIPWhoNodeGeo, fetchIP9NodeGeo)
+	return fetchIPAttributionNodeGeoWith(ctx, ip, fetchIP9NodeGeo, fetchIPWhoNodeGeo)
 }
 
 func fetchIPAttributionNodeGeoWith(ctx context.Context, ip string, primary, fallback ipAttributionFetcher) (NodeGeoLocation, error) {
 	geo, primaryErr := primary(ctx, ip)
-	if primaryErr == nil && hasNodeGeoLocation(geo) {
+	geo = normalizeChineseAttribution(geo)
+	if primaryErr == nil && strings.TrimSpace(geo.Location) != "" {
 		return geo, nil
 	}
 
 	geo, fallbackErr := fallback(ctx, ip)
-	if fallbackErr == nil && hasNodeGeoLocation(geo) {
+	geo = normalizeChineseAttribution(geo)
+	if fallbackErr == nil && strings.TrimSpace(geo.Location) != "" {
 		return geo, nil
 	}
 	if primaryErr == nil {
@@ -472,7 +477,35 @@ func fetchIPAttributionNodeGeoWith(ctx context.Context, ip string, primary, fall
 	if fallbackErr == nil {
 		fallbackErr = fmt.Errorf("empty location")
 	}
-	return NodeGeoLocation{}, fmt.Errorf("ipwho: %v; ip9: %v", primaryErr, fallbackErr)
+	return NodeGeoLocation{}, fmt.Errorf("ip9: %v; ipwho: %v", primaryErr, fallbackErr)
+}
+
+func normalizeChineseAttribution(geo NodeGeoLocation) NodeGeoLocation {
+	geo.Country = chineseGeoPart(geo.Country)
+	geo.Province = chineseGeoPart(geo.Province)
+	geo.City = chineseGeoPart(geo.City)
+	geo.District = chineseGeoPart(geo.District)
+	geo.Location = joinGeoAddress(geo.Country, geo.Province, geo.City, geo.District)
+	return geo
+}
+
+func chineseGeoPart(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.IndexFunc(value, func(r rune) bool { return unicode.Is(unicode.Han, r) }) < 0 {
+		return ""
+	}
+	return value
+}
+
+func chineseCountryName(countryCode, fallback string) string {
+	if value := chineseGeoPart(fallback); value != "" {
+		return value
+	}
+	region, err := language.ParseRegion(strings.ToUpper(strings.TrimSpace(countryCode)))
+	if err != nil {
+		return ""
+	}
+	return chineseGeoPart(display.Regions(language.SimplifiedChinese).Name(region))
 }
 
 func cachedIPGeoTTL(geo NodeGeoLocation, successTTL time.Duration, failureTTL time.Duration) time.Duration {
@@ -611,13 +644,14 @@ func fetchIP9NodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
 		Ret  int    `json:"ret"`
 		Msg  string `json:"msg"`
 		Data *struct {
-			Country string `json:"country"`
-			Prov    string `json:"prov"`
-			City    string `json:"city"`
-			Area    string `json:"area"`
-			ISP     string `json:"isp"`
-			Lng     string `json:"lng"`
-			Lat     string `json:"lat"`
+			Country     string `json:"country"`
+			CountryCode string `json:"country_code"`
+			Prov        string `json:"prov"`
+			City        string `json:"city"`
+			Area        string `json:"area"`
+			ISP         string `json:"isp"`
+			Lng         string `json:"lng"`
+			Lat         string `json:"lat"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(respHTTP.Body).Decode(&resp); err != nil {
@@ -633,7 +667,7 @@ func fetchIP9NodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
 		return result, fmt.Errorf("ip9 empty data")
 	}
 
-	result.Country = strings.TrimSpace(resp.Data.Country)
+	result.Country = chineseCountryName(resp.Data.CountryCode, resp.Data.Country)
 	result.Province = strings.TrimSpace(resp.Data.Prov)
 	result.City = strings.TrimSpace(resp.Data.City)
 	result.District = strings.TrimSpace(resp.Data.Area)
@@ -675,14 +709,15 @@ func fetchIPWhoNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) 
 func decodeIPWhoNodeGeo(body io.Reader, ip string) (NodeGeoLocation, error) {
 	result := NodeGeoLocation{IP: ip, Source: "ipwho"}
 	var resp struct {
-		Success    bool    `json:"success"`
-		Message    string  `json:"message"`
-		Country    string  `json:"country"`
-		Region     string  `json:"region"`
-		City       string  `json:"city"`
-		Latitude   float64 `json:"latitude"`
-		Longitude  float64 `json:"longitude"`
-		Connection struct {
+		Success     bool    `json:"success"`
+		Message     string  `json:"message"`
+		Country     string  `json:"country"`
+		CountryCode string  `json:"country_code"`
+		Region      string  `json:"region"`
+		City        string  `json:"city"`
+		Latitude    float64 `json:"latitude"`
+		Longitude   float64 `json:"longitude"`
+		Connection  struct {
 			ISP          string `json:"isp"`
 			Organization string `json:"org"`
 		} `json:"connection"`
@@ -697,7 +732,7 @@ func decodeIPWhoNodeGeo(body io.Reader, ip string) (NodeGeoLocation, error) {
 		return result, fmt.Errorf("ipwho %s", resp.Message)
 	}
 
-	result.Country = strings.TrimSpace(resp.Country)
+	result.Country = chineseCountryName(resp.CountryCode, resp.Country)
 	result.Province = strings.TrimSpace(resp.Region)
 	result.City = strings.TrimSpace(resp.City)
 	result.Detail = strings.TrimSpace(resp.Connection.ISP)
