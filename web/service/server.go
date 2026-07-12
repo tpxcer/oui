@@ -347,7 +347,7 @@ const (
 	ipGeoSuccessCacheTTL     = 24 * time.Hour
 	ipGeoFailureCacheTTL     = 15 * time.Minute
 	ipAttrSuccessCacheTTL    = 48 * time.Hour
-	ipAttrFailureCacheTTL    = 15 * time.Minute
+	ipAttrFailureCacheTTL    = 5 * time.Minute
 )
 
 func getPublicIP(url string) string {
@@ -417,7 +417,7 @@ func (s *ServerService) LookupIPGeo(ctx context.Context, ip string) NodeGeoLocat
 
 func (s *ServerService) LookupIPAttribution(ctx context.Context, ip string) NodeGeoLocation {
 	ip = strings.TrimSpace(ip)
-	result := NodeGeoLocation{IP: ip, Source: "ip9"}
+	result := NodeGeoLocation{IP: ip, Source: "ipwho"}
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		result.Error = fmt.Sprintf("invalid ip: %s", ip)
@@ -440,14 +440,39 @@ func (s *ServerService) LookupIPAttribution(ctx context.Context, ip string) Node
 	}
 	s.mu.Unlock()
 
-	geo, err := fetchIP9NodeGeo(ctx, ip)
+	geo, err := fetchIPAttributionNodeGeo(ctx, ip)
 	if err != nil {
-		geo = NodeGeoLocation{IP: ip, Source: "ip9", Error: err.Error()}
+		geo = NodeGeoLocation{IP: ip, Source: "ipwho+ip9", Error: err.Error()}
 	}
 	s.mu.Lock()
 	s.ipAttributionCache[ip] = cachedIPGeo{location: geo, at: time.Now()}
 	s.mu.Unlock()
 	return geo
+}
+
+type ipAttributionFetcher func(context.Context, string) (NodeGeoLocation, error)
+
+func fetchIPAttributionNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
+	return fetchIPAttributionNodeGeoWith(ctx, ip, fetchIPWhoNodeGeo, fetchIP9NodeGeo)
+}
+
+func fetchIPAttributionNodeGeoWith(ctx context.Context, ip string, primary, fallback ipAttributionFetcher) (NodeGeoLocation, error) {
+	geo, primaryErr := primary(ctx, ip)
+	if primaryErr == nil && hasNodeGeoLocation(geo) {
+		return geo, nil
+	}
+
+	geo, fallbackErr := fallback(ctx, ip)
+	if fallbackErr == nil && hasNodeGeoLocation(geo) {
+		return geo, nil
+	}
+	if primaryErr == nil {
+		primaryErr = fmt.Errorf("empty location")
+	}
+	if fallbackErr == nil {
+		fallbackErr = fmt.Errorf("empty location")
+	}
+	return NodeGeoLocation{}, fmt.Errorf("ipwho: %v; ip9: %v", primaryErr, fallbackErr)
 }
 
 func cachedIPGeoTTL(geo NodeGeoLocation, successTTL time.Duration, failureTTL time.Duration) time.Duration {
@@ -622,6 +647,68 @@ func fetchIP9NodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
 	result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.District, result.Detail)
 	if result.Location == "" {
 		return result, fmt.Errorf("ip9 empty location")
+	}
+	return result, nil
+}
+
+func fetchIPWhoNodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
+	result := NodeGeoLocation{IP: ip, Source: "ipwho"}
+	client := &http.Client{Timeout: 3 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://ipwho.is/"+url.PathEscape(ip), nil)
+	if err != nil {
+		return result, err
+	}
+	req.Header.Set("User-Agent", "OUI Panel")
+	req.Header.Set("Accept", "application/json")
+	respHTTP, err := client.Do(req)
+	if err != nil {
+		return result, err
+	}
+	defer respHTTP.Body.Close()
+	if respHTTP.StatusCode != http.StatusOK {
+		return result, fmt.Errorf("ipwho status %d", respHTTP.StatusCode)
+	}
+
+	return decodeIPWhoNodeGeo(respHTTP.Body, ip)
+}
+
+func decodeIPWhoNodeGeo(body io.Reader, ip string) (NodeGeoLocation, error) {
+	result := NodeGeoLocation{IP: ip, Source: "ipwho"}
+	var resp struct {
+		Success    bool    `json:"success"`
+		Message    string  `json:"message"`
+		Country    string  `json:"country"`
+		Region     string  `json:"region"`
+		City       string  `json:"city"`
+		Latitude   float64 `json:"latitude"`
+		Longitude  float64 `json:"longitude"`
+		Connection struct {
+			ISP          string `json:"isp"`
+			Organization string `json:"org"`
+		} `json:"connection"`
+	}
+	if err := json.NewDecoder(body).Decode(&resp); err != nil {
+		return result, err
+	}
+	if !resp.Success {
+		if strings.TrimSpace(resp.Message) == "" {
+			resp.Message = "unknown error"
+		}
+		return result, fmt.Errorf("ipwho %s", resp.Message)
+	}
+
+	result.Country = strings.TrimSpace(resp.Country)
+	result.Province = strings.TrimSpace(resp.Region)
+	result.City = strings.TrimSpace(resp.City)
+	result.Detail = strings.TrimSpace(resp.Connection.ISP)
+	if result.Detail == "" {
+		result.Detail = strings.TrimSpace(resp.Connection.Organization)
+	}
+	result.Latitude = resp.Latitude
+	result.Longitude = resp.Longitude
+	result.Location = joinGeoAddress(result.Country, result.Province, result.City, result.Detail)
+	if result.Location == "" {
+		return result, fmt.Errorf("ipwho empty location")
 	}
 	return result, nil
 }

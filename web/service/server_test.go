@@ -1,7 +1,9 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +41,62 @@ func TestCachedIPGeoTTLSeparatesSuccessAndFailure(t *testing.T) {
 	}
 	if got := cachedIPGeoTTL(NodeGeoLocation{}, successTTL, failureTTL); got != failureTTL {
 		t.Fatalf("cachedIPGeoTTL empty = %s, want %s", got, failureTTL)
+	}
+}
+
+func TestIPAttributionFailureCacheTTL(t *testing.T) {
+	if ipAttrFailureCacheTTL != 5*time.Minute {
+		t.Fatalf("ip attribution failure cache TTL = %s, want 5m", ipAttrFailureCacheTTL)
+	}
+}
+
+func TestDecodeIPWhoNodeGeo(t *testing.T) {
+	geo, err := decodeIPWhoNodeGeo(strings.NewReader(`{
+		"success": true,
+		"country": "China",
+		"region": "Sichuan",
+		"city": "Chengdu",
+		"latitude": 30.67,
+		"longitude": 104.06,
+		"connection": {"isp": "Example ISP", "org": "Example Org"}
+	}`), "203.0.113.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.Source != "ipwho" || geo.Country != "China" || geo.Province != "Sichuan" || geo.City != "Chengdu" {
+		t.Fatalf("unexpected ipwho geo: %#v", geo)
+	}
+	if geo.Detail != "Example ISP" || geo.Location != "ChinaSichuanChengduExample ISP" {
+		t.Fatalf("unexpected ipwho detail/location: %#v", geo)
+	}
+}
+
+func TestFetchIPAttributionFallsBackToIP9(t *testing.T) {
+	primary := func(context.Context, string) (NodeGeoLocation, error) {
+		return NodeGeoLocation{}, errors.New("primary unavailable")
+	}
+	fallback := func(context.Context, string) (NodeGeoLocation, error) {
+		return NodeGeoLocation{Source: "ip9", Location: "ChinaSichuanChengdu"}, nil
+	}
+	geo, err := fetchIPAttributionNodeGeoWith(context.Background(), "203.0.113.1", primary, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if geo.Source != "ip9" || geo.Location != "ChinaSichuanChengdu" {
+		t.Fatalf("unexpected fallback geo: %#v", geo)
+	}
+}
+
+func TestFetchIPAttributionReturnsBothErrors(t *testing.T) {
+	primary := func(context.Context, string) (NodeGeoLocation, error) {
+		return NodeGeoLocation{}, errors.New("primary unavailable")
+	}
+	fallback := func(context.Context, string) (NodeGeoLocation, error) {
+		return NodeGeoLocation{}, errors.New("fallback unavailable")
+	}
+	_, err := fetchIPAttributionNodeGeoWith(context.Background(), "203.0.113.1", primary, fallback)
+	if err == nil || !strings.Contains(err.Error(), "ipwho: primary unavailable") || !strings.Contains(err.Error(), "ip9: fallback unavailable") {
+		t.Fatalf("unexpected attribution error: %v", err)
 	}
 }
 
