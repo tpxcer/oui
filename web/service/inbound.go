@@ -372,17 +372,20 @@ func (s *InboundService) GetInboundsByTrafficReset(period string) ([]*model.Inbo
 }
 
 func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, error) {
-	settings := map[string][]model.Client{}
-	json.Unmarshal([]byte(inbound.Settings), &settings)
-	if settings == nil {
-		return nil, fmt.Errorf("setting is null")
+	if inbound == nil {
+		return nil, fmt.Errorf("inbound is nil")
 	}
+	return parseInboundClients(inbound.Settings)
+}
 
-	clients := settings["clients"]
-	if clients == nil {
-		return nil, nil
+func parseInboundClients(rawSettings string) ([]model.Client, error) {
+	var settings struct {
+		Clients []model.Client `json:"clients"`
 	}
-	return clients, nil
+	if err := json.Unmarshal([]byte(rawSettings), &settings); err != nil {
+		return nil, err
+	}
+	return settings.Clients, nil
 }
 
 func (s *InboundService) getAllEmails() ([]string, error) {
@@ -783,6 +786,11 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 	}
 	inbound.Enable = enable
 	s.syncHysteriaPortHoppingRulesBestEffort()
+	if !enable {
+		if err := s.releaseInboundIPLimitBans(inbound); err != nil {
+			logger.Warningf("[LIMIT_IP] failed to release bans after disabling inbound %d: %v", inbound.Id, err)
+		}
+	}
 
 	needRestart := false
 	rt, rterr := s.runtimeFor(inbound)
@@ -825,6 +833,22 @@ func (s *InboundService) SetInboundEnable(id int, enable bool) (bool, error) {
 		needRestart = true
 	}
 	return needRestart, nil
+}
+
+func (s *InboundService) releaseInboundIPLimitBans(inbound *model.Inbound) error {
+	var errs []string
+	for _, client := range ipLimitClientsFromInbound(inbound) {
+		if strings.TrimSpace(client.Email) == "" {
+			continue
+		}
+		if err := s.SyncClientIPLimitBansForInbound(client.Email, inbound, 0, nil); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, bool, error) {
@@ -2978,14 +3002,12 @@ func (s *InboundService) SearchClientTraffic(query string) (traffic *xray.Client
 
 	traffic.InboundId = inbound.Id
 
-	// Unmarshal settings to get clients
-	settings := map[string][]model.Client{}
-	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+	clients, err := parseInboundClients(inbound.Settings)
+	if err != nil {
 		logger.Errorf("Error unmarshalling inbound settings for inbound ID %d: %v", inbound.Id, err)
 		return nil, err
 	}
 
-	clients := settings["clients"]
 	for _, client := range clients {
 		if (client.ID == query || client.Password == query) && client.Email != "" {
 			traffic.Email = client.Email

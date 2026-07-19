@@ -139,9 +139,10 @@ func (j *CheckClientIpJob) hasLimitIp() bool {
 			continue
 		}
 
-		settings := map[string][]model.Client{}
-		json.Unmarshal([]byte(inbound.Settings), &settings)
-		clients := settings["clients"]
+		clients, err := (&service.InboundService{}).GetClients(inbound)
+		if err != nil {
+			continue
+		}
 
 		for _, client := range clients {
 			limitIp := client.LimitIP
@@ -431,9 +432,11 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 		return false
 	}
 
-	settings := map[string][]model.Client{}
-	json.Unmarshal([]byte(inbound.Settings), &settings)
-	clients := settings["clients"]
+	clients, err := (&service.InboundService{}).GetClients(inbound)
+	if err != nil {
+		logger.Errorf("failed to parse inbound settings for email %s: %s", clientEmail, err)
+		return false
+	}
 
 	// Find the client's IP limit
 	var limitIp int
@@ -695,11 +698,12 @@ func (j *CheckClientIpJob) getInboundByEmail(clientEmail string) (*model.Inbound
 }
 
 func inboundSettingsHasClientEmail(rawSettings string, clientEmail string) bool {
-	settings := map[string][]model.Client{}
-	if err := json.Unmarshal([]byte(rawSettings), &settings); err != nil {
+	inbound := &model.Inbound{Settings: rawSettings}
+	clients, err := (&service.InboundService{}).GetClients(inbound)
+	if err != nil {
 		return false
 	}
-	for _, client := range settings["clients"] {
+	for _, client := range clients {
 		if client.Email == clientEmail {
 			return true
 		}

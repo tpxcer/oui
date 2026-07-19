@@ -99,6 +99,8 @@ func seedInboundWithClientOptions(t *testing.T, opts inboundSeedOptions) {
 				"enable":  clientEnabled,
 			},
 		},
+		"decryption": "none",
+		"encryption": "none",
 	}
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
@@ -342,11 +344,13 @@ func TestUpdateInboundClientIps_TemporaryUnbanSkipsRebanWithoutChangingLimit(t *
 	if err := database.GetDB().Where("port = ?", 4321).First(&inbound).Error; err != nil {
 		t.Fatalf("read inbound: %v", err)
 	}
-	settings := map[string][]model.Client{}
+	var settings struct {
+		Clients []model.Client `json:"clients"`
+	}
 	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
 		t.Fatalf("unmarshal settings: %v", err)
 	}
-	if settings["clients"][0].LimitIP != 1 {
+	if settings.Clients[0].LimitIP != 1 {
 		t.Fatalf("temporary unban must not change panel limitIp, settings=%s", inbound.Settings)
 	}
 }
@@ -423,6 +427,45 @@ func TestSyncClientIPLimitBans_LimitZeroUnbansImmediately(t *testing.T) {
 	body := readIPLimitBannedLog(t)
 	if !contains(body, "UNBAN   [Email] = limit-zero [Port] = 4321 [IP] = 192.0.2.9 automatic IP limit sync.") {
 		t.Fatalf("expected automatic unban after limit=0\nfull log:\n%s", body)
+	}
+}
+
+func TestSetInboundEnable_DisableReleasesBanAndReenableKeepsClientDiscoverable(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "toggle-vless"
+	seedInboundWithClientOptions(t, inboundSeedOptions{
+		Tag:     "inbound-toggle-vless",
+		Email:   email,
+		LimitIP: 1,
+		Enable:  true,
+		Port:    54883,
+	})
+	seedClientIps(t, email, []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}})
+	writeIPLimitBannedLog(t, "2026/07/19 10:00:00 BAN   [Email] = toggle-vless [Port] = 54883 [IP] = 192.0.2.9 exceeded IP limit.\n")
+
+	var inbound model.Inbound
+	if err := database.GetDB().Where("tag = ?", "inbound-toggle-vless").First(&inbound).Error; err != nil {
+		t.Fatalf("read inbound: %v", err)
+	}
+
+	inboundSvc := service.InboundService{}
+	if _, err := inboundSvc.SetInboundEnable(inbound.Id, false); err != nil {
+		t.Fatalf("disable inbound: %v", err)
+	}
+	if body := readIPLimitBannedLog(t); !contains(body, "UNBAN   [Email] = toggle-vless [Port] = 54883 [IP] = 192.0.2.9 automatic IP limit sync.") {
+		t.Fatalf("expected disable to release the inbound ban\nfull log:\n%s", body)
+	}
+
+	if _, err := inboundSvc.SetInboundEnable(inbound.Id, true); err != nil {
+		t.Fatalf("reenable inbound: %v", err)
+	}
+	found, err := NewCheckClientIpJob().getInboundByEmail(email)
+	if err != nil {
+		t.Fatalf("find client after reenable: %v", err)
+	}
+	if !found.Enable || found.Port != 54883 {
+		t.Fatalf("unexpected inbound after reenable: enable=%t port=%d", found.Enable, found.Port)
 	}
 }
 
@@ -555,11 +598,13 @@ func TestIncrementClientIPLimitByEmailAndPort_UpdatesInboundSettingsAndClientRec
 	if err := database.GetDB().Where("port = ?", 4321).First(&inbound).Error; err != nil {
 		t.Fatalf("read inbound: %v", err)
 	}
-	settings := map[string][]model.Client{}
+	var settings struct {
+		Clients []model.Client `json:"clients"`
+	}
 	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
 		t.Fatalf("unmarshal settings: %v", err)
 	}
-	if len(settings["clients"]) != 1 || settings["clients"][0].LimitIP != 3 {
+	if len(settings.Clients) != 1 || settings.Clients[0].LimitIP != 3 {
 		t.Fatalf("expected inbound client limitIp=3, settings=%s", inbound.Settings)
 	}
 

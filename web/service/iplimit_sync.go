@@ -339,11 +339,11 @@ func ipLimitClientsFromInbound(inbound *model.Inbound) []model.Client {
 	if inbound == nil || inbound.Settings == "" {
 		return nil
 	}
-	settings := map[string][]model.Client{}
-	if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+	clients, err := parseInboundClients(inbound.Settings)
+	if err != nil {
 		return nil
 	}
-	return settings["clients"]
+	return clients
 }
 
 func ipLimitClientConfig(inbound *model.Inbound, clientEmail string) (limitIP int, found bool, enabled bool) {
