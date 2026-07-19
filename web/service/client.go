@@ -3695,18 +3695,107 @@ func (s *ClientService) ToggleClientEnableByEmail(inboundSvc *InboundService, cl
 }
 
 func (s *ClientService) SetClientEnableByEmail(inboundSvc *InboundService, clientEmail string, enable bool) (bool, bool, error) {
-	current, err := s.checkIsEnabledByEmail(inboundSvc, clientEmail)
+	clientEmail = strings.TrimSpace(clientEmail)
+	if clientEmail == "" {
+		return false, false, common.NewError("client email is required")
+	}
+
+	record, err := s.GetRecordByEmail(nil, clientEmail)
 	if err != nil {
 		return false, false, err
 	}
-	if current == enable {
-		return false, false, nil
+	inboundIds, err := s.GetInboundIdsForRecord(record.Id)
+	if err != nil {
+		return false, false, err
 	}
-	newEnabled, needRestart, err := s.ToggleClientEnableByEmail(inboundSvc, clientEmail)
+	if len(inboundIds) == 0 {
+		return false, false, common.NewError("Inbound Not Found For Email:", clientEmail)
+	}
+
+	type enableUpdate struct {
+		inbound *model.Inbound
+		client  model.Client
+		key     string
+	}
+	updates := make([]enableUpdate, 0, len(inboundIds))
+	for _, inboundId := range inboundIds {
+		inbound, getErr := inboundSvc.GetInbound(inboundId)
+		if getErr != nil {
+			return false, false, getErr
+		}
+		clients, getErr := inboundSvc.GetClients(inbound)
+		if getErr != nil {
+			return false, false, getErr
+		}
+
+		found := false
+		for i := range clients {
+			if clients[i].Email != clientEmail {
+				continue
+			}
+			found = true
+			if clients[i].Enable == enable {
+				break
+			}
+
+			key := clients[i].ID
+			switch inbound.Protocol {
+			case model.Trojan:
+				key = clients[i].Password
+			case model.Shadowsocks:
+				key = clients[i].Email
+			case model.Hysteria:
+				key = clients[i].Auth
+			}
+			if key == "" {
+				return false, false, common.NewError("empty client ID")
+			}
+
+			updated := clients[i]
+			updated.Enable = enable
+			updates = append(updates, enableUpdate{inbound: inbound, client: updated, key: key})
+			break
+		}
+		if !found {
+			return false, false, common.NewError("Client Not Found For Email:", clientEmail)
+		}
+	}
+
+	recordChanged := record.Enable != enable
+	if len(updates) == 0 {
+		if recordChanged {
+			err = database.GetDB().Model(&model.ClientRecord{}).
+				Where("id = ?", record.Id).
+				Updates(map[string]any{"enable": enable, "updated_at": time.Now().UnixMilli()}).Error
+		}
+		return recordChanged, false, err
+	}
+
+	needRestart := false
+	for _, update := range updates {
+		payload, marshalErr := json.Marshal(map[string][]model.Client{"clients": {update.client}})
+		if marshalErr != nil {
+			return false, needRestart, marshalErr
+		}
+		nr, updateErr := s.UpdateInboundClient(inboundSvc, &model.Inbound{
+			Id:       update.inbound.Id,
+			Settings: string(payload),
+		}, update.key)
+		if updateErr != nil {
+			return false, needRestart, updateErr
+		}
+		if nr {
+			needRestart = true
+		}
+	}
+
+	err = database.GetDB().Model(&model.ClientRecord{}).
+		Where("id = ?", record.Id).
+		Updates(map[string]any{"enable": enable, "updated_at": time.Now().UnixMilli()}).Error
 	if err != nil {
 		return false, needRestart, err
 	}
-	return newEnabled == enable, needRestart, nil
+	return true, needRestart, nil
 }
 
 func (s *ClientService) ResetClientIpLimitByEmail(inboundSvc *InboundService, clientEmail string, count int) (bool, error) {

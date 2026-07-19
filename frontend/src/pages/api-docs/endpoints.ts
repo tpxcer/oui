@@ -499,6 +499,17 @@ export const sections: readonly Section[] = [
       },
       {
         method: 'POST',
+        path: '/panel/api/clients/setEnable/:email',
+        summary: 'Enable or disable a client across every attached inbound without replacing credentials or other client settings.',
+        params: [
+          { name: 'email', in: 'path', type: 'string', desc: 'Client email (unique identifier).' },
+          { name: 'enable', in: 'body', type: 'boolean', desc: 'Desired enabled state.' },
+        ],
+        body: '{\n  "enable": false\n}',
+        response: '{\n  "success": true,\n  "msg": "Client updated"\n}',
+      },
+      {
+        method: 'POST',
         path: '/panel/api/clients/del/:email',
         summary: 'Delete a client by email. Removes it from every attached inbound and drops its traffic record unless keepTraffic=1 is passed.',
         params: [

@@ -108,6 +108,14 @@ async function fetchDefaults(): Promise<Record<string, unknown>> {
   return validated.obj || {};
 }
 
+export function setClientEnabled(email: string, enable: boolean) {
+  return HttpUtil.post(
+    `/panel/api/clients/setEnable/${encodeURIComponent(email)}`,
+    { enable },
+    JSON_HEADERS,
+  );
+}
+
 export function useClients() {
   const queryClient = useQueryClient();
 
@@ -249,6 +257,12 @@ export function useClients() {
     onSuccess: (msg) => { if (msg?.success) invalidateAll(); },
   });
 
+  const setEnableMut = useMutation({
+    mutationFn: ({ email, enable }: { email: string; enable: boolean }) =>
+      setClientEnabled(email, enable),
+    onSuccess: (msg) => { if (msg?.success) invalidateAll(); },
+  });
+
   const removeMut = useMutation({
     mutationFn: ({ email, keepTraffic }: { email: string; keepTraffic?: boolean }) => {
       const url = keepTraffic
@@ -356,20 +370,8 @@ export function useClients() {
 
   const setEnable = useCallback(async (client: ClientRecord, enable: boolean) => {
     if (!client?.email) return null;
-    const payload = {
-      email: client.email,
-      subId: client.subId,
-      id: client.uuid,
-      password: client.password,
-      auth: client.auth,
-      totalGB: client.totalGB || 0,
-      expiryTime: client.expiryTime || 0,
-      limitIp: client.limitIp || 0,
-      comment: client.comment || '',
-      enable: !!enable,
-    };
-    return update(client.email, payload);
-  }, [update]);
+    return setEnableMut.mutateAsync({ email: client.email, enable: !!enable });
+  }, [setEnableMut]);
 
   // WS-driven in-place merges. Page wires these via useWebSocket; the bridge
   // covers coarse 'invalidate' and 'inbounds' events centrally.

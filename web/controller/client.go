@@ -39,6 +39,7 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 
 	g.POST("/add", a.create)
 	g.POST("/update/:email", a.update)
+	g.POST("/setEnable/:email", a.setEnable)
 	g.POST("/del/:email", a.delete)
 	g.POST("/:email/attach", a.attach)
 	g.POST("/:email/detach", a.detach)
@@ -137,6 +138,35 @@ func (a *ClientController) update(c *gin.Context) {
 	}
 	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
 	notifyClientsChanged()
+}
+
+type setClientEnableBody struct {
+	Enable *bool `json:"enable"`
+}
+
+func (a *ClientController) setEnable(c *gin.Context) {
+	email := c.Param("email")
+	var body setClientEnableBody
+	if err := c.ShouldBindJSON(&body); err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if body.Enable == nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), fmt.Errorf("enable is required"))
+		return
+	}
+	changed, _, err := a.clientService.SetClientEnableByEmail(&a.inboundService, email, *body.Enable)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
+		return
+	}
+	if changed && !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("client setEnable email=%s enable=%t", email, *body.Enable)) {
+		return
+	}
+	jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundClientUpdateSuccess"), nil)
+	if changed {
+		notifyClientsChanged()
+	}
 }
 
 func (a *ClientController) delete(c *gin.Context) {

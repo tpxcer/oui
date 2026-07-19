@@ -2533,6 +2533,73 @@
         }
       }
     },
+    "/panel/api/clients/setEnable/{email}": {
+      "post": {
+        "tags": [
+          "Clients"
+        ],
+        "summary": "Enable or disable a client across every attached inbound without replacing credentials or other client settings.",
+        "operationId": "post_panel_api_clients_setEnable_email",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "path",
+            "required": true,
+            "description": "Client email (unique identifier).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enable": {
+                    "type": "boolean",
+                    "description": "Desired enabled state."
+                  }
+                },
+                "required": [
+                  "enable"
+                ]
+              },
+              "example": {
+                "enable": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {}
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "msg": "Client updated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/api/clients/del/{email}": {
       "post": {
         "tags": [
