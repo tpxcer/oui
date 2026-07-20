@@ -39,9 +39,33 @@ type CheckClientIpJob struct {
 	tgbotService            service.Tgbot
 	notifyMu                sync.Mutex
 	lastIPLimitCutoffNotify map[string]time.Time
+	takeoverMu              sync.Mutex
+	takeoverProbes          map[string]ipTakeoverProbe
+	now                     func() time.Time
+	readPortTrafficBytes    func(string, int) (uint64, error)
+	removePortTrafficProbe  func(string, int)
 }
 
+type ipTakeoverProbe struct {
+	incumbentIP  string
+	candidateIP  string
+	port         int
+	startedAt    time.Time
+	baselineByte uint64
+}
+
+type ipTakeoverDecision int
+
+const (
+	ipTakeoverUnavailable ipTakeoverDecision = iota
+	ipTakeoverPending
+	ipTakeoverKeepIncumbent
+	ipTakeoverUseCandidate
+)
+
 var job *CheckClientIpJob
+
+var resetIPTakeoverTrafficCountersOnce sync.Once
 
 // ipStaleAfterSeconds controls how long a client IP kept in the
 // per-client tracking table (model.InboundClientIps.Ips) is considered
@@ -64,15 +88,27 @@ const ipStaleAfterSeconds = int64(30 * 60)
 
 const ipLimitCutoffNotifyCooldown = 10 * time.Minute
 
+const (
+	ipTakeoverSampleWindow     = 20 * time.Second
+	ipTakeoverTrafficThreshold = uint64(100 * 1024)
+)
+
 // NewCheckClientIpJob creates a new client IP monitoring job instance.
 func NewCheckClientIpJob() *CheckClientIpJob {
 	job = &CheckClientIpJob{
 		lastIPLimitCutoffNotify: make(map[string]time.Time),
+		takeoverProbes:          make(map[string]ipTakeoverProbe),
+		now:                     time.Now,
+		readPortTrafficBytes:    service.ReadIPLimitPortTrafficBytes,
+		removePortTrafficProbe:  service.RemoveIPLimitPortTrafficCounter,
 	}
 	return job
 }
 
 func (j *CheckClientIpJob) Run() {
+	resetIPTakeoverTrafficCountersOnce.Do(service.ResetIPLimitPortTrafficCounters)
+	j.cleanupExpiredIPTakeoverProbes(j.takeoverNow())
+
 	if j.lastClear == 0 {
 		j.lastClear = time.Now().Unix()
 	}
@@ -327,6 +363,138 @@ func selectIPLimitExcess(ipMap map[string]int64, liveIps []IPWithTimestamp, limi
 	return keptLive, bannedLive
 }
 
+func singleIPTakeoverPair(oldIps []IPWithTimestamp, ipMap map[string]int64, liveIps []IPWithTimestamp) (IPWithTimestamp, IPWithTimestamp, bool) {
+	if len(ipMap) != 2 || len(oldIps) == 0 {
+		return IPWithTimestamp{}, IPWithTimestamp{}, false
+	}
+
+	incumbentIP := ""
+	for _, old := range oldIps {
+		if _, exists := ipMap[old.IP]; !exists {
+			continue
+		}
+		if incumbentIP != "" && incumbentIP != old.IP {
+			return IPWithTimestamp{}, IPWithTimestamp{}, false
+		}
+		incumbentIP = old.IP
+	}
+	if incumbentIP == "" {
+		return IPWithTimestamp{}, IPWithTimestamp{}, false
+	}
+	incumbent := IPWithTimestamp{IP: incumbentIP, Timestamp: ipMap[incumbentIP]}
+	for i := len(liveIps) - 1; i >= 0; i-- {
+		if liveIps[i].IP != incumbent.IP {
+			return incumbent, liveIps[i], true
+		}
+	}
+	return IPWithTimestamp{}, IPWithTimestamp{}, false
+}
+
+func ipTakeoverProbeKey(clientEmail string, port int) string {
+	return fmt.Sprintf("%s|%d", clientEmail, port)
+}
+
+func (j *CheckClientIpJob) takeoverNow() time.Time {
+	if j.now != nil {
+		return j.now()
+	}
+	return time.Now()
+}
+
+func (j *CheckClientIpJob) takeoverTrafficBytes(ip string, port int) (uint64, error) {
+	if j.readPortTrafficBytes != nil {
+		return j.readPortTrafficBytes(ip, port)
+	}
+	return service.ReadIPLimitPortTrafficBytes(ip, port)
+}
+
+func (j *CheckClientIpJob) removeTakeoverTrafficProbe(ip string, port int) {
+	if j.removePortTrafficProbe != nil {
+		j.removePortTrafficProbe(ip, port)
+		return
+	}
+	service.RemoveIPLimitPortTrafficCounter(ip, port)
+}
+
+func (j *CheckClientIpJob) evaluateSingleIPTakeover(clientEmail string, port int, incumbent, candidate IPWithTimestamp) ipTakeoverDecision {
+	key := ipTakeoverProbeKey(clientEmail, port)
+	now := j.takeoverNow()
+
+	j.takeoverMu.Lock()
+	defer j.takeoverMu.Unlock()
+
+	if j.takeoverProbes == nil {
+		j.takeoverProbes = make(map[string]ipTakeoverProbe)
+	}
+	probe, exists := j.takeoverProbes[key]
+	if exists && (probe.incumbentIP != incumbent.IP || probe.candidateIP != candidate.IP || probe.port != port) {
+		j.removeTakeoverTrafficProbe(probe.incumbentIP, probe.port)
+		delete(j.takeoverProbes, key)
+		exists = false
+	}
+
+	if !exists {
+		baseline, err := j.takeoverTrafficBytes(incumbent.IP, port)
+		if err != nil {
+			logger.Warningf("[LIMIT_IP] failed to start traffic sample for %s:%d: %v", incumbent.IP, port, err)
+			return ipTakeoverUnavailable
+		}
+		j.takeoverProbes[key] = ipTakeoverProbe{
+			incumbentIP:  incumbent.IP,
+			candidateIP:  candidate.IP,
+			port:         port,
+			startedAt:    now,
+			baselineByte: baseline,
+		}
+		return ipTakeoverPending
+	}
+	if now.Sub(probe.startedAt) < ipTakeoverSampleWindow {
+		return ipTakeoverPending
+	}
+
+	current, err := j.takeoverTrafficBytes(probe.incumbentIP, probe.port)
+	j.removeTakeoverTrafficProbe(probe.incumbentIP, probe.port)
+	delete(j.takeoverProbes, key)
+	if err != nil {
+		logger.Warningf("[LIMIT_IP] failed to finish traffic sample for %s:%d: %v", probe.incumbentIP, probe.port, err)
+		return ipTakeoverUnavailable
+	}
+	used := current
+	if current >= probe.baselineByte {
+		used = current - probe.baselineByte
+	}
+	if used < ipTakeoverTrafficThreshold {
+		return ipTakeoverUseCandidate
+	}
+	return ipTakeoverKeepIncumbent
+}
+
+func (j *CheckClientIpJob) cancelSingleIPTakeover(clientEmail string, port int) {
+	key := ipTakeoverProbeKey(clientEmail, port)
+	j.takeoverMu.Lock()
+	defer j.takeoverMu.Unlock()
+
+	probe, exists := j.takeoverProbes[key]
+	if !exists {
+		return
+	}
+	j.removeTakeoverTrafficProbe(probe.incumbentIP, probe.port)
+	delete(j.takeoverProbes, key)
+}
+
+func (j *CheckClientIpJob) cleanupExpiredIPTakeoverProbes(now time.Time) {
+	j.takeoverMu.Lock()
+	defer j.takeoverMu.Unlock()
+
+	for key, probe := range j.takeoverProbes {
+		if now.Sub(probe.startedAt) <= 2*ipTakeoverSampleWindow {
+			continue
+		}
+		j.removeTakeoverTrafficProbe(probe.incumbentIP, probe.port)
+		delete(j.takeoverProbes, key)
+	}
+}
+
 func toServiceIPLimitIPs(entries []IPWithTimestamp) []service.IPLimitIPWithTimestamp {
 	out := make([]service.IPLimitIPWithTimestamp, 0, len(entries))
 	for _, entry := range entries {
@@ -460,6 +628,7 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	}
 
 	if !clientFound || limitIp <= 0 || !inbound.Enable || !clientEnabled {
+		j.cancelSingleIPTakeover(clientEmail, inbound.Port)
 		inboundSvc := service.InboundService{}
 		if err := inboundSvc.SyncClientIPLimitBansForInbound(clientEmail, inbound, 0, toServiceIPLimitIPs(oldIpsWithTime)); err != nil {
 			logger.Warningf("[LIMIT_IP] failed to release bans for %s: %v", clientEmail, err)
@@ -490,6 +659,39 @@ func (j *CheckClientIpJob) updateInboundClientIps(inboundClientIps *model.Inboun
 	var keptLive []IPWithTimestamp
 	var bannedLive []IPWithTimestamp
 	keptLive, bannedLive = selectIPLimitExcess(ipMap, liveIps, limitIp)
+	if limitIp == 1 {
+		incumbent, candidate, ok := singleIPTakeoverPair(oldIpsWithTime, ipMap, liveIps)
+		if ok {
+			switch j.evaluateSingleIPTakeover(clientEmail, inbound.Port, incumbent, candidate) {
+			case ipTakeoverPending:
+				// Keep the existing slot while traffic is sampled. The newcomer is
+				// allowed during this short window so a normal network switch can
+				// complete without first entering a firewall-ban loop.
+				return false
+			case ipTakeoverUseCandidate:
+				inboundSvc := service.InboundService{}
+				if inboundSvc.IsClientIPLimitCurrentlyBanned(clientEmail, candidate.IP, inbound.Port) {
+					if err := inboundSvc.UnbanClientIPLimitByEmailAndIP(clientEmail, candidate.IP, inbound.Port); err != nil {
+						logger.Warningf("[LIMIT_IP] failed to release takeover IP %s:%d: %v", candidate.IP, inbound.Port, err)
+					}
+				}
+				jsonIps, _ := json.Marshal([]IPWithTimestamp{candidate})
+				inboundClientIps.Ips = string(jsonIps)
+				if err := database.GetDB().Save(inboundClientIps).Error; err != nil {
+					logger.Error("failed to save takeover IP:", err)
+					return false
+				}
+				logger.Infof("[LIMIT_IP] Client %s switched active IP after the previous IP used less than 100 KiB in 20 seconds", clientEmail)
+				return true
+			case ipTakeoverKeepIncumbent, ipTakeoverUnavailable:
+				// Fall through to the existing strict over-limit path.
+			}
+		} else {
+			j.cancelSingleIPTakeover(clientEmail, inbound.Port)
+		}
+	} else {
+		j.cancelSingleIPTakeover(clientEmail, inbound.Port)
+	}
 	hadExcessLive := len(bannedLive) > 0
 	inboundSvc := service.InboundService{}
 	if err := inboundSvc.SyncClientIPLimitBansForInbound(clientEmail, inbound, limitIp, toServiceIPLimitIPs(sortedIps(ipMap))); err != nil {

@@ -193,6 +193,149 @@ func TestSelectIPLimitExcess_LimitThreeBansFourthByFirstSeenTime(t *testing.T) {
 	}
 }
 
+func TestSingleIPTakeoverPairUsesNewLiveIP(t *testing.T) {
+	ipMap := map[string]int64{
+		"10.0.0.1":  1000,
+		"192.0.2.9": 2000,
+	}
+	live := []IPWithTimestamp{{IP: "192.0.2.9", Timestamp: 2000}}
+
+	old := []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 900}}
+	incumbent, candidate, ok := singleIPTakeoverPair(old, ipMap, live)
+	if !ok {
+		t.Fatal("expected a single-IP takeover pair")
+	}
+	if incumbent.IP != "10.0.0.1" || candidate.IP != "192.0.2.9" {
+		t.Fatalf("takeover pair = %s/%s, want 10.0.0.1/192.0.2.9", incumbent.IP, candidate.IP)
+	}
+}
+
+func TestSingleIPTakeoverPairKeepsStoredIPWhenItsLatestLogIsNewer(t *testing.T) {
+	ipMap := map[string]int64{
+		"10.0.0.1":  3000,
+		"192.0.2.9": 2000,
+	}
+	old := []IPWithTimestamp{{IP: "10.0.0.1", Timestamp: 1000}}
+	live := []IPWithTimestamp{
+		{IP: "192.0.2.9", Timestamp: 2000},
+		{IP: "10.0.0.1", Timestamp: 3000},
+	}
+
+	incumbent, candidate, ok := singleIPTakeoverPair(old, ipMap, live)
+	if !ok {
+		t.Fatal("expected a single-IP takeover pair")
+	}
+	if incumbent.IP != "10.0.0.1" || candidate.IP != "192.0.2.9" {
+		t.Fatalf("takeover pair = %s/%s, want stored/new IP", incumbent.IP, candidate.IP)
+	}
+}
+
+func TestEvaluateSingleIPTakeoverWaitsForFullWindow(t *testing.T) {
+	now := time.Unix(1000, 0)
+	reads := 0
+	j := &CheckClientIpJob{
+		takeoverProbes: make(map[string]ipTakeoverProbe),
+		now:            func() time.Time { return now },
+		readPortTrafficBytes: func(string, int) (uint64, error) {
+			reads++
+			return 1000, nil
+		},
+		removePortTrafficProbe: func(string, int) {},
+	}
+	incumbent := IPWithTimestamp{IP: "10.0.0.1", Timestamp: 1000}
+	candidate := IPWithTimestamp{IP: "192.0.2.9", Timestamp: 2000}
+
+	if got := j.evaluateSingleIPTakeover("switch-window", 4321, incumbent, candidate); got != ipTakeoverPending {
+		t.Fatalf("initial decision = %v, want pending", got)
+	}
+	now = now.Add(ipTakeoverSampleWindow - time.Second)
+	if got := j.evaluateSingleIPTakeover("switch-window", 4321, incumbent, candidate); got != ipTakeoverPending {
+		t.Fatalf("early decision = %v, want pending", got)
+	}
+	if reads != 1 {
+		t.Fatalf("traffic reads before full window = %d, want 1", reads)
+	}
+}
+
+func TestEvaluateSingleIPTakeoverUsesCandidateBelowThreshold(t *testing.T) {
+	now := time.Unix(1000, 0)
+	values := []uint64{5000, 5000 + ipTakeoverTrafficThreshold - 1}
+	removed := 0
+	j := &CheckClientIpJob{
+		takeoverProbes: make(map[string]ipTakeoverProbe),
+		now:            func() time.Time { return now },
+		readPortTrafficBytes: func(string, int) (uint64, error) {
+			value := values[0]
+			values = values[1:]
+			return value, nil
+		},
+		removePortTrafficProbe: func(string, int) { removed++ },
+	}
+	incumbent := IPWithTimestamp{IP: "10.0.0.1", Timestamp: 1000}
+	candidate := IPWithTimestamp{IP: "192.0.2.9", Timestamp: 2000}
+
+	if got := j.evaluateSingleIPTakeover("low-traffic", 4321, incumbent, candidate); got != ipTakeoverPending {
+		t.Fatalf("initial decision = %v, want pending", got)
+	}
+	now = now.Add(ipTakeoverSampleWindow)
+	if got := j.evaluateSingleIPTakeover("low-traffic", 4321, incumbent, candidate); got != ipTakeoverUseCandidate {
+		t.Fatalf("low-traffic decision = %v, want use candidate", got)
+	}
+	if removed != 1 {
+		t.Fatalf("removed traffic probes = %d, want 1", removed)
+	}
+}
+
+func TestEvaluateSingleIPTakeoverKeepsIncumbentAtThreshold(t *testing.T) {
+	now := time.Unix(1000, 0)
+	values := []uint64{9000, 9000 + ipTakeoverTrafficThreshold}
+	j := &CheckClientIpJob{
+		takeoverProbes: make(map[string]ipTakeoverProbe),
+		now:            func() time.Time { return now },
+		readPortTrafficBytes: func(string, int) (uint64, error) {
+			value := values[0]
+			values = values[1:]
+			return value, nil
+		},
+		removePortTrafficProbe: func(string, int) {},
+	}
+	incumbent := IPWithTimestamp{IP: "10.0.0.1", Timestamp: 1000}
+	candidate := IPWithTimestamp{IP: "192.0.2.9", Timestamp: 2000}
+
+	if got := j.evaluateSingleIPTakeover("busy-incumbent", 4321, incumbent, candidate); got != ipTakeoverPending {
+		t.Fatalf("initial decision = %v, want pending", got)
+	}
+	now = now.Add(ipTakeoverSampleWindow)
+	if got := j.evaluateSingleIPTakeover("busy-incumbent", 4321, incumbent, candidate); got != ipTakeoverKeepIncumbent {
+		t.Fatalf("threshold decision = %v, want keep incumbent", got)
+	}
+}
+
+func TestCleanupExpiredIPTakeoverProbes(t *testing.T) {
+	started := time.Unix(1000, 0)
+	removed := 0
+	j := &CheckClientIpJob{
+		takeoverProbes: map[string]ipTakeoverProbe{
+			"client|4321": {
+				incumbentIP: "10.0.0.1",
+				candidateIP: "192.0.2.9",
+				port:        4321,
+				startedAt:   started,
+			},
+		},
+		removePortTrafficProbe: func(string, int) { removed++ },
+	}
+
+	j.cleanupExpiredIPTakeoverProbes(started.Add(2 * ipTakeoverSampleWindow))
+	if len(j.takeoverProbes) != 1 || removed != 0 {
+		t.Fatalf("probe removed too early: probes=%d removed=%d", len(j.takeoverProbes), removed)
+	}
+	j.cleanupExpiredIPTakeoverProbes(started.Add(2*ipTakeoverSampleWindow + time.Second))
+	if len(j.takeoverProbes) != 0 || removed != 1 {
+		t.Fatalf("expired probe cleanup failed: probes=%d removed=%d", len(j.takeoverProbes), removed)
+	}
+}
+
 func TestBuildIPLimitCutoffNotifyMessage(t *testing.T) {
 	msg := buildIPLimitCutoffNotifyMessage(
 		"user@example.com",

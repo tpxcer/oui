@@ -162,11 +162,9 @@ func ipSet(entries []IPWithTimestamp) map[string]int64 {
 	return out
 }
 
-// A fresh historical IP still reserves one of the configured IP slots.
-// With limit=1, a different IP that appears later is the newcomer and
-// must be banned even if the original IP did not emit a log line in the
-// same scan.
-func TestUpdateInboundClientIps_NewIpBannedByFreshHistoricalOriginal(t *testing.T) {
+// A fresh historical IP still reserves the configured slot when it moves at
+// least 100 KiB during the 20-second takeover sample.
+func TestUpdateInboundClientIps_NewIpBannedWhenOriginalIsBusy(t *testing.T) {
 	setupIntegrationDB(t)
 
 	const email = "ip-limit-one"
@@ -177,11 +175,24 @@ func TestUpdateInboundClientIps_NewIpBannedByFreshHistoricalOriginal(t *testing.
 		{IP: "10.0.0.1", Timestamp: now - 10*60},
 	})
 
+	sampleNow := time.Unix(now, 0)
+	values := []uint64{1000, 1000 + ipTakeoverTrafficThreshold}
 	j := NewCheckClientIpJob()
+	j.now = func() time.Time { return sampleNow }
+	j.readPortTrafficBytes = func(string, int) (uint64, error) {
+		value := values[0]
+		values = values[1:]
+		return value, nil
+	}
+	j.removePortTrafficProbe = func(string, int) {}
 	live := []IPWithTimestamp{
 		{IP: "192.0.2.9", Timestamp: now},
 	}
 
+	if shouldCleanLog := j.updateInboundClientIps(row, email, live); shouldCleanLog {
+		t.Fatal("first takeover scan must wait for the traffic window")
+	}
+	sampleNow = sampleNow.Add(ipTakeoverSampleWindow)
 	shouldCleanLog := j.updateInboundClientIps(row, email, live)
 
 	if !shouldCleanLog {
@@ -209,9 +220,53 @@ func TestUpdateInboundClientIps_NewIpBannedByFreshHistoricalOriginal(t *testing.
 	}
 }
 
-// opposite invariant: when several ips are actually live and exceed
-// the limit, the newcomer still gets banned.
-func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
+func TestUpdateInboundClientIps_LowTrafficOriginalYieldsToNewIP(t *testing.T) {
+	setupIntegrationDB(t)
+
+	const email = "ip-takeover"
+	seedInboundWithClient(t, "inbound-ip-takeover", email, 1)
+
+	nowUnix := time.Now().Unix()
+	row := seedClientIps(t, email, []IPWithTimestamp{
+		{IP: "10.0.0.1", Timestamp: nowUnix - 60},
+	})
+	live := []IPWithTimestamp{
+		{IP: "192.0.2.9", Timestamp: nowUnix},
+	}
+
+	sampleNow := time.Unix(nowUnix, 0)
+	values := []uint64{1000, 1000 + ipTakeoverTrafficThreshold - 1}
+	j := NewCheckClientIpJob()
+	j.now = func() time.Time { return sampleNow }
+	j.readPortTrafficBytes = func(string, int) (uint64, error) {
+		value := values[0]
+		values = values[1:]
+		return value, nil
+	}
+	j.removePortTrafficProbe = func(string, int) {}
+
+	if shouldClean := j.updateInboundClientIps(row, email, live); shouldClean {
+		t.Fatal("first takeover scan must wait for the traffic window")
+	}
+	if got := ipSet(readClientIps(t, email)); len(got) != 1 || got["10.0.0.1"] == 0 {
+		t.Fatalf("original IP must keep the slot during sampling, got %v", got)
+	}
+
+	sampleNow = sampleNow.Add(ipTakeoverSampleWindow)
+	if shouldClean := j.updateInboundClientIps(row, email, live); !shouldClean {
+		t.Fatal("completed low-traffic takeover must request access-log cleanup")
+	}
+	if got := ipSet(readClientIps(t, email)); len(got) != 1 || got["192.0.2.9"] == 0 {
+		t.Fatalf("new IP must replace the low-traffic original, got %v", got)
+	}
+	if body, err := os.ReadFile(readIpLimitLogPath()); err == nil && strings.Contains(string(body), "Disconnecting OLD IP") {
+		t.Fatalf("normal network takeover must not create an IP-limit ban: %s", body)
+	}
+}
+
+// Three IPs at once are not treated as a normal one-to-one network switch;
+// both newcomers go through the existing strict over-limit path immediately.
+func TestUpdateInboundClientIps_MultipleExcessLiveIPsAreStillBanned(t *testing.T) {
 	setupIntegrationDB(t)
 
 	const email = "pr4091-abuse"
@@ -223,12 +278,11 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	})
 
 	j := NewCheckClientIpJob()
-	// both live, limit=1. use distinct timestamps so sort-by-timestamp
-	// is deterministic: 10.1.0.1 is the original (older), 192.0.2.9
-	// joined later and must get banned.
+	// Three live IPs with limit=1 bypass the takeover grace window.
 	live := []IPWithTimestamp{
 		{IP: "10.1.0.1", Timestamp: now - 5},
 		{IP: "192.0.2.9", Timestamp: now},
+		{IP: "192.0.2.10", Timestamp: now + 1},
 	}
 
 	shouldCleanLog := j.updateInboundClientIps(row, email, live)
@@ -236,8 +290,8 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	if !shouldCleanLog {
 		t.Fatalf("shouldCleanLog must be true when the live set exceeds the limit")
 	}
-	if len(j.disAllowedIps) != 1 || j.disAllowedIps[0] != "192.0.2.9" {
-		t.Fatalf("expected 192.0.2.9 to be banned; disAllowedIps = %v", j.disAllowedIps)
+	if len(j.disAllowedIps) != 2 || j.disAllowedIps[0] != "192.0.2.9" || j.disAllowedIps[1] != "192.0.2.10" {
+		t.Fatalf("expected both newcomers to be banned; disAllowedIps = %v", j.disAllowedIps)
 	}
 
 	persisted := ipSet(readClientIps(t, email))
@@ -246,6 +300,9 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	}
 	if _, ok := persisted["192.0.2.9"]; ok {
 		t.Errorf("banned IP 192.0.2.9 must NOT be persisted; got %v", persisted)
+	}
+	if _, ok := persisted["192.0.2.10"]; ok {
+		t.Errorf("banned IP 192.0.2.10 must NOT be persisted; got %v", persisted)
 	}
 
 	// 3xipl.log must contain the ban line in the exact fail2ban format.
@@ -256,6 +313,10 @@ func TestUpdateInboundClientIps_ExcessLiveIpIsStillBanned(t *testing.T) {
 	wantSubstr := "[LIMIT_IP] Email = pr4091-abuse || Port = 4321 || Disconnecting OLD IP = 192.0.2.9"
 	if !contains(string(body), wantSubstr) {
 		t.Fatalf("3xipl.log missing expected ban line %q\nfull log:\n%s", wantSubstr, body)
+	}
+	wantSecond := "[LIMIT_IP] Email = pr4091-abuse || Port = 4321 || Disconnecting OLD IP = 192.0.2.10"
+	if !contains(string(body), wantSecond) {
+		t.Fatalf("3xipl.log missing expected ban line %q\nfull log:\n%s", wantSecond, body)
 	}
 }
 
