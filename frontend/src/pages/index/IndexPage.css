@@ -31,48 +31,68 @@
 .index-page .panel-download-icon {
   position: relative;
   display: inline-flex;
-  width: 1em;
-  height: 1em;
+  width: 1.45em;
+  height: 1.45em;
+  flex: 0 0 1.45em;
   align-items: center;
   justify-content: center;
-  color: currentColor;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--ant-color-primary);
+  color: #fff;
   font-size: 1em;
   line-height: 1;
-  vertical-align: -0.125em;
+  vertical-align: -0.25em;
 }
 
 .index-page .panel-download-icon .anticon {
-  color: currentColor;
+  color: #fff;
   line-height: 1;
-}
-
-.index-page .panel-download-cloud {
-  position: absolute;
-  inset: 0;
-  font-size: 1em;
 }
 
 .index-page .panel-download-arrow {
   position: absolute;
-  top: 0.18em;
+  top: 0.24em;
   left: 50%;
-  font-size: 0.54em;
+  z-index: 1;
+  font-size: 0.68em;
+  transform: translateX(-50%);
+}
+
+.index-page .panel-download-tray {
+  position: absolute;
+  bottom: 0.3em;
+  left: 50%;
+  width: 0.72em;
+  height: 0.28em;
+  border: 0.08em solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 0.14em 0.14em;
   transform: translateX(-50%);
 }
 
 .index-page .panel-download-icon.is-active .panel-download-arrow {
-  animation: panel-download-arrow 0.9s ease-in-out infinite;
+  animation: panel-download-arrow 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
 
 @keyframes panel-download-arrow {
-  0%,
-  100% {
-    transform: translate(-50%, -0.08em);
-    opacity: 0.72;
+  0% {
+    transform: translate(-50%, -0.12em);
+    opacity: 0.35;
   }
-  50% {
-    transform: translate(-50%, 0.18em);
+  70% {
+    transform: translate(-50%, 0.1em);
     opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 0.1em);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .index-page .panel-download-icon.is-active .panel-download-arrow {
+    animation: none;
   }
 }
 
@@ -112,8 +132,7 @@
 
 .index-page .index-update-lock-card > .anticon,
 .index-page .index-update-lock-card > .panel-download-icon {
-  color: var(--ant-color-primary);
-  font-size: 24px;
+  font-size: 26px;
 }
 
 .index-page .index-update-lock-card .ant-progress {
