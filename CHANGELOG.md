@@ -5,6 +5,12 @@
 - `CHANGELOG.md`：保留历史版本说明。
 - `config/release-notes/latest.md`：写入当前待发布版本说明，GitHub Release 会自动使用它作为发布正文。
 
+## 2026.7.23
+
+- 修复 GitHub CI 前端依赖安全审计红叉：升级 `axios` 和 `swagger-ui-react` 到已修复安全问题的版本。
+- 同步更新 `brace-expansion`、`js-yaml`、`immutable` 和 `dompurify` 等间接依赖，清除当前高危及低危审计告警。
+- 保持面板现有功能和界面不变，前端依赖审计恢复为 0 漏洞。
+
 ## 2026.7.21
 
 - 更新页面的下载动态图标改为蓝色实心圆、白色下载箭头和静止托盘，外观与常见下载状态图标保持一致。
