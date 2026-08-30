@@ -1,6 +1,8 @@
 package service
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/mhsanaei/3x-ui/v3/database"
@@ -58,8 +60,12 @@ func TestDelInboundRemovesOnlyTrackedFirewallRuleAfterLastConsumer(t *testing.T)
 	t.Cleanup(func() { removeManagedFirewallRuleFn = originalRemove })
 
 	svc := &InboundService{}
-	if _, err := svc.DelInbound(first.Id); err != nil {
+	_, firstResult, err := svc.DelInboundWithResult(first.Id)
+	if err != nil {
 		t.Fatalf("delete first inbound: %v", err)
+	}
+	if firstResult.Firewall != "已保留 55001/tcp（仍被其他节点使用）" || firstResult.FirewallWarning {
+		t.Fatalf("first delete result = %+v", firstResult)
 	}
 	if removed != 0 {
 		t.Fatalf("shared rule removed %d times, want 0", removed)
@@ -69,8 +75,12 @@ func TestDelInboundRemovesOnlyTrackedFirewallRuleAfterLastConsumer(t *testing.T)
 		t.Fatalf("rules after first delete = %+v, err=%v", rules, err)
 	}
 
-	if _, err := svc.DelInbound(second.Id); err != nil {
+	_, secondResult, err := svc.DelInboundWithResult(second.Id)
+	if err != nil {
 		t.Fatalf("delete second inbound: %v", err)
+	}
+	if secondResult.Firewall != "已关闭 55001/tcp" || secondResult.FirewallWarning {
+		t.Fatalf("second delete result = %+v", secondResult)
 	}
 	if removed != 1 {
 		t.Fatalf("rule removed %d times, want 1", removed)
@@ -78,6 +88,52 @@ func TestDelInboundRemovesOnlyTrackedFirewallRuleAfterLastConsumer(t *testing.T)
 	rules, err = loadManagedFirewallRules(db)
 	if err != nil || len(rules) != 0 {
 		t.Fatalf("rules after last delete = %+v, err=%v", rules, err)
+	}
+}
+
+func TestDelInboundReportsNoManagedFirewallRule(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	inbound := model.Inbound{Tag: "manual-firewall", Enable: false, Port: 55002, Protocol: model.VLESS, StreamSettings: `{"network":"tcp"}`, Settings: `{}`}
+	if err := db.Create(&inbound).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+
+	_, result, err := (&InboundService{}).DelInboundWithResult(inbound.Id)
+	if err != nil {
+		t.Fatalf("delete inbound: %v", err)
+	}
+	if result.Firewall != "无需关闭（没有 OUI 自动放行记录）" || result.FirewallWarning {
+		t.Fatalf("delete result = %+v", result)
+	}
+}
+
+func TestDelInboundReportsManagedFirewallCleanupFailure(t *testing.T) {
+	setupConflictDB(t)
+	db := database.GetDB()
+	inbound := model.Inbound{Tag: "cleanup-failure", Enable: false, Port: 55003, Protocol: model.VLESS, StreamSettings: `{"network":"tcp"}`, Settings: `{}`}
+	if err := db.Create(&inbound).Error; err != nil {
+		t.Fatalf("create inbound: %v", err)
+	}
+	rule := managedFirewallRule{InboundID: inbound.Id, Backend: "ufw", Protocol: "tcp", Start: 55003, End: 55003}
+	if err := saveManagedFirewallRules(db, []managedFirewallRule{rule}); err != nil {
+		t.Fatalf("save rules: %v", err)
+	}
+
+	originalRemove := removeManagedFirewallRuleFn
+	removeManagedFirewallRuleFn = func(managedFirewallRule) error { return errors.New("denied") }
+	t.Cleanup(func() { removeManagedFirewallRuleFn = originalRemove })
+
+	_, result, err := (&InboundService{}).DelInboundWithResult(inbound.Id)
+	if err != nil {
+		t.Fatalf("delete inbound: %v", err)
+	}
+	if !result.FirewallWarning || !strings.Contains(result.Firewall, "关闭 55003/tcp 失败") {
+		t.Fatalf("delete result = %+v", result)
+	}
+	rules, err := loadManagedFirewallRules(db)
+	if err != nil || len(rules) != 1 || rules[0] != rule {
+		t.Fatalf("rules after failed cleanup = %+v, err=%v", rules, err)
 	}
 }
 

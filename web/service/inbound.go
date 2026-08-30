@@ -613,7 +613,18 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	return inbound, needRestart, err
 }
 
+type InboundDeleteResult struct {
+	ID              int    `json:"id"`
+	Firewall        string `json:"firewall"`
+	FirewallWarning bool   `json:"firewallWarning"`
+}
+
 func (s *InboundService) DelInbound(id int) (bool, error) {
+	needRestart, _, err := s.DelInboundWithResult(id)
+	return needRestart, err
+}
+
+func (s *InboundService) DelInboundWithResult(id int) (bool, *InboundDeleteResult, error) {
 	db := database.GetDB()
 
 	needRestart := false
@@ -647,13 +658,13 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 	if loadErr == nil {
 		clients, err := s.GetClients(&ib)
 		if err != nil {
-			return false, err
+			return false, nil, err
 		}
 		inboundClients = clients
 	}
 
 	if err := s.clientService.DetachInbound(db, id); err != nil {
-		return false, err
+		return false, nil, err
 	}
 
 	if len(inboundClients) > 0 {
@@ -664,16 +675,20 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 			}
 		}
 		if _, err := s.clientService.DeleteOrphanedClientsByEmail(db, emails, false); err != nil {
-			return false, err
+			return false, nil, err
 		}
 	}
 
 	if err := db.Delete(model.Inbound{}, id).Error; err != nil {
-		return needRestart, err
+		return needRestart, nil, err
 	}
 	s.syncHysteriaPortHoppingRulesBestEffort()
-	s.cleanupManagedFirewallRulesBestEffort(id)
-	return needRestart, nil
+	cleanup := s.cleanupManagedFirewallRulesBestEffort(id)
+	return needRestart, &InboundDeleteResult{
+		ID:              id,
+		Firewall:        cleanup.Message,
+		FirewallWarning: cleanup.Warning,
+	}, nil
 }
 
 func (s *InboundService) GetInbound(id int) (*model.Inbound, error) {

@@ -76,6 +76,12 @@ interface DeleteInboundTarget {
   remark?: string;
 }
 
+interface DeleteInboundResult {
+  id: number;
+  firewall?: string;
+  firewallWarning?: boolean;
+}
+
 export default function InboundsPage() {
   const { t } = useTranslation();
   const { isDark, isUltra, antdThemeConfig } = useTheme();
@@ -373,11 +379,22 @@ export default function InboundsPage() {
       okType: 'danger',
       cancelText: t('cancel'),
       onOk: async () => {
-        const msg = await HttpUtil.post(`/panel/api/inbounds/del/${dbInbound.id}`);
-        if (msg?.success) await refresh();
+        const msg = await HttpUtil.post<DeleteInboundResult>(
+          `/panel/api/inbounds/del/${dbInbound.id}`,
+          undefined,
+          { silent: true },
+        );
+        if (!msg?.success) {
+          messageApi.error(msg?.msg || t('somethingWentWrong'));
+          return;
+        }
+        await refresh();
+        const firewall = msg.obj?.firewall || '无需关闭（没有 OUI 自动放行记录）';
+        const content = `${dbInbound.remark || `ID ${dbInbound.id}`} 已删除，防火墙：${firewall}`;
+        messageApi[msg.obj?.firewallWarning ? 'warning' : 'success'](content);
       },
     });
-  }, [modal, refresh, t]);
+  }, [modal, refresh, t, messageApi]);
 
   const confirmBulkDelete = useCallback((targets: DeleteInboundTarget[]) => new Promise<boolean>((resolve) => {
     const uniqueTargets = Array.from(new Map(targets.map((target) => [target.id, target])).values());
@@ -403,22 +420,35 @@ export default function InboundsPage() {
       onOk: async () => {
         let deleted = 0;
         let firstError = '';
+        let firewallWarning = false;
+        const firewallResults: string[] = [];
         try {
           for (const inbound of uniqueTargets) {
-            const msg = await HttpUtil.post(`/panel/api/inbounds/del/${inbound.id}`);
+            const msg = await HttpUtil.post<DeleteInboundResult>(
+              `/panel/api/inbounds/del/${inbound.id}`,
+              undefined,
+              { silent: true },
+            );
             if (msg?.success) {
               deleted += 1;
+              const name = inbound.remark || `ID ${inbound.id}`;
+              const result = msg.obj?.firewall || '无需关闭（没有 OUI 自动放行记录）';
+              firewallResults.push(`${name}：${result}`);
+              firewallWarning ||= Boolean(msg.obj?.firewallWarning);
             } else if (!firstError) {
               firstError = msg?.msg || '';
             }
           }
           await refresh();
           const failed = uniqueTargets.length - deleted;
+          const firewall = firewallResults.length > 0 ? `，防火墙：${firewallResults.join('；')}` : '';
           if (failed === 0) {
-            messageApi.success(t('pages.inbounds.toasts.bulkDeleted', { count: deleted }));
+            const content = `${t('pages.inbounds.toasts.bulkDeleted', { count: deleted })}${firewall}`;
+            messageApi[firewallWarning ? 'warning' : 'success'](content);
           } else {
             const mixed = t('pages.inbounds.toasts.bulkDeletedMixed', { ok: deleted, failed });
-            messageApi.warning(firstError ? `${mixed} — ${firstError}` : mixed);
+            const content = `${mixed}${firewall}`;
+            messageApi.warning(firstError ? `${content} — ${firstError}` : content);
           }
           finish(failed === 0);
         } catch (error) {

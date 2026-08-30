@@ -35,6 +35,11 @@ type firewallMutationResult struct {
 	Changed bool
 }
 
+type managedFirewallCleanupResult struct {
+	Message string
+	Warning bool
+}
+
 var (
 	managedFirewallMu           sync.Mutex
 	removeManagedFirewallRuleFn = removeManagedFirewallRule
@@ -120,53 +125,72 @@ func saveManagedFirewallRules(db *gorm.DB, rules []managedFirewallRule) error {
 	return db.Save(setting).Error
 }
 
-func (s *InboundService) cleanupManagedFirewallRulesBestEffort(inboundID int) {
-	if err := s.cleanupManagedFirewallRules(inboundID); err != nil {
+func (s *InboundService) cleanupManagedFirewallRulesBestEffort(inboundID int) managedFirewallCleanupResult {
+	messages, err := s.cleanupManagedFirewallRules(inboundID)
+	if err != nil {
 		logger.Warning("cleanup managed firewall rules failed for inbound", inboundID, ":", err)
+	}
+	if len(messages) == 0 {
+		if err != nil {
+			return managedFirewallCleanupResult{Message: "关闭失败，面板启动后将重试", Warning: true}
+		}
+		return managedFirewallCleanupResult{Message: "无需关闭（没有 OUI 自动放行记录）"}
+	}
+	return managedFirewallCleanupResult{
+		Message: strings.Join(messages, "；"),
+		Warning: err != nil,
 	}
 }
 
-func (s *InboundService) cleanupManagedFirewallRules(inboundID int) error {
+func (s *InboundService) cleanupManagedFirewallRules(inboundID int) ([]string, error) {
 	managedFirewallMu.Lock()
 	defer managedFirewallMu.Unlock()
 
 	db := database.GetDB()
 	rules, err := loadManagedFirewallRules(db)
 	if err != nil || len(rules) == 0 {
-		return err
+		return nil, err
 	}
 	var inbounds []*model.Inbound
 	if err := db.Model(model.Inbound{}).Find(&inbounds).Error; err != nil {
-		return err
+		return nil, err
 	}
 
 	next := make([]managedFirewallRule, 0, len(rules))
+	messages := make([]string, 0)
 	var cleanupErrs []error
 	for _, rule := range rules {
 		if inboundID != 0 && rule.InboundID != inboundID {
 			next = append(next, rule)
 			continue
 		}
+		spec := managedFirewallRuleDisplaySpec(rule)
 		if consumer := managedFirewallRuleConsumer(rule, inbounds); consumer != nil {
 			rule.InboundID = consumer.Id
 			next = append(next, rule)
+			messages = append(messages, fmt.Sprintf("已保留 %s（仍被其他节点使用）", spec))
 			continue
 		}
 		if err := removeManagedFirewallRuleFn(rule); err != nil {
 			next = append(next, rule)
-			cleanupErrs = append(cleanupErrs, err)
+			messages = append(messages, fmt.Sprintf("关闭 %s 失败，面板启动后将重试", spec))
+			cleanupErrs = append(cleanupErrs, fmt.Errorf("remove %s: %w", spec, err))
+			continue
 		}
+		messages = append(messages, fmt.Sprintf("已关闭 %s", spec))
 	}
 	if err := saveManagedFirewallRules(db, next); err != nil {
+		messages = append(messages, "自动回收记录保存失败，面板启动后将重试")
 		cleanupErrs = append(cleanupErrs, err)
 	}
-	return errors.Join(cleanupErrs...)
+	return messages, errors.Join(cleanupErrs...)
 }
 
 // ReconcileManagedFirewallRules retries stale cleanup after an interrupted
 // delete or a temporary firewall command failure.
 func (s *InboundService) ReconcileManagedFirewallRules() error {
-	return s.cleanupManagedFirewallRules(0)
+	_, err := s.cleanupManagedFirewallRules(0)
+	return err
 }
 
 func managedFirewallRuleConsumer(rule managedFirewallRule, inbounds []*model.Inbound) *model.Inbound {
@@ -280,6 +304,13 @@ func managedFirewallRuleSpec(rule managedFirewallRule) string {
 		separator = ":"
 	}
 	return fmt.Sprintf("%d%s%d/%s", rule.Start, separator, rule.End, rule.Protocol)
+}
+
+func managedFirewallRuleDisplaySpec(rule managedFirewallRule) string {
+	if rule.Start == rule.End {
+		return fmt.Sprintf("%d/%s", rule.Start, rule.Protocol)
+	}
+	return fmt.Sprintf("%d-%d/%s", rule.Start, rule.End, rule.Protocol)
 }
 
 func removeHostHardeningFirewallRule(rule managedFirewallRule) error {

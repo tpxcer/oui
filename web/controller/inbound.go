@@ -189,7 +189,7 @@ func (a *InboundController) delInbound(c *gin.Context) {
 		jsonMsg(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), err)
 		return
 	}
-	_, err = a.inboundService.DelInbound(id)
+	_, result, err := a.inboundService.DelInboundWithResult(id)
 	if err != nil {
 		jsonMsg(c, I18nWeb(c, "somethingWentWrong"), err)
 		return
@@ -197,7 +197,7 @@ func (a *InboundController) delInbound(c *gin.Context) {
 	if !syncXrayAfterMutation(c, &a.xrayService, fmt.Sprintf("inbound delete id=%d", id)) {
 		return
 	}
-	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), id, nil)
+	jsonMsgObj(c, I18nWeb(c, "pages.inbounds.toasts.inboundDeleteSuccess"), result, nil)
 	user := session.GetLoginUser(c)
 	a.broadcastInboundsUpdate(user.Id)
 	notifyClientsChanged()
