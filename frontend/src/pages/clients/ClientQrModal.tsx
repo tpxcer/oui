@@ -50,7 +50,7 @@ export default function ClientQrModal({
   const hasAnything = !!subLink || !!subJsonLink || links.length > 0;
 
   useEffect(() => {
-    if (!open || !client?.subId) {
+    if (!open || !client?.email) {
       setLinks([]);
       return;
     }
@@ -59,7 +59,7 @@ export default function ClientQrModal({
     (async () => {
       try {
         const msg = await HttpUtil.get(
-          `/panel/api/clients/subLinks/${encodeURIComponent(client.subId!)}`,
+          `/panel/api/clients/links/${encodeURIComponent(client.email)}`,
         ) as ApiMsg<string[]>;
         if (!cancelled) {
           setLinks(msg?.success && Array.isArray(msg.obj) ? msg.obj : []);
@@ -69,7 +69,7 @@ export default function ClientQrModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, client?.subId]);
+  }, [open, client?.email]);
 
   const [activeKey, setActiveKey] = useState<string[]>([]);
 
@@ -117,10 +117,7 @@ export default function ClientQrModal({
       onCancel={() => onOpenChange(false)}
     >
       <Spin spinning={loading}>
-        {!client?.subId && !loading && (
-          <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>{t('pages.clients.noSubId')}</div>
-        )}
-        {client?.subId && !hasAnything && !loading && (
+        {!hasAnything && !loading && (
           <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>{t('pages.clients.noLinks')}</div>
         )}
         {hasAnything && (

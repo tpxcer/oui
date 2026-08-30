@@ -166,17 +166,17 @@ export default function ClientInfoModal({
       setLinks([]);
       return;
     }
-    if (!client?.subId) return;
+    if (!client?.email) return;
     let cancelled = false;
     (async () => {
       const msg = await HttpUtil.get(
-        `/panel/api/clients/subLinks/${encodeURIComponent(client.subId!)}`,
+        `/panel/api/clients/links/${encodeURIComponent(client.email)}`,
       ) as ApiMsg<string[]>;
       if (cancelled) return;
       setLinks(msg?.success && Array.isArray(msg.obj) ? msg.obj : []);
     })();
     return () => { cancelled = true; };
-  }, [open, client?.subId]);
+  }, [open, client?.email]);
 
   const traffic = client?.traffic || null;
   const totalBytes = client?.totalGB || 0;

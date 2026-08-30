@@ -8,6 +8,16 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/database/model"
 )
 
+type directClientLinkProvider struct{}
+
+func (directClientLinkProvider) SubLinksForSubId(string, string) ([]string, error) {
+	return nil, nil
+}
+
+func (directClientLinkProvider) LinksForClient(_ string, _ *model.Inbound, email string) []string {
+	return []string{"vless://direct#" + email}
+}
+
 func TestDisabledSubscriptionDoesNotGenerateSubID(t *testing.T) {
 	setupConflictDB(t)
 	if err := (&SettingService{}).saveSetting("subEnable", "false"); err != nil {
@@ -62,5 +72,36 @@ func TestDisabledSubscriptionSkipsSubscriptionQRCodesWithoutError(t *testing.T) 
 	}
 	if subURL != "" || subJSONURL != "" {
 		t.Fatalf("subscription URLs = %q, %q; want empty", subURL, subJSONURL)
+	}
+}
+
+func TestDisabledSubscriptionStillProvidesIndividualClientLinks(t *testing.T) {
+	setupConflictDB(t)
+	if err := (&SettingService{}).saveSetting("subEnable", "false"); err != nil {
+		t.Fatalf("disable subscription: %v", err)
+	}
+
+	inbound := &model.Inbound{
+		Tag:            "direct-link-without-sub-id",
+		Enable:         false,
+		Port:           56002,
+		Protocol:       model.VLESS,
+		StreamSettings: `{"network":"tcp"}`,
+		Settings:       `{"clients":[{"email":"direct@example.com","id":"22222222-2222-2222-2222-222222222222","enable":true}]}`,
+	}
+	if _, _, err := (&InboundService{}).AddInbound(inbound); err != nil {
+		t.Fatalf("AddInbound: %v", err)
+	}
+
+	originalProvider := registeredSubLinkProvider
+	RegisterSubLinkProvider(directClientLinkProvider{})
+	t.Cleanup(func() { registeredSubLinkProvider = originalProvider })
+
+	links, err := (&InboundService{}).GetAllClientLinks("panel.example.com", "direct@example.com")
+	if err != nil {
+		t.Fatalf("GetAllClientLinks: %v", err)
+	}
+	if len(links) != 1 || links[0] != "vless://direct#direct@example.com" {
+		t.Fatalf("individual links = %#v", links)
 	}
 }
