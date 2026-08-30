@@ -411,6 +411,11 @@ func (s *Server) start(restartXray bool, startTgBot bool) (err error) {
 	if err := (&service.InboundService{}).SyncHysteriaPortHoppingRules(); err != nil {
 		logger.Warning("sync hysteria port hopping on startup failed:", err)
 	}
+	go func() {
+		if err := (&service.InboundService{}).ReconcileManagedFirewallRules(); err != nil {
+			logger.Warning("reconcile managed firewall rules on startup failed:", err)
+		}
+	}()
 
 	s.customGeoService = service.NewCustomGeoService()
 

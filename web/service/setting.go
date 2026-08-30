@@ -255,7 +255,7 @@ func mustString(value string, _ error) string {
 
 func (s *SettingService) ResetSettings() error {
 	db := database.GetDB()
-	err := db.Where("1 = 1").Delete(model.Setting{}).Error
+	err := db.Where("key <> ?", managedFirewallRulesSettingKey).Delete(model.Setting{}).Error
 	if err != nil {
 		return err
 	}

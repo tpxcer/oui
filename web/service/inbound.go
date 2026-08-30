@@ -672,6 +672,7 @@ func (s *InboundService) DelInbound(id int) (bool, error) {
 		return needRestart, err
 	}
 	s.syncHysteriaPortHoppingRulesBestEffort()
+	s.cleanupManagedFirewallRulesBestEffort(id)
 	return needRestart, nil
 }
 
@@ -712,6 +713,9 @@ func (s *InboundService) ensureInboundStreamSettings(db *gorm.DB, inbound *model
 
 func (s *InboundService) ensureInboundClientSubIDs(db *gorm.DB, inbound *model.Inbound) {
 	if inbound == nil || strings.TrimSpace(inbound.Settings) == "" {
+		return
+	}
+	if !subscriptionAutoIDsEnabled() {
 		return
 	}
 	var raw map[string]json.RawMessage

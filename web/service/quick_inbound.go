@@ -12,12 +12,13 @@ type QuickInboundPresetInfo struct {
 }
 
 type QuickInboundResult struct {
-	Inbound     *model.Inbound `json:"inbound"`
-	Email       string         `json:"email"`
-	Firewall    string         `json:"firewall"`
-	PortHopping string         `json:"portHopping"`
-	PresetKey   string         `json:"presetKey"`
-	PresetLabel string         `json:"presetLabel"`
+	Inbound            *model.Inbound `json:"inbound"`
+	Email              string         `json:"email"`
+	Firewall           string         `json:"firewall"`
+	PortHopping        string         `json:"portHopping"`
+	PresetKey          string         `json:"presetKey"`
+	PresetLabel        string         `json:"presetLabel"`
+	SubscriptionEnable bool           `json:"-"`
 }
 
 type QuickInboundService struct {
@@ -61,7 +62,11 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	}
 	helper.SetHostname()
 
-	inbound, email, err := helper.buildQuickInbound(key)
+	subscriptionEnable, err := s.settingService.GetSubEnable()
+	if err != nil {
+		return nil, err
+	}
+	inbound, email, err := helper.buildQuickInbound(key, subscriptionEnable)
 	if err != nil {
 		return nil, err
 	}
@@ -78,16 +83,28 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	websocket.BroadcastInvalidate(websocket.MessageTypeClients)
 
 	portHopping := hysteriaPortHoppingRangeFromInbound(created)
-	firewall := allowInboundPort(created.Port, preset.Transport)
+	baseFirewall := allowInboundPortTracked(created.Port, preset.Transport)
+	protocol := "tcp"
+	if preset.Transport == "udp" {
+		protocol = "udp"
+	}
+	firewall := trackManagedFirewallChange(created.Id, created.Port, created.Port, protocol, baseFirewall)
 	if portHopping != "" {
-		firewall += "；" + allowInboundPortRange(portHopping, preset.Transport)
+		start, end, _, parseErr := parseHysteriaPortRange(portHopping)
+		if parseErr != nil {
+			firewall += "；端口跳跃范围无效：" + parseErr.Error()
+		} else {
+			rangeFirewall := allowInboundPortRangeTracked(portHopping, preset.Transport)
+			firewall += "；" + trackManagedFirewallChange(created.Id, start, end, protocol, rangeFirewall)
+		}
 	}
 	return &QuickInboundResult{
-		Inbound:     created,
-		Email:       email,
-		Firewall:    firewall,
-		PortHopping: portHopping,
-		PresetKey:   preset.Key,
-		PresetLabel: preset.Label,
+		Inbound:            created,
+		Email:              email,
+		Firewall:           firewall,
+		PortHopping:        portHopping,
+		PresetKey:          preset.Key,
+		PresetLabel:        preset.Label,
+		SubscriptionEnable: subscriptionEnable,
 	}, nil
 }

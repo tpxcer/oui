@@ -1405,8 +1405,8 @@ func marshalString(v any) (string, error) {
 	return string(b), nil
 }
 
-func quickClient(emailPrefix string, id string, auth string, flow string) model.Client {
-	return model.Client{
+func quickClient(emailPrefix string, id string, auth string, flow string, subscriptionEnable bool) model.Client {
+	client := model.Client{
 		ID:         id,
 		Flow:       flow,
 		Auth:       auth,
@@ -1416,13 +1416,16 @@ func quickClient(emailPrefix string, id string, auth string, flow string) model.
 		ExpiryTime: 0,
 		Enable:     true,
 		TgID:       0,
-		SubID:      randomStringFromCrypto(16),
 		Reset:      0,
 	}
+	if subscriptionEnable {
+		client.SubID = randomStringFromCrypto(16)
+	}
+	return client
 }
 
-func quickHysteriaClient(emailPrefix string, auth string) model.Client {
-	return quickClient(emailPrefix, uuid.NewString(), auth, "")
+func quickHysteriaClient(emailPrefix string, auth string, subscriptionEnable bool) model.Client {
+	return quickClient(emailPrefix, uuid.NewString(), auth, "", subscriptionEnable)
 }
 
 func randomStringFromCrypto(length int) string {
@@ -1538,7 +1541,7 @@ func (t *Tgbot) quickVlessEncryption() (string, string) {
 	return "none", "none"
 }
 
-func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
+func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.Inbound, string, error) {
 	preset, ok := tgQuickPresets[key]
 	if !ok {
 		return nil, "", common.NewError("unknown quick preset:", key)
@@ -1574,7 +1577,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		}
 		tlsSettings["alpn"] = []string{"h3"}
 		auth := t.randomLowerAndNum(16)
-		client := quickHysteriaClient(preset.EmailPrefix, auth)
+		client := quickHysteriaClient(preset.EmailPrefix, auth, subscriptionEnable)
 		email = client.Email
 		settings = map[string]any{
 			"version": 2,
@@ -1595,7 +1598,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 			},
 		}
 	case "vlessReality":
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "xtls-rprx-vision")
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "xtls-rprx-vision", subscriptionEnable)
 		email = client.Email
 		realitySettings, err := t.quickRealitySettings()
 		if err != nil {
@@ -1617,7 +1620,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 		if err != nil {
 			return nil, "", err
 		}
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "")
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "", subscriptionEnable)
 		email = client.Email
 		decryption, encryption := t.quickVlessEncryption()
 		settings = map[string]any{
@@ -1644,7 +1647,7 @@ func (t *Tgbot) buildQuickInbound(key string) (*model.Inbound, string, error) {
 			},
 		}
 	case "vlessXhttpReality":
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "")
+		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "", subscriptionEnable)
 		email = client.Email
 		realitySettings, err := t.quickRealitySettings()
 		if err != nil {
@@ -1741,18 +1744,20 @@ func (t *Tgbot) createQuickConfig(chatId int64, key string) {
 		html.EscapeString(result.Email),
 		html.EscapeString(result.Firewall),
 	))
-	t.sendClientSubLinks(chatId, result.Email)
+	if result.SubscriptionEnable {
+		t.sendClientSubLinks(chatId, result.Email)
+	}
 	t.sendClientIndividualLinks(chatId, result.Email)
 	t.sendClientQRLinks(chatId, result.Email)
 }
 
-func allowInboundPort(port int, transport string) string {
+func allowInboundPortTracked(port int, transport string) firewallMutationResult {
 	protocols := []string{"tcp"}
 	if transport == "udp" {
 		protocols = []string{"udp"}
 	}
-	if msg, handled := allowInboundPortWithHostHardening(port, protocols); handled {
-		return msg
+	if result, handled := allowInboundPortWithHostHardening(port, protocols); handled {
+		return result
 	}
 	ufwInactive := false
 	if path, err := exec.LookPath("ufw"); err == nil {
@@ -1760,42 +1765,58 @@ func allowInboundPort(port int, transport string) string {
 			ufwInactive = true
 		} else {
 			var errs []string
+			changed := false
 			for _, proto := range protocols {
+				spec := fmt.Sprintf("%d/%s", port, proto)
+				if ufwRuleExists(path, spec) {
+					continue
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d/%s", port, proto)).Run()
+				err := exec.CommandContext(ctx, path, "allow", spec).Run()
 				cancel()
 				if err != nil {
 					errs = append(errs, err.Error())
+				} else {
+					changed = true
 				}
 			}
 			if len(errs) == 0 {
-				return fmt.Sprintf("ufw 已放行 %d/%s", port, strings.Join(protocols, ","))
+				return firewallMutationResult{Message: fmt.Sprintf("ufw 已放行 %d/%s", port, strings.Join(protocols, ",")), Backend: "ufw", Changed: changed}
 			}
-			return "ufw 放行失败：" + strings.Join(errs, "; ")
+			return firewallMutationResult{Message: "ufw 放行失败：" + strings.Join(errs, "; ")}
 		}
 	}
 	if path, err := exec.LookPath("firewall-cmd"); err == nil {
 		var errs []string
+		changed := false
 		for _, proto := range protocols {
+			spec := fmt.Sprintf("%d/%s", port, proto)
+			if firewalldPortExists(path, spec) {
+				continue
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", fmt.Sprintf("%d/%s", port, proto)).Run()
+			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", spec).Run()
 			cancel()
 			if err != nil {
 				errs = append(errs, err.Error())
+			} else {
+				changed = true
 			}
 		}
 		if len(errs) == 0 {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = exec.CommandContext(ctx, path, "--reload").Run()
-			cancel()
-			return fmt.Sprintf("firewalld 已放行 %d/%s", port, strings.Join(protocols, ","))
+			if changed {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = exec.CommandContext(ctx, path, "--reload").Run()
+				cancel()
+			}
+			return firewallMutationResult{Message: fmt.Sprintf("firewalld 已放行 %d/%s", port, strings.Join(protocols, ",")), Backend: "firewalld", Changed: changed}
 		}
-		return "firewalld 放行失败：" + strings.Join(errs, "; ")
+		return firewallMutationResult{Message: "firewalld 放行失败：" + strings.Join(errs, "; ")}
 	}
 	if ufwInactive {
-		return "ufw 未启用，请手动放行端口"
+		return firewallMutationResult{Message: "ufw 未启用，请手动放行端口"}
 	}
-	return "未检测到 ufw/firewalld，请手动放行端口"
+	return firewallMutationResult{Message: "未检测到 ufw/firewalld，请手动放行端口"}
 }
 
 func displayQuickPortHopping(value string) string {
@@ -1805,17 +1826,17 @@ func displayQuickPortHopping(value string) string {
 	return value
 }
 
-func allowInboundPortRange(portRange string, transport string) string {
+func allowInboundPortRangeTracked(portRange string, transport string) firewallMutationResult {
 	start, end, normalized, err := parseHysteriaPortRange(portRange)
 	if err != nil {
-		return "端口跳跃范围无效：" + err.Error()
+		return firewallMutationResult{Message: "端口跳跃范围无效：" + err.Error()}
 	}
 	protocols := []string{"tcp"}
 	if transport == "udp" {
 		protocols = []string{"udp"}
 	}
-	if msg, handled := allowInboundPortRangeWithHostHardening(start, end, protocols); handled {
-		return msg
+	if result, handled := allowInboundPortRangeWithHostHardening(start, end, protocols); handled {
+		return result
 	}
 	ufwInactive := false
 	if path, err := exec.LookPath("ufw"); err == nil {
@@ -1823,42 +1844,58 @@ func allowInboundPortRange(portRange string, transport string) string {
 			ufwInactive = true
 		} else {
 			var errs []string
+			changed := false
 			for _, proto := range protocols {
+				spec := fmt.Sprintf("%d:%d/%s", start, end, proto)
+				if ufwRuleExists(path, spec) {
+					continue
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				err := exec.CommandContext(ctx, path, "allow", fmt.Sprintf("%d:%d/%s", start, end, proto)).Run()
+				err := exec.CommandContext(ctx, path, "allow", spec).Run()
 				cancel()
 				if err != nil {
 					errs = append(errs, err.Error())
+				} else {
+					changed = true
 				}
 			}
 			if len(errs) == 0 {
-				return fmt.Sprintf("ufw 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ","))
+				return firewallMutationResult{Message: fmt.Sprintf("ufw 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), Backend: "ufw", Changed: changed}
 			}
-			return "ufw 放行端口跳跃失败：" + strings.Join(errs, "; ")
+			return firewallMutationResult{Message: "ufw 放行端口跳跃失败：" + strings.Join(errs, "; ")}
 		}
 	}
 	if path, err := exec.LookPath("firewall-cmd"); err == nil {
 		var errs []string
+		changed := false
 		for _, proto := range protocols {
+			spec := fmt.Sprintf("%d-%d/%s", start, end, proto)
+			if firewalldPortExists(path, spec) {
+				continue
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", fmt.Sprintf("%d-%d/%s", start, end, proto)).Run()
+			err := exec.CommandContext(ctx, path, "--permanent", "--add-port", spec).Run()
 			cancel()
 			if err != nil {
 				errs = append(errs, err.Error())
+			} else {
+				changed = true
 			}
 		}
 		if len(errs) == 0 {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = exec.CommandContext(ctx, path, "--reload").Run()
-			cancel()
-			return fmt.Sprintf("firewalld 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ","))
+			if changed {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_ = exec.CommandContext(ctx, path, "--reload").Run()
+				cancel()
+			}
+			return firewallMutationResult{Message: fmt.Sprintf("firewalld 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), Backend: "firewalld", Changed: changed}
 		}
-		return "firewalld 放行端口跳跃失败：" + strings.Join(errs, "; ")
+		return firewallMutationResult{Message: "firewalld 放行端口跳跃失败：" + strings.Join(errs, "; ")}
 	}
 	if ufwInactive {
-		return "ufw 未启用，请手动放行端口跳跃范围"
+		return firewallMutationResult{Message: "ufw 未启用，请手动放行端口跳跃范围"}
 	}
-	return "未检测到 ufw/firewalld，请手动放行端口跳跃范围"
+	return firewallMutationResult{Message: "未检测到 ufw/firewalld，请手动放行端口跳跃范围"}
 }
 
 const hostHardeningNftPath = "/etc/nftables.d/host_hardening.nft"
@@ -1873,42 +1910,82 @@ func isUfwActive(path string) bool {
 	return strings.Contains(strings.ToLower(string(output)), "status: active")
 }
 
-func allowInboundPortWithHostHardening(port int, protocols []string) (string, bool) {
+func ufwRuleExists(path, spec string) bool {
+	exists, _ := ufwRuleExistsWithError(path, spec)
+	return exists
+}
+
+func ufwRuleExistsWithError(path, spec string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	output, err := exec.CommandContext(ctx, path, "status").CombinedOutput()
+	cancel()
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == spec {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func firewalldPortExists(path, spec string) bool {
+	exists, _ := firewalldPortExistsWithError(path, spec)
+	return exists
+}
+
+func firewalldPortExistsWithError(path, spec string) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	output, err := exec.CommandContext(ctx, path, "--permanent", "--query-port="+spec).CombinedOutput()
+	cancel()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("firewalld query %s: %w: %s", spec, err, strings.TrimSpace(string(output)))
+}
+
+func allowInboundPortWithHostHardening(port int, protocols []string) (firewallMutationResult, bool) {
 	if port <= 0 || port > 65535 {
-		return fmt.Sprintf("端口无效：%d", port), true
+		return firewallMutationResult{Message: fmt.Sprintf("端口无效：%d", port)}, true
 	}
 	if _, err := os.Stat(hostHardeningNftPath); err != nil {
 		if os.IsNotExist(err) {
-			return "", false
+			return firewallMutationResult{}, false
 		}
-		return "nftables 配置检测失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 配置检测失败：" + err.Error()}, true
 	}
 	if _, err := exec.LookPath("nft"); err != nil {
-		return "检测到 host_hardening，但未找到 nft 命令，请手动放行端口", true
+		return firewallMutationResult{Message: "检测到 host_hardening，但未找到 nft 命令，请手动放行端口"}, true
 	}
 
 	original, err := os.ReadFile(hostHardeningNftPath)
 	if err != nil {
-		return "读取 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "读取 nftables 配置失败：" + err.Error()}, true
 	}
 	content := string(original)
 	changed := false
 	for _, proto := range protocols {
 		updated, didChange, err := addPortToNftDportRule(content, proto, port)
 		if err != nil {
-			return "nftables 放行失败：" + err.Error(), true
+			return firewallMutationResult{Message: "nftables 放行失败：" + err.Error()}, true
 		}
 		content = updated
 		changed = changed || didChange
 	}
 	if !changed {
-		return fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), true
+		return firewallMutationResult{Message: fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), Backend: "host-hardening"}, true
 	}
 
 	dir := filepath.Dir(hostHardeningNftPath)
 	tmp, err := os.CreateTemp(dir, ".host_hardening-*.nft")
 	if err != nil {
-		return "创建 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "创建 nftables 临时配置失败：" + err.Error()}, true
 	}
 	tmpPath := tmp.Name()
 	ok := false
@@ -1919,73 +1996,73 @@ func allowInboundPortWithHostHardening(port int, protocols []string) (string, bo
 		}
 	}()
 	if _, err := tmp.WriteString(content); err != nil {
-		return "写入 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "写入 nftables 临时配置失败：" + err.Error()}, true
 	}
 	if err := tmp.Chmod(0644); err != nil {
-		return "设置 nftables 临时配置权限失败：" + err.Error(), true
+		return firewallMutationResult{Message: "设置 nftables 临时配置权限失败：" + err.Error()}, true
 	}
 	if err := tmp.Close(); err != nil {
-		return "关闭 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "关闭 nftables 临时配置失败：" + err.Error()}, true
 	}
 
 	if err := runNftConfigCheck(tmpPath); err != nil {
-		return "nftables 配置校验失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 配置校验失败：" + err.Error()}, true
 	}
 
 	backupPath := fmt.Sprintf("%s.bak.%s", hostHardeningNftPath, time.Now().Format("20060102150405"))
 	if err := os.WriteFile(backupPath, original, 0644); err != nil {
-		return "备份 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "备份 nftables 配置失败：" + err.Error()}, true
 	}
 	if err := os.Rename(tmpPath, hostHardeningNftPath); err != nil {
-		return "保存 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "保存 nftables 配置失败：" + err.Error()}, true
 	}
 	ok = true
 
 	if err := reloadHostHardeningFirewall(); err != nil {
 		_ = os.WriteFile(hostHardeningNftPath, original, 0644)
 		_ = reloadHostHardeningFirewall()
-		return "nftables 重载失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 重载失败：" + err.Error()}, true
 	}
-	return fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), true
+	return firewallMutationResult{Message: fmt.Sprintf("nftables 已放行 %d/%s", port, strings.Join(protocols, ",")), Backend: "host-hardening", Changed: true}, true
 }
 
-func allowInboundPortRangeWithHostHardening(start int, end int, protocols []string) (string, bool) {
+func allowInboundPortRangeWithHostHardening(start int, end int, protocols []string) (firewallMutationResult, bool) {
 	if start <= 0 || start > 65535 || end <= 0 || end > 65535 || start > end {
-		return fmt.Sprintf("端口跳跃范围无效：%d-%d", start, end), true
+		return firewallMutationResult{Message: fmt.Sprintf("端口跳跃范围无效：%d-%d", start, end)}, true
 	}
 	if _, err := os.Stat(hostHardeningNftPath); err != nil {
 		if os.IsNotExist(err) {
-			return "", false
+			return firewallMutationResult{}, false
 		}
-		return "nftables 配置检测失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 配置检测失败：" + err.Error()}, true
 	}
 	if _, err := exec.LookPath("nft"); err != nil {
-		return "检测到 host_hardening，但未找到 nft 命令，请手动放行端口跳跃范围", true
+		return firewallMutationResult{Message: "检测到 host_hardening，但未找到 nft 命令，请手动放行端口跳跃范围"}, true
 	}
 
 	original, err := os.ReadFile(hostHardeningNftPath)
 	if err != nil {
-		return "读取 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "读取 nftables 配置失败：" + err.Error()}, true
 	}
 	content := string(original)
 	changed := false
 	for _, proto := range protocols {
 		updated, didChange, err := addPortRangeToNftDportRule(content, proto, start, end)
 		if err != nil {
-			return "nftables 放行端口跳跃失败：" + err.Error(), true
+			return firewallMutationResult{Message: "nftables 放行端口跳跃失败：" + err.Error()}, true
 		}
 		content = updated
 		changed = changed || didChange
 	}
 	normalized := fmt.Sprintf("%d-%d", start, end)
 	if !changed {
-		return fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), true
+		return firewallMutationResult{Message: fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), Backend: "host-hardening"}, true
 	}
 
 	dir := filepath.Dir(hostHardeningNftPath)
 	tmp, err := os.CreateTemp(dir, ".host_hardening-*.nft")
 	if err != nil {
-		return "创建 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "创建 nftables 临时配置失败：" + err.Error()}, true
 	}
 	tmpPath := tmp.Name()
 	ok := false
@@ -1996,33 +2073,33 @@ func allowInboundPortRangeWithHostHardening(start int, end int, protocols []stri
 		}
 	}()
 	if _, err := tmp.WriteString(content); err != nil {
-		return "写入 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "写入 nftables 临时配置失败：" + err.Error()}, true
 	}
 	if err := tmp.Chmod(0644); err != nil {
-		return "设置 nftables 临时配置权限失败：" + err.Error(), true
+		return firewallMutationResult{Message: "设置 nftables 临时配置权限失败：" + err.Error()}, true
 	}
 	if err := tmp.Close(); err != nil {
-		return "关闭 nftables 临时配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "关闭 nftables 临时配置失败：" + err.Error()}, true
 	}
 	if err := runNftConfigCheck(tmpPath); err != nil {
-		return "nftables 配置校验失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 配置校验失败：" + err.Error()}, true
 	}
 
 	backupPath := fmt.Sprintf("%s.bak.%s", hostHardeningNftPath, time.Now().Format("20060102150405"))
 	if err := os.WriteFile(backupPath, original, 0644); err != nil {
-		return "备份 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "备份 nftables 配置失败：" + err.Error()}, true
 	}
 	if err := os.Rename(tmpPath, hostHardeningNftPath); err != nil {
-		return "保存 nftables 配置失败：" + err.Error(), true
+		return firewallMutationResult{Message: "保存 nftables 配置失败：" + err.Error()}, true
 	}
 	ok = true
 
 	if err := reloadHostHardeningFirewall(); err != nil {
 		_ = os.WriteFile(hostHardeningNftPath, original, 0644)
 		_ = reloadHostHardeningFirewall()
-		return "nftables 重载失败：" + err.Error(), true
+		return firewallMutationResult{Message: "nftables 重载失败：" + err.Error()}, true
 	}
-	return fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), true
+	return firewallMutationResult{Message: fmt.Sprintf("nftables 已放行端口跳跃 %s/%s", normalized, strings.Join(protocols, ",")), Backend: "host-hardening", Changed: true}, true
 }
 
 func runNftConfigCheck(path string) error {
@@ -2076,13 +2153,14 @@ func addPortToNftDportRule(content, proto string, port int) (string, bool, error
 	}
 
 	portsText := content[match[4]:match[5]]
-	ports, hasPort := parseNftPortSet(portsText)
-	if hasPort[port] {
+	entries := parseNftPortSetEntries(portsText)
+	entry := strconv.Itoa(port)
+	if slices.Contains(entries, entry) {
 		return content, false, nil
 	}
-	ports = append(ports, port)
-	slices.Sort(ports)
-	replacement := content[match[2]:match[3]] + formatNftPortSet(ports) + content[match[6]:match[7]]
+	entries = append(entries, entry)
+	sortNftPortSetEntries(entries)
+	replacement := content[match[2]:match[3]] + strings.Join(entries, ", ") + content[match[6]:match[7]]
 	return content[:match[0]] + replacement + content[match[1]:], true, nil
 }
 
@@ -2118,8 +2196,90 @@ func addPortRangeToNftDportRule(content, proto string, start int, end int) (stri
 		}
 	}
 	entries = append(entries, entry)
+	sortNftPortSetEntries(entries)
 	replacement := content[match[2]:match[3]] + strings.Join(entries, ", ") + content[match[6]:match[7]]
 	return content[:match[0]] + replacement + content[match[1]:], true, nil
+}
+
+func removePortFromNftDportRule(content, proto string, port int) (string, bool, error) {
+	return removeNftDportEntry(content, proto, strconv.Itoa(port))
+}
+
+func removePortRangeFromNftDportRule(content, proto string, start, end int) (string, bool, error) {
+	if start <= 0 || start > 65535 || end <= 0 || end > 65535 || start > end {
+		return content, false, fmt.Errorf("invalid port range: %d-%d", start, end)
+	}
+	entry := fmt.Sprintf("%d-%d", start, end)
+	if start == end {
+		entry = strconv.Itoa(start)
+	}
+	return removeNftDportEntry(content, proto, entry)
+}
+
+func removeNftDportEntry(content, proto, entry string) (string, bool, error) {
+	proto = strings.ToLower(strings.TrimSpace(proto))
+	if proto != "tcp" && proto != "udp" {
+		return content, false, fmt.Errorf("unsupported nft protocol: %s", proto)
+	}
+	re := regexp.MustCompile(`(?m)(\s*` + regexp.QuoteMeta(proto) + `\s+dport\s+\{)([^}]*)((?:\}\s+accept))`)
+	match := re.FindStringSubmatchIndex(content)
+	if match == nil {
+		return content, false, nil
+	}
+	entries := parseNftPortSetEntries(content[match[4]:match[5]])
+	filtered := entries[:0]
+	found := false
+	for _, current := range entries {
+		if current == entry {
+			found = true
+			continue
+		}
+		filtered = append(filtered, current)
+	}
+	if !found {
+		return content, false, nil
+	}
+	if len(filtered) == 0 {
+		return content[:match[0]] + content[match[1]:], true, nil
+	}
+	sortNftPortSetEntries(filtered)
+	replacement := content[match[2]:match[3]] + strings.Join(filtered, ", ") + content[match[6]:match[7]]
+	return content[:match[0]] + replacement + content[match[1]:], true, nil
+}
+
+func sortNftPortSetEntries(entries []string) {
+	slices.SortFunc(entries, func(a, b string) int {
+		startA, _, okA := parseNftPortSetEntry(a)
+		startB, _, okB := parseNftPortSetEntry(b)
+		if okA && okB {
+			if startA < startB {
+				return -1
+			}
+			if startA > startB {
+				return 1
+			}
+		}
+		return strings.Compare(a, b)
+	})
+}
+
+func parseNftPortSetEntry(entry string) (int, int, bool) {
+	parts := strings.FieldsFunc(strings.TrimSpace(entry), func(r rune) bool { return r == '-' || r == ':' })
+	if len(parts) == 0 || len(parts) > 2 {
+		return 0, 0, false
+	}
+	start, err := strconv.Atoi(parts[0])
+	if err != nil || start <= 0 || start > 65535 {
+		return 0, 0, false
+	}
+	end := start
+	if len(parts) == 2 {
+		end, err = strconv.Atoi(parts[1])
+		if err != nil || end < start || end > 65535 {
+			return 0, 0, false
+		}
+	}
+	return start, end, true
 }
 
 func parseNftPortSetEntries(value string) []string {
@@ -3846,6 +4006,13 @@ func cleanTelegramLinks(links []string) []string {
 
 // buildSubscriptionURLs builds the HTML sub page URL and JSON subscription URL for a client email
 func (t *Tgbot) buildSubscriptionURLs(email string) (string, string, error) {
+	subEnable, err := t.settingService.GetSubEnable()
+	if err != nil {
+		return "", "", err
+	}
+	if !subEnable {
+		return "", "", errors.New("订阅服务未启用")
+	}
 	// Resolve subId from client email
 	traffic, client, err := t.getPanelClientByEmail(email)
 	_ = traffic
@@ -3988,9 +4155,10 @@ func (t *Tgbot) sendClientIndividualLinks(chatId int64, email string) {
 	}
 }
 
-// sendClientQRLinks generates QR images for subscription URL, JSON URL, and a few individual links, then sends them
+// sendClientQRLinks generates subscription QR codes when the subscription
+// service is enabled, followed by a few individual node QR codes.
 func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
-	subURL, subJsonURL, err := t.buildSubscriptionURLs(email)
+	subURL, subJsonURL, err := t.optionalSubscriptionURLs(email)
 	if err != nil {
 		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
 		return
@@ -4007,15 +4175,17 @@ func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
 	// Inform user
 	t.SendMsgToTgbot(chatId, "QRCode"+":")
 
-	// Send sub URL QR (filename: sub.png)
-	if png, err := createQR(subURL, 320); err == nil {
-		document := tu.Document(
-			tu.ID(chatId),
-			tu.FileFromBytes(png, "sub.png"),
-		)
-		_, _ = bot.SendDocument(context.Background(), document)
-	} else {
-		t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+	// Send sub URL QR (filename: sub.png) only when subscriptions are enabled.
+	if subURL != "" {
+		if png, err := createQR(subURL, 320); err == nil {
+			document := tu.Document(
+				tu.ID(chatId),
+				tu.FileFromBytes(png, "sub.png"),
+			)
+			_, _ = bot.SendDocument(context.Background(), document)
+		} else {
+			t.SendMsgToTgbot(chatId, t.I18nBot("tgbot.answers.errorOperation")+"\r\n"+err.Error())
+		}
 	}
 
 	// Send JSON URL QR (filename: subjson.png) when available
@@ -4054,6 +4224,17 @@ func (t *Tgbot) sendClientQRLinks(chatId int64, email string) {
 			}
 		}
 	}
+}
+
+func (t *Tgbot) optionalSubscriptionURLs(email string) (string, string, error) {
+	enabled, err := t.settingService.GetSubEnable()
+	if err != nil {
+		return "", "", err
+	}
+	if !enabled {
+		return "", "", nil
+	}
+	return t.buildSubscriptionURLs(email)
 }
 
 // SendMsgToTgbotAdmins sends a message to all admin Telegram chats.

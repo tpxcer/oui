@@ -68,7 +68,7 @@ func TestAddPortToNftDportRuleInsertsBeforeDrop(t *testing.T) {
 }
 
 func TestQuickHysteriaClientGeneratesUUIDAndAuth(t *testing.T) {
-	client := quickHysteriaClient("hy2", "auth-token")
+	client := quickHysteriaClient("hy2", "auth-token", true)
 
 	if client.ID == "" {
 		t.Fatal("expected Hysteria2 quick client UUID to be generated")
@@ -81,6 +81,56 @@ func TestQuickHysteriaClientGeneratesUUIDAndAuth(t *testing.T) {
 	}
 	if !strings.HasPrefix(client.Email, "hy2-") {
 		t.Fatalf("email = %q, want hy2-*", client.Email)
+	}
+}
+
+func TestQuickClientSkipsSubIDWhenSubscriptionDisabled(t *testing.T) {
+	client := quickClient("vless", uuid.NewString(), "", "", false)
+	if client.SubID != "" {
+		t.Fatalf("subId = %q, want empty when subscription is disabled", client.SubID)
+	}
+
+	enabled := quickClient("vless", uuid.NewString(), "", "", true)
+	if enabled.SubID == "" {
+		t.Fatal("expected subId when subscription is enabled")
+	}
+}
+
+func TestRemoveNftDportEntriesPreservesOtherPortsAndRanges(t *testing.T) {
+	input := `table inet host_hardening {
+  chain input {
+    udp dport {40000-40199, 50000, 51000-51199, 62000} accept
+    counter drop
+  }
+}`
+
+	got, changed, err := removePortFromNftDportRule(input, "udp", 50000)
+	if err != nil || !changed {
+		t.Fatalf("remove port: changed=%v err=%v", changed, err)
+	}
+	got, changed, err = removePortRangeFromNftDportRule(got, "udp", 51000, 51199)
+	if err != nil || !changed {
+		t.Fatalf("remove range: changed=%v err=%v", changed, err)
+	}
+	if !strings.Contains(got, "udp dport {40000-40199, 62000} accept") {
+		t.Fatalf("unexpected remaining nft rule:\n%s", got)
+	}
+}
+
+func TestAddNftPortPreservesExistingRange(t *testing.T) {
+	input := `table inet host_hardening {
+  chain input {
+    udp dport {40000-40199, 62000} accept
+    counter drop
+  }
+}`
+
+	got, changed, err := addPortToNftDportRule(input, "udp", 50000)
+	if err != nil || !changed {
+		t.Fatalf("add port: changed=%v err=%v", changed, err)
+	}
+	if !strings.Contains(got, "udp dport {40000-40199, 50000, 62000} accept") {
+		t.Fatalf("existing range was not preserved:\n%s", got)
 	}
 }
 

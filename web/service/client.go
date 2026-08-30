@@ -191,6 +191,7 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 	if tx == nil {
 		tx = database.GetDB()
 	}
+	autoSubIDs := subscriptionAutoIDsEnabled()
 
 	if err := tx.Where("inbound_id = ?", inboundId).Delete(&model.ClientInbound{}).Error; err != nil {
 		return err
@@ -204,7 +205,7 @@ func (s *ClientService) SyncInbound(tx *gorm.DB, inboundId int, clients []model.
 		}
 
 		incoming := c.ToRecord()
-		if incoming.SubID == "" {
+		if incoming.SubID == "" && autoSubIDs {
 			incoming.SubID = uuid.NewString()
 		}
 		row := &model.ClientRecord{}
