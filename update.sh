@@ -13,6 +13,9 @@ trap '' HUP
 xui_folder="${XUI_MAIN_FOLDER:=/usr/local/x-ui}"
 xui_service="${XUI_SERVICE:=/etc/systemd/system}"
 xui_service_update_started=false
+preserved_xray_backup=""
+preserved_xray_target=""
+preserved_xray_version=""
 
 # Don't edit this config
 b_source="${BASH_SOURCE[0]}"
@@ -36,26 +39,26 @@ _fail() {
     exit 2
 }
 
-# check root
-[[ $EUID -ne 0 ]] && _fail "严重错误：请使用 root 权限运行此脚本。"
+init_update_environment() {
+    [[ $EUID -ne 0 ]] && _fail "严重错误：请使用 root 权限运行此脚本。"
 
-if _command_exists curl; then
-    curl_bin=$(which curl)
-else
-    _fail "错误：未找到 curl 命令。"
-fi
+    if _command_exists curl; then
+        curl_bin=$(which curl)
+    else
+        _fail "错误：未找到 curl 命令。"
+    fi
 
-# Check OS and set release variable
-if [[ -f /etc/os-release ]]; then
-    source /etc/os-release
-    release=$ID
-elif [[ -f /usr/lib/os-release ]]; then
-    source /usr/lib/os-release
-    release=$ID
-else
-    _fail "检测系统发行版失败，请联系维护者。"
-fi
-echo "检测到系统发行版：$release"
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+        release=$ID
+    elif [[ -f /usr/lib/os-release ]]; then
+        source /usr/lib/os-release
+        release=$ID
+    else
+        _fail "检测系统发行版失败，请联系维护者。"
+    fi
+    echo "检测到系统发行版：$release"
+}
 
 arch() {
     case "$(uname -m)" in
@@ -69,8 +72,6 @@ arch() {
         *) echo -e "${red}不支持的 CPU 架构！${plain}" && rm -f "${cur_dir}/${script_name}" > /dev/null 2>&1 && exit 2 ;;
     esac
 }
-
-echo "Arch: $(arch)"
 
 # Simple helpers
 is_ipv4() {
@@ -135,6 +136,61 @@ load_xui_env() {
     fi
 }
 
+xray_binary_name() {
+    case "$(arch)" in
+        armv5 | armv6 | armv7) echo "xray-linux-arm" ;;
+        *) echo "xray-linux-$(arch)" ;;
+    esac
+}
+
+xray_binary_path() {
+    local bin_folder="${XUI_BIN_FOLDER:-bin}"
+    if [[ "$bin_folder" != /* ]]; then
+        bin_folder="${xui_folder}/${bin_folder}"
+    fi
+    printf '%s/%s\n' "${bin_folder%/}" "$(xray_binary_name)"
+}
+
+preserve_existing_xray() {
+    local target
+    target="$(xray_binary_path)"
+    if [[ ! -f "$target" ]]; then
+        return 0
+    fi
+
+    preserved_xray_backup="$(mktemp "${TMPDIR:-/tmp}/oui-xray-core.XXXXXX")" || _fail "错误：无法创建 Xray 核心备份文件。"
+    if ! cp -p "$target" "$preserved_xray_backup"; then
+        rm -f "$preserved_xray_backup"
+        preserved_xray_backup=""
+        _fail "错误：无法备份当前 Xray 核心，已取消 OUI 更新。"
+    fi
+
+    preserved_xray_target="$target"
+    preserved_xray_version=$("$target" -version 2> /dev/null | head -n 1 || true)
+    if [[ -n "$preserved_xray_version" ]]; then
+        echo -e "${green}将保留当前 Xray 核心：${preserved_xray_version}${plain}"
+    else
+        echo -e "${green}将保留当前 Xray 核心，不随 OUI 一起更新。${plain}"
+    fi
+}
+
+restore_preserved_xray() {
+    if [[ -z "$preserved_xray_backup" || ! -f "$preserved_xray_backup" ]]; then
+        return 0
+    fi
+    if [[ -z "$preserved_xray_target" ]]; then
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$preserved_xray_target")" || return 1
+    cp -p "$preserved_xray_backup" "$preserved_xray_target" || return 1
+    chmod +x "$preserved_xray_target" || return 1
+    rm -f "$preserved_xray_backup"
+    preserved_xray_backup=""
+    echo -e "${green}已恢复更新前的 Xray 核心版本。${plain}"
+    return 0
+}
+
 verify_installed_version() {
     local expected="$1"
     local actual
@@ -176,7 +232,16 @@ start_xui_service_checked() {
 
 recover_xui_service_on_failure() {
 	local rc="$1"
-	if [[ "${xui_service_update_started}" != "true" || "${rc}" -eq 0 ]]; then
+	if [[ "${rc}" -eq 0 ]]; then
+		rm -f "${preserved_xray_backup}" > /dev/null 2>&1 || true
+		return
+	fi
+
+	if [[ -n "${preserved_xray_backup}" ]]; then
+		restore_preserved_xray || echo -e "${red}恢复更新前的 Xray 核心失败，请保留 ${preserved_xray_backup} 并手动恢复。${plain}"
+	fi
+
+	if [[ "${xui_service_update_started}" != "true" ]]; then
 		return
 	fi
 
@@ -196,7 +261,6 @@ recover_xui_service_on_failure() {
 		systemctl start x-ui > /dev/null 2>&1 || true
 	fi
 }
-trap 'recover_xui_service_on_failure $?' EXIT
 
 install_base() {
     echo -e "${green}Updating and install dependency packages...${plain}"
@@ -964,6 +1028,7 @@ update_x-ui() {
     fi
 
     if [[ -e ${xui_folder}/ ]]; then
+        preserve_existing_xray
         echo -e "${green}正在停止 x-ui...${plain}"
         xui_service_update_started=true
         if [[ $release == "alpine" ]]; then
@@ -990,8 +1055,6 @@ update_x-ui() {
         rm ${xui_folder}/x-ui.service.rhel -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui -f > /dev/null 2>&1
         rm ${xui_folder}/x-ui.sh -f > /dev/null 2>&1
-        echo -e "${green}正在移除旧的 xray 版本...${plain}"
-        rm ${xui_folder}/bin/xray-linux-amd64 -f > /dev/null 2>&1
         echo -e "${green}正在移除旧的 README 和 LICENSE 文件...${plain}"
         rm ${xui_folder}/bin/README.md -f > /dev/null 2>&1
         rm ${xui_folder}/bin/LICENSE -f > /dev/null 2>&1
@@ -1008,11 +1071,14 @@ update_x-ui() {
 
     # Check the system's architecture and rename the file accordingly
     if [[ $(arch) == "armv5" || $(arch) == "armv6" || $(arch) == "armv7" ]]; then
-        mv bin/xray-linux-$(arch) bin/xray-linux-arm > /dev/null 2>&1
+        mv -f bin/xray-linux-$(arch) bin/xray-linux-arm > /dev/null 2>&1
         chmod +x bin/xray-linux-arm > /dev/null 2>&1
     fi
 
-    chmod +x x-ui bin/xray-linux-$(arch) > /dev/null 2>&1
+    if ! restore_preserved_xray; then
+        _fail "错误：无法恢复更新前的 Xray 核心，已中止 OUI 更新。"
+    fi
+    chmod +x x-ui "$(xray_binary_path)" > /dev/null 2>&1
 
     echo -e "${green}正在下载并安装 OUI 管理脚本...${plain}"
     ${curl_bin} -fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh
@@ -1143,6 +1209,15 @@ update_x-ui() {
 └───────────────────────────────────────────────────────┘"
 }
 
-echo -e "${green}正在运行...${plain}"
-install_base
-update_x-ui $1
+main() {
+    init_update_environment
+    trap 'recover_xui_service_on_failure $?' EXIT
+    echo "Arch: $(arch)"
+    echo -e "${green}正在运行...${plain}"
+    install_base
+    update_x-ui "${1:-}"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
