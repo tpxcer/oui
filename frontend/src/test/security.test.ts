@@ -2,6 +2,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { SecuritySettingsSchema } from '@/schemas/protocols';
+import {
+  createDefaultRealityStreamSettings,
+  RealityStreamSettingsSchema,
+} from '@/schemas/protocols/security/reality';
 
 const securityFixtures = import.meta.glob<unknown>(
   './golden/fixtures/security/*.json',
@@ -23,4 +27,14 @@ describe('SecuritySettingsSchema fixtures', () => {
       expect(parsed).toMatchSnapshot();
     });
   }
+});
+
+describe('Reality creation defaults', () => {
+  it('defaults new inbounds to minimum client version 0.0.0', () => {
+    expect(createDefaultRealityStreamSettings().minClientVer).toBe('0.0.0');
+  });
+
+  it('preserves an empty minimum version in existing configurations', () => {
+    expect(RealityStreamSettingsSchema.parse({ minClientVer: '' }).minClientVer).toBe('');
+  });
 });

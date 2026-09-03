@@ -162,3 +162,10 @@ func TestQuickRealityServerNameUsesPrimarySNI(t *testing.T) {
 		t.Fatalf("quickRealityServerName() = %q, want meta.com", got)
 	}
 }
+
+func TestQuickRealitySettingsDefaultMinimumClientVersion(t *testing.T) {
+	settings := quickRealitySettingsWithKeypair("private-key", "public-key")
+	if got := settings["minClientVer"]; got != "0.0.0" {
+		t.Fatalf("minClientVer = %q, want 0.0.0", got)
+	}
+}

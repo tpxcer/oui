@@ -1492,6 +1492,10 @@ func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
 	if privateKey == "" || publicKey == "" {
 		return nil, common.NewError("invalid x25519 cert")
 	}
+	return quickRealitySettingsWithKeypair(privateKey, publicKey), nil
+}
+
+func quickRealitySettingsWithKeypair(privateKey string, publicKey string) map[string]any {
 	target := randomQuickRealityTarget()
 	serverNames := append([]string(nil), target.ServerNames...)
 	serverName := serverNames[0]
@@ -1501,7 +1505,7 @@ func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
 		"target":       target.Target,
 		"serverNames":  serverNames,
 		"privateKey":   privateKey,
-		"minClientVer": "",
+		"minClientVer": "0.0.0",
 		"maxClientVer": "",
 		"maxTimediff":  0,
 		"shortIds":     []string{randomHexFromCrypto(8)},
@@ -1513,7 +1517,7 @@ func (t *Tgbot) quickRealitySettings() (map[string]any, error) {
 			"spiderX":       "/",
 			"mldsa65Verify": "",
 		},
-	}, nil
+	}
 }
 
 func (t *Tgbot) quickVlessEncryption() (string, string) {

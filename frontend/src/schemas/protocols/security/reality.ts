@@ -39,3 +39,11 @@ export const RealityStreamSettingsSchema = z.object({
   }),
 });
 export type RealityStreamSettings = z.infer<typeof RealityStreamSettingsSchema>;
+
+// Keep this creation-only so imported and legacy configurations retain their stored value.
+export function createDefaultRealityStreamSettings(): RealityStreamSettings {
+  return {
+    ...RealityStreamSettingsSchema.parse({}),
+    minClientVer: '0.0.0',
+  };
+}

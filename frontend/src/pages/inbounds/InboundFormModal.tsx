@@ -73,7 +73,7 @@ import {
 } from '@/schemas/protocols/stream/sockopt';
 import { HysteriaStreamSettingsSchema } from '@/schemas/protocols/stream/hysteria';
 import { TlsStreamSettingsSchema } from '@/schemas/protocols/security/tls';
-import { RealityStreamSettingsSchema } from '@/schemas/protocols/security/reality';
+import { createDefaultRealityStreamSettings } from '@/schemas/protocols/security/reality';
 import { SniffingSchema } from '@/schemas/primitives/sniffing';
 import { TcpStreamSettingsSchema } from '@/schemas/protocols/stream/tcp';
 import { KcpStreamSettingsSchema } from '@/schemas/protocols/stream/kcp';
@@ -628,7 +628,7 @@ export default function InboundFormModal({
       cleaned.tlsSettings = tls;
     }
     if (next === 'reality') {
-      const reality = RealityStreamSettingsSchema.parse({}) as Record<string, unknown>;
+      const reality = createDefaultRealityStreamSettings() as Record<string, unknown>;
       const tgt = getRandomRealityTarget() as { target: string; sni: string };
       reality.target = tgt.target;
       reality.serverNames = tgt.sni.split(',').map((s) => s.trim()).filter(Boolean);
