@@ -11,19 +11,21 @@ function statusFixture() {
   return new Status({
     cpu: 25,
     mem: { current: 50, total: 100 },
+    swap: { current: 10, total: 100 },
     disk: { current: 75, total: 100 },
     netIO: { up: 1024, down: 2048 },
   });
 }
 
 describe('status card history', () => {
-  it('maps server status to the four resource charts', () => {
+  it('maps server status to the three dual-series resource charts', () => {
     expect(statusCardHistoryPoint(statusFixture(), 3)).toEqual({
       index: 3,
       cpu: 25,
       up: 1024,
       down: 2048,
       mem: 50,
+      swap: 10,
       disk: 75,
     });
   });
@@ -42,6 +44,7 @@ describe('status card history', () => {
     const status = new Status({
       cpu: 120,
       mem: { current: -1, total: 100 },
+      swap: { current: 101, total: 100 },
       disk: { current: 1, total: 0 },
       netIO: { up: -10, down: Number.NaN },
     });
@@ -51,6 +54,7 @@ describe('status card history', () => {
       up: 0,
       down: 0,
       mem: 0,
+      swap: 100,
       disk: 0,
     });
   });

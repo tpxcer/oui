@@ -9,6 +9,7 @@ export interface StatusCardHistoryPoint {
   up: number;
   down: number;
   mem: number;
+  swap: number;
   disk: number;
 }
 
@@ -27,6 +28,7 @@ export function statusCardHistoryPoint(status: Status, index: number): StatusCar
     up: nonNegative(status.netIO.up),
     down: nonNegative(status.netIO.down),
     mem: percentage(status.mem.percent),
+    swap: percentage(status.swap.percent),
     disk: percentage(status.disk.percent),
   };
 }

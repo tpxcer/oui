@@ -26,7 +26,7 @@ interface StatusCardProps {
 }
 
 interface ChartSeries {
-  key: keyof Pick<StatusCardHistoryPoint, 'cpu' | 'up' | 'down' | 'mem' | 'disk'>;
+  key: keyof Pick<StatusCardHistoryPoint, 'cpu' | 'up' | 'down' | 'mem' | 'swap' | 'disk'>;
   label: string;
   color: string;
 }
@@ -124,25 +124,31 @@ export default function StatusCard({ status, isMobile }: StatusCardProps) {
   const percentageFormatter = (value: number) => `${Math.round(value)}%`;
   const speedFormatter = (value: number) => `${SizeFormatter.sizeFormat(value)}/s`;
   const chartHeight = isMobile ? 118 : 132;
+  const cpuColor = '#1677ff';
+  const diskColor = '#722ed1';
+  const memoryColor = '#13c2c2';
+  const swapColor = '#fa8c16';
 
   return (
     <Card hoverable className="status-card">
       <div className="resource-chart-grid">
         <ResourceChart
-          title={t('pages.index.cpu')}
-          value={`${status.cpu.percent}%`}
+          title={`${t('pages.index.cpu')} / ${t('pages.index.storage')}`}
+          value={`${status.cpu.percent}% / ${status.disk.percent}%`}
           history={history}
-          series={[{ key: 'cpu', label: t('pages.index.cpu'), color: status.cpu.color }]}
+          series={[
+            { key: 'cpu', label: t('pages.index.cpu'), color: cpuColor },
+            { key: 'disk', label: t('pages.index.storage'), color: diskColor },
+          ]}
           formatter={percentageFormatter}
           valueMax={100}
           height={chartHeight}
           footer={(
-            <span className="resource-chart-summary">
-              <span className="resource-chart-dot" style={{ background: status.cpu.color }} />
-              {t('pages.index.cpu')}: {CPUFormatter.cpuCoreFormat(status.cpuCores)}
+            <span className="resource-chart-legend">
               <Tooltip
                 title={(
                   <>
+                    <div><b>{t('pages.index.cpu')}:</b> {CPUFormatter.cpuCoreFormat(status.cpuCores)}</div>
                     <div><b>{t('pages.index.logicalProcessors')}:</b> {status.logicalPro}</div>
                     <div>
                       <b>{t('pages.index.frequency')}:</b>{' '}
@@ -151,7 +157,16 @@ export default function StatusCard({ status, isMobile }: StatusCardProps) {
                   </>
                 )}
               >
-                <AreaChartOutlined className="resource-chart-info" />
+                <span>
+                  <i style={{ background: cpuColor }} />
+                  {t('pages.index.cpu')}
+                  <AreaChartOutlined className="resource-chart-info" />
+                </span>
+              </Tooltip>
+              <Tooltip
+                title={`${SizeFormatter.sizeFormat(status.disk.current)} / ${SizeFormatter.sizeFormat(status.disk.total)}`}
+              >
+                <span><i style={{ background: diskColor }} />{t('pages.index.storage')}</span>
               </Tooltip>
             </span>
           )}
@@ -176,33 +191,28 @@ export default function StatusCard({ status, isMobile }: StatusCardProps) {
         />
 
         <ResourceChart
-          title={t('pages.index.memory')}
-          value={`${status.mem.percent}%`}
+          title={`${t('pages.index.memory')} / ${t('pages.index.swap')}`}
+          value={`${status.mem.percent}% / ${status.swap.percent}%`}
           history={history}
-          series={[{ key: 'mem', label: t('pages.index.memory'), color: status.mem.color }]}
+          series={[
+            { key: 'mem', label: t('pages.index.memory'), color: memoryColor },
+            { key: 'swap', label: t('pages.index.swap'), color: swapColor },
+          ]}
           formatter={percentageFormatter}
           valueMax={100}
           height={chartHeight}
           footer={(
-            <span className="resource-chart-summary">
-              <span className="resource-chart-dot" style={{ background: status.mem.color }} />
-              {SizeFormatter.sizeFormat(status.mem.current)} / {SizeFormatter.sizeFormat(status.mem.total)}
-            </span>
-          )}
-        />
-
-        <ResourceChart
-          title={t('pages.index.storage')}
-          value={`${status.disk.percent}%`}
-          history={history}
-          series={[{ key: 'disk', label: t('pages.index.storage'), color: status.disk.color }]}
-          formatter={percentageFormatter}
-          valueMax={100}
-          height={chartHeight}
-          footer={(
-            <span className="resource-chart-summary">
-              <span className="resource-chart-dot" style={{ background: status.disk.color }} />
-              {SizeFormatter.sizeFormat(status.disk.current)} / {SizeFormatter.sizeFormat(status.disk.total)}
+            <span className="resource-chart-legend">
+              <Tooltip
+                title={`${SizeFormatter.sizeFormat(status.mem.current)} / ${SizeFormatter.sizeFormat(status.mem.total)}`}
+              >
+                <span><i style={{ background: memoryColor }} />{t('pages.index.memory')}</span>
+              </Tooltip>
+              <Tooltip
+                title={`${SizeFormatter.sizeFormat(status.swap.current)} / ${SizeFormatter.sizeFormat(status.swap.total)}`}
+              >
+                <span><i style={{ background: swapColor }} />{t('pages.index.swap')}</span>
+              </Tooltip>
             </span>
           )}
         />

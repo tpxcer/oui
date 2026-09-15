@@ -4,7 +4,7 @@
 
 .status-card .resource-chart-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .status-card .resource-chart {
@@ -84,16 +84,14 @@
   color: var(--ant-color-text-tertiary);
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1000px) {
   .status-card .resource-chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .status-card .resource-chart:nth-child(odd) {
+  .status-card .resource-chart:nth-child(3) {
+    grid-column: 1 / -1;
     border-inline-start: 0;
-  }
-
-  .status-card .resource-chart:nth-child(n + 3) {
     border-top: 1px solid var(--ant-color-border-secondary);
   }
 }
@@ -101,6 +99,10 @@
 @media (max-width: 600px) {
   .status-card .resource-chart-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status-card .resource-chart:nth-child(3) {
+    grid-column: auto;
   }
 
   .status-card .resource-chart + .resource-chart {
