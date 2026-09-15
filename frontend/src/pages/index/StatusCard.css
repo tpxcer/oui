@@ -2,18 +2,13 @@
   padding: 0;
 }
 
-.status-card .resource-chart-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .status-card .resource-chart {
   min-width: 0;
   padding: 14px 14px 10px;
 }
 
-.status-card .resource-chart + .resource-chart {
-  border-inline-start: 1px solid var(--ant-color-border-secondary);
+.status-card .resource-chart-combined {
+  width: 100%;
 }
 
 .status-card .resource-chart-heading {
@@ -27,16 +22,6 @@
   font-size: 12px;
 }
 
-.status-card .resource-chart-heading strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--ant-color-text);
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .status-card .resource-chart-footer {
   display: flex;
   min-height: 22px;
@@ -47,23 +32,21 @@
   line-height: 18px;
 }
 
-.status-card .resource-chart-summary,
 .status-card .resource-chart-legend,
 .status-card .resource-chart-legend > span {
   display: inline-flex;
   align-items: center;
 }
 
-.status-card .resource-chart-summary {
-  min-width: 0;
-  gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .status-card .resource-chart-legend {
   gap: 16px;
+}
+
+.status-card .resource-chart-legend-combined {
+  width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 18px;
 }
 
 .status-card .resource-chart-legend > span {
@@ -71,7 +54,6 @@
   white-space: nowrap;
 }
 
-.status-card .resource-chart-dot,
 .status-card .resource-chart-legend i {
   width: 8px;
   height: 8px;
@@ -84,29 +66,12 @@
   color: var(--ant-color-text-tertiary);
 }
 
-@media (max-width: 1000px) {
-  .status-card .resource-chart-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .status-card .resource-chart:nth-child(3) {
-    grid-column: 1 / -1;
-    border-inline-start: 0;
-    border-top: 1px solid var(--ant-color-border-secondary);
-  }
-}
-
 @media (max-width: 600px) {
-  .status-card .resource-chart-grid {
-    grid-template-columns: minmax(0, 1fr);
+  .status-card .resource-chart {
+    padding-inline: 10px;
   }
 
-  .status-card .resource-chart:nth-child(3) {
-    grid-column: auto;
-  }
-
-  .status-card .resource-chart + .resource-chart {
-    border-top: 1px solid var(--ant-color-border-secondary);
-    border-inline-start: 0;
+  .status-card .resource-chart-legend-combined {
+    gap: 6px 12px;
   }
 }
