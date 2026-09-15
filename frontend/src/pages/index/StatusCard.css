@@ -1,9 +1,110 @@
-.status-card .text-center {
-  text-align: center;
+.status-card > .ant-card-body {
+  padding: 0;
 }
 
-.status-card .ant-progress-text,
-.status-card .ant-progress-indicator {
-  font-size: 12px !important;
-  font-weight: 500;
+.status-card .resource-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.status-card .resource-chart {
+  min-width: 0;
+  padding: 14px 14px 10px;
+}
+
+.status-card .resource-chart + .resource-chart {
+  border-inline-start: 1px solid var(--ant-color-border-secondary);
+}
+
+.status-card .resource-chart-heading {
+  display: flex;
+  min-height: 24px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline: 4px 8px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.status-card .resource-chart-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ant-color-text);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-card .resource-chart-footer {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  justify-content: center;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.status-card .resource-chart-summary,
+.status-card .resource-chart-legend,
+.status-card .resource-chart-legend > span {
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-card .resource-chart-summary {
+  min-width: 0;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-card .resource-chart-legend {
+  gap: 16px;
+}
+
+.status-card .resource-chart-legend > span {
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.status-card .resource-chart-dot,
+.status-card .resource-chart-legend i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+}
+
+.status-card .resource-chart-info {
+  cursor: help;
+  color: var(--ant-color-text-tertiary);
+}
+
+@media (max-width: 1200px) {
+  .status-card .resource-chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .status-card .resource-chart:nth-child(odd) {
+    border-inline-start: 0;
+  }
+
+  .status-card .resource-chart:nth-child(n + 3) {
+    border-top: 1px solid var(--ant-color-border-secondary);
+  }
+}
+
+@media (max-width: 600px) {
+  .status-card .resource-chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status-card .resource-chart + .resource-chart {
+    border-top: 1px solid var(--ant-color-border-secondary);
+    border-inline-start: 0;
+  }
 }
