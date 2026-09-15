@@ -18,7 +18,7 @@ function statusFixture() {
 }
 
 describe('status card history', () => {
-  it('maps server status to the six-series combined resource chart', () => {
+  it('maps server status to the three dual-series resource charts', () => {
     expect(statusCardHistoryPoint(statusFixture(), 3)).toEqual({
       index: 3,
       cpu: 25,
