@@ -186,23 +186,17 @@ func checkSSRFDefault(ctx context.Context, hostname string) error {
 // checkSSRF is the active SSRF guard. Override in tests to allow localhost test servers.
 var checkSSRF = checkSSRFDefault
 
+// customGeoDialContext resolves and connects only to addresses that pass the SSRF guard.
+// Tests override it together with checkSSRF when using local HTTP servers.
+var customGeoDialContext = netsafe.SSRFGuardedDialContext
+
 func ssrfSafeTransport() http.RoundTripper {
 	base, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		base = &http.Transport{}
 	}
 	cloned := base.Clone()
-	cloned.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrCustomGeoSSRFBlocked, err)
-		}
-		if err := checkSSRF(ctx, host); err != nil {
-			return nil, err
-		}
-		var dialer net.Dialer
-		return dialer.DialContext(ctx, network, addr)
-	}
+	cloned.DialContext = customGeoDialContext
 	return cloned
 }
 
@@ -367,7 +361,8 @@ func (s *CustomGeoService) downloadToPathOnce(resourceURL, destPath string, last
 	}
 
 	client := &http.Client{Timeout: 10 * time.Minute, Transport: ssrfSafeTransport()}
-	// lgtm[go/request-forgery]
+	// The transport resolves and dials only vetted public IPs, including redirects.
+	// codeql[go/request-forgery]
 	resp, err := client.Do(req)
 	if err != nil {
 		return false, "", fmt.Errorf("%w: %v", ErrCustomGeoDownload, err)
