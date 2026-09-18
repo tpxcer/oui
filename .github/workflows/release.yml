@@ -91,7 +91,7 @@ jobs:
       # all:dist directive in web/web.go requires web/dist/ at compile time.
       # It is built once in frontend-build and reused by every platform.
       - name: Download frontend bundle
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: web-dist
           path: web/dist
