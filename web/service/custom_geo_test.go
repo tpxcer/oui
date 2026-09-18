@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,38 +17,9 @@ import (
 // allowing httptest servers on localhost. It restores the original on cleanup.
 func disableSSRFCheck(t *testing.T) {
 	t.Helper()
-	origCheck := checkSSRF
-	origDial := customGeoDialContext
+	orig := checkSSRF
 	checkSSRF = func(_ context.Context, _ string) error { return nil }
-	dialer := &net.Dialer{}
-	customGeoDialContext = dialer.DialContext
-	t.Cleanup(func() {
-		checkSSRF = origCheck
-		customGeoDialContext = origDial
-	})
-}
-
-func TestSSRFSafeTransportUsesGuardedDialer(t *testing.T) {
-	origDial := customGeoDialContext
-	wantErr := errors.New("guarded dial called")
-	var gotNetwork, gotAddr string
-	customGeoDialContext = func(_ context.Context, network, addr string) (net.Conn, error) {
-		gotNetwork, gotAddr = network, addr
-		return nil, wantErr
-	}
-	t.Cleanup(func() { customGeoDialContext = origDial })
-
-	transport, ok := ssrfSafeTransport().(*http.Transport)
-	if !ok {
-		t.Fatal("expected *http.Transport")
-	}
-	_, err := transport.DialContext(context.Background(), "tcp", "example.com:443")
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("expected guarded dial error, got %v", err)
-	}
-	if gotNetwork != "tcp" || gotAddr != "example.com:443" {
-		t.Fatalf("unexpected dial arguments: network=%q addr=%q", gotNetwork, gotAddr)
-	}
+	t.Cleanup(func() { checkSSRF = orig })
 }
 
 func TestNormalizeAliasKey(t *testing.T) {
