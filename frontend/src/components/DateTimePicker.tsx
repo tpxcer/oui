@@ -3,9 +3,11 @@ import { DatePicker } from 'antd';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { PersianDateTimePicker } from 'persian-calendar-suite';
+import { useTranslation } from 'react-i18next';
 
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useTheme } from '@/hooks/useTheme';
+import { dateTimePickerLocale } from './date-time-picker-locale';
 import './DateTimePicker.css';
 
 interface DateTimePickerProps {
@@ -54,6 +56,8 @@ export default function DateTimePicker({
 }: DateTimePickerProps) {
   const { datepicker } = useDatepicker();
   const { isDark, isUltra } = useTheme();
+  const { i18n } = useTranslation();
+  const locale = dateTimePickerLocale(i18n.resolvedLanguage || i18n.language);
 
   const persianTheme = useMemo(() => {
     if (isUltra) return ULTRA_DARK_THEME;
@@ -88,6 +92,7 @@ export default function DateTimePicker({
     <DatePicker
       value={value}
       onChange={(next) => onChange(next || null)}
+      locale={locale}
       showTime={showTime ? { format: 'HH:mm:ss' } : false}
       format={format}
       placeholder={placeholder}
