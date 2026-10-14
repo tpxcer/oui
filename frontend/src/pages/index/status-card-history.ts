@@ -1,7 +1,7 @@
 import type { Status } from '@/models/status';
 
 export const STATUS_CARD_HISTORY_LIMIT = 60;
-export const STATUS_CARD_INITIAL_POINTS = 24;
+export const STATUS_CARD_INITIAL_POINTS = 1;
 
 export interface StatusCardHistoryPoint {
   index: number;
@@ -39,6 +39,24 @@ export function seedStatusCardHistory(
 ): StatusCardHistoryPoint[] {
   const safeCount = Math.max(1, count);
   return Array.from({ length: safeCount }, (_, index) => statusCardHistoryPoint(status, index));
+}
+
+export function resourceMeterTone(percent: number, color: string): string {
+  if (percent >= 90) return 'var(--ant-color-error)';
+  if (percent >= 80) return 'var(--ant-color-warning)';
+  return color;
+}
+
+// Path in a 0-100 viewBox; the y range is inset so 0% and 100% lines stay visible.
+export function resourceSparklinePath(values: number[]): string {
+  if (values.length < 2) return '';
+  const step = 100 / (values.length - 1);
+  return values
+    .map((value, index) => {
+      const y = 96 - percentage(value) * 0.92;
+      return `${index === 0 ? 'M' : 'L'}${(index * step).toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(' ');
 }
 
 export function appendStatusCardHistory(
