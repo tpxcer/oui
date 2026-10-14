@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  Alert,
+  Badge,
   Button,
+  Card,
   ConfigProvider,
   Input,
   Layout,
   Progress,
   Spin,
-  Statistic,
   Tag,
   message,
 } from 'antd';
 import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
   CloudServerOutlined,
   DashboardOutlined,
   EnvironmentOutlined,
@@ -26,22 +30,24 @@ import AppSidebar from '@/components/AppSidebar';
 import type { NodeGeoLocation } from '@/models/status';
 import './ApiDocsPage.css';
 
+const UPLOAD_COLOR = '#1677ff';
+const DOWNLOAD_COLOR = '#52c41a';
+
+const XRAY_STATES: Record<string, { key: string; badge: 'success' | 'warning' | 'error' }> = {
+  running: { key: 'pages.index.xrayStatusRunning', badge: 'success' },
+  stop: { key: 'pages.index.xrayStatusStop', badge: 'warning' },
+  error: { key: 'pages.index.xrayStatusError', badge: 'error' },
+};
+
 function percent(current: number, total: number) {
   if (!total) return 0;
   return Math.min(100, Math.max(0, Number(((current / total) * 100).toFixed(1))));
 }
 
-function geoLine(geo?: Partial<NodeGeoLocation> | null) {
-  if (!geo) return '-';
-  const address = geoAddress(geo);
-  const parts = [
-    geo.ip ? `IP：${geo.ip}` : '',
-    address ? `归属地：${address}` : '',
-    geo.detail ? `运营商：${geo.detail}` : '',
-    geo.latitude && geo.longitude ? `坐标：${geo.latitude.toFixed(5)}, ${geo.longitude.toFixed(5)}` : '',
-  ].filter(Boolean);
-  if (!parts.length && geo.error) return '查询失败或暂无归属信息';
-  return parts.join('；') || '-';
+function usageColor(value: number) {
+  if (value >= 90) return 'var(--ant-color-error)';
+  if (value >= 80) return 'var(--ant-color-warning)';
+  return 'var(--ant-color-primary)';
 }
 
 function geoAddress(geo?: Partial<NodeGeoLocation> | null) {
@@ -74,6 +80,24 @@ function geoAddress(geo?: Partial<NodeGeoLocation> | null) {
 function unixDate(ts?: number) {
   if (!ts) return '-';
   return new Date(ts * 1000).toLocaleString();
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="preview-field">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+function Metric({ label, value, dot }: { label: string; value: React.ReactNode; dot?: string }) {
+  return (
+    <div className="preview-metric">
+      <span>{dot && <i className="preview-dot" style={{ background: dot }} />}{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
 export default function ApiDocsPage() {
@@ -117,11 +141,33 @@ export default function ApiDocsPage() {
     }
   };
 
+  const info = status.serverInfo;
+  const xrayState = XRAY_STATES[status.xray.state];
+  const xrayVersion = status.xray.version && status.xray.version !== 'Unknown' ? status.xray.version : '';
+
+  const traceAddress = geoAddress(traceGeo);
+  const traceCoords = traceGeo?.latitude && traceGeo?.longitude
+    ? `${traceGeo.latitude.toFixed(5)}, ${traceGeo.longitude.toFixed(5)}`
+    : '';
+  const hasTraceResult = !!(traceAddress || traceGeo?.detail || traceCoords);
+
   const trafficTotal = status.netTraffic.sent + status.netTraffic.recv;
-  const providerTrafficPercent = percent(status.serverInfo.dataCounter, status.serverInfo.planMonthlyData);
-  const ptrText = Object.entries(status.serverInfo.ptr || {})
-    .map(([ip, ptr]) => `${ip} -> ${ptr}`)
+  const sentShare = percent(status.netTraffic.sent, trafficTotal);
+
+  const hasPlanTraffic = info.planMonthlyData > 0 || info.dataCounter > 0;
+  const planPercent = percent(info.dataCounter, info.planMonthlyData);
+  const nodeText = [info.nodeAlias, info.nodeLocation].filter(Boolean).join(' / ');
+  const planResources = [
+    info.planRam ? `RAM ${SizeFormatter.sizeFormat(info.planRam)}` : '',
+    info.planSwap ? `Swap ${SizeFormatter.sizeFormat(info.planSwap)}` : '',
+    info.planDisk ? `Disk ${SizeFormatter.sizeFormat(info.planDisk)}` : '',
+  ].filter(Boolean);
+  const ptrText = Object.entries(info.ptr || {})
+    .map(([ip, ptr]) => `${ip} → ${ptr}`)
     .join('；');
+  const hasProviderDetails = hasPlanTraffic || !!(
+    nodeText || info.plan || planResources.length || info.ipAddresses?.length || ptrText || info.rdnsApiAvailable
+  );
 
   return (
     <ConfigProvider theme={antdThemeConfig}>
@@ -132,118 +178,150 @@ export default function ApiDocsPage() {
         <Layout className="content-shell">
           <Layout.Content className="content-area">
             <div className="preview-shell">
-              <div className="preview-header">
-                <div>
-                  <h1>{t('menu.apiDocs')}</h1>
-                  <div className="preview-subtitle">
-                    <Tag color={status.xray.color}>{status.xray.state}</Tag>
-                    <span>Xray {status.xray.version || '-'}</span>
-                    <span>{status.serverInfo.hostname || '-'}</span>
+              <Card className="preview-hero">
+                <div className="preview-hero-top">
+                  <div className="preview-hero-identity">
+                    <span className="preview-hero-icon"><CloudServerOutlined /></span>
+                    <div className="preview-hero-name">
+                      <h1>{info.hostname || t('menu.apiDocs')}</h1>
+                      <div className="preview-hero-meta">
+                        {[info.provider, info.os, info.vmType].filter(Boolean).map((item) => (
+                          <span key={item}>{item}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="preview-hero-actions">
+                    <Badge
+                      status={xrayState?.badge ?? 'default'}
+                      text={`Xray ${t(xrayState?.key ?? 'pages.index.xrayStatusUnknown')}`}
+                    />
+                    {xrayVersion && <Tag>v{xrayVersion}</Tag>}
+                    <Button icon={<ReloadOutlined />} onClick={refresh} loading={!fetched}>
+                      {t('refresh')}
+                    </Button>
                   </div>
                 </div>
-                <Button icon={<ReloadOutlined />} onClick={refresh} loading={!fetched}>
-                  {t('refresh')}
-                </Button>
-              </div>
+                <div className="preview-hero-metrics">
+                  <Metric label="公网 IPv4" value={publicIPv4 || '-'} />
+                  <Metric label="系统运行" value={TimeFormatter.formatSecond(status.uptime)} />
+                  <Metric label="系统负载" value={status.loads.slice(0, 3).join(' / ')} />
+                  <Metric label="连接数" value={`TCP ${status.tcpCount} · UDP ${status.udpCount}`} />
+                </div>
+              </Card>
 
               <div className="preview-grid">
-                <section className="preview-panel trace-panel">
-                  <div className="panel-title">
-                    <EnvironmentOutlined />
-                    <span>公网归属信息</span>
-                  </div>
-                  <div className="trace-search">
-                    <Input.Search
-                      value={traceIp}
-                      onChange={(e) => setTraceIp(e.target.value)}
-                      onSearch={lookupGeo}
-                      enterButton="查询"
-                      loading={traceLoading}
-                      placeholder="IP 地址"
-                    />
-                  </div>
+                <Card
+                  className="preview-card span-half"
+                  title={<span className="preview-card-title"><EnvironmentOutlined />公网归属信息</span>}
+                >
+                  <Input.Search
+                    value={traceIp}
+                    onChange={(e) => setTraceIp(e.target.value)}
+                    onSearch={lookupGeo}
+                    enterButton="查询"
+                    loading={traceLoading}
+                    placeholder="IP 地址"
+                  />
                   <Spin spinning={traceLoading}>
-                    <div className="trace-result">
-                      <strong>{geoAddress(traceGeo) || traceIp || '暂无归属信息'}</strong>
-                      <span>{geoLine(traceGeo)}</span>
-                    </div>
-                  </Spin>
-                </section>
-
-                <section className="preview-panel server-panel">
-                  <div className="panel-title">
-                    <CloudServerOutlined />
-                    <span>服务器</span>
-                  </div>
-                  <div className="server-list">
-                    <div><span>服务器商</span><strong>{status.serverInfo.provider || '-'}</strong></div>
-                    <div><span>系统</span><strong>{status.serverInfo.os || '-'}</strong></div>
-                    <div><span>虚拟化</span><strong>{status.serverInfo.vmType || '-'}</strong></div>
-                    <div><span>节点</span><strong>{[status.serverInfo.nodeAlias, status.serverInfo.nodeLocation].filter(Boolean).join(' / ') || '-'}</strong></div>
-                    <div><span>套餐</span><strong>{status.serverInfo.plan || '-'}</strong></div>
-                    {(status.serverInfo.planMonthlyData > 0 || status.serverInfo.dataCounter > 0) && (
-                      <div className="server-traffic-row">
-                        <span>套餐流量</span>
-                        <strong>
-                          <span>{SizeFormatter.sizeFormat(status.serverInfo.dataCounter)} / {status.serverInfo.planMonthlyData ? SizeFormatter.sizeFormat(status.serverInfo.planMonthlyData) : '不限'}</span>
-                          <Progress
-                            percent={status.serverInfo.planMonthlyData ? providerTrafficPercent : 100}
-                            showInfo={!!status.serverInfo.planMonthlyData}
-                            strokeColor="#1677ff"
-                          />
-                        </strong>
+                    {hasTraceResult ? (
+                      <div className="geo-result">
+                        <div className="geo-place">{traceAddress || '未知归属地'}</div>
+                        <dl className="preview-fields">
+                          <Field label="IP">{traceGeo?.ip || traceIp || '-'}</Field>
+                          {traceGeo?.detail && <Field label="运营商">{traceGeo.detail}</Field>}
+                          {traceCoords && <Field label="坐标">{traceCoords}</Field>}
+                        </dl>
+                      </div>
+                    ) : (
+                      <div className="preview-empty">
+                        {traceGeo?.error ? '查询失败或暂无归属信息' : '输入 IP 地址后查询归属地和运营商'}
                       </div>
                     )}
-                    <div><span>下次重置</span><strong>{unixDate(status.serverInfo.dataNextReset)}</strong></div>
-                    <div><span>套餐资源</span><strong>{[
-                      status.serverInfo.planRam ? `RAM ${SizeFormatter.sizeFormat(status.serverInfo.planRam)}` : '',
-                      status.serverInfo.planSwap ? `Swap ${SizeFormatter.sizeFormat(status.serverInfo.planSwap)}` : '',
-                      status.serverInfo.planDisk ? `Disk ${SizeFormatter.sizeFormat(status.serverInfo.planDisk)}` : '',
-                    ].filter(Boolean).join(' / ') || '-'}</strong></div>
-                    <div><span>运行</span><strong>{TimeFormatter.formatSecond(status.uptime)}</strong></div>
-                    <div><span>公网 IPv4</span><strong>{publicIPv4 || '-'}</strong></div>
-                    <div><span>服务商 IP</span><strong>{status.serverInfo.ipAddresses?.length ? status.serverInfo.ipAddresses.join('，') : '-'}</strong></div>
-                    <div><span>PTR</span><strong>{ptrText || (status.serverInfo.rdnsApiAvailable ? '可用' : '-')}</strong></div>
-                    {status.serverInfo.error && <div><span>服务商错误</span><strong>{status.serverInfo.error}</strong></div>}
-                  </div>
-                </section>
+                  </Spin>
+                </Card>
 
-                <section className="preview-panel usage-panel">
-                  <div className="panel-title">
-                    <SwapOutlined />
-                    <span>流量使用情况</span>
-                  </div>
-                  <div className="traffic-strip">
-                    <Statistic title="实时上行" value={SizeFormatter.sizeFormat(status.netIO.up)} />
-                    <Statistic title="实时下行" value={SizeFormatter.sizeFormat(status.netIO.down)} />
-                    <Statistic title="累计流量" value={SizeFormatter.sizeFormat(trafficTotal)} />
-                  </div>
-                  <div className="traffic-bars">
-                    <div>
-                      <span>已发送 {SizeFormatter.sizeFormat(status.netTraffic.sent)}</span>
-                      <Progress percent={trafficTotal ? percent(status.netTraffic.sent, trafficTotal) : 0} showInfo={false} />
+                <Card
+                  className="preview-card span-half"
+                  title={<span className="preview-card-title"><CloudServerOutlined />服务器套餐</span>}
+                >
+                  {hasPlanTraffic && (
+                    <div className="plan-meter">
+                      <div className="plan-meter-head">
+                        <span>本月流量</span>
+                        <strong>
+                          {SizeFormatter.sizeFormat(info.dataCounter)}
+                          {' / '}
+                          {info.planMonthlyData ? SizeFormatter.sizeFormat(info.planMonthlyData) : '不限'}
+                        </strong>
+                      </div>
+                      {info.planMonthlyData > 0 && (
+                        <Progress percent={planPercent} strokeColor={usageColor(planPercent)} />
+                      )}
+                      <div className="plan-meter-foot">下次重置：{unixDate(info.dataNextReset)}</div>
                     </div>
-                    <div>
-                      <span>已接收 {SizeFormatter.sizeFormat(status.netTraffic.recv)}</span>
-                      <Progress percent={trafficTotal ? percent(status.netTraffic.recv, trafficTotal) : 0} showInfo={false} strokeColor="#22a06b" />
+                  )}
+                  {hasProviderDetails ? (
+                    <dl className="preview-fields">
+                      {nodeText && <Field label="节点">{nodeText}</Field>}
+                      {info.plan && <Field label="套餐">{info.plan}</Field>}
+                      {planResources.length > 0 && (
+                        <Field label="套餐资源">
+                          {planResources.map((item) => <Tag key={item}>{item}</Tag>)}
+                        </Field>
+                      )}
+                      {info.ipAddresses?.length > 0 && <Field label="服务商 IP">{info.ipAddresses.join('，')}</Field>}
+                      {(ptrText || info.rdnsApiAvailable) && <Field label="PTR">{ptrText || '可用'}</Field>}
+                    </dl>
+                  ) : (
+                    <div className="preview-empty">
+                      未获取到服务器商套餐信息，可在“面板设置 → 服务器商”中配置接口。
                     </div>
-                  </div>
-                </section>
+                  )}
+                  {info.error && <Alert className="preview-alert" type="warning" showIcon title={info.error} />}
+                </Card>
 
-                <section className="preview-panel overview-panel">
-                  <div className="panel-title">
-                    <DashboardOutlined />
-                    <span>面板概览</span>
+                <Card
+                  className="preview-card span-wide"
+                  title={<span className="preview-card-title"><SwapOutlined />流量统计</span>}
+                >
+                  <div className="traffic-rates">
+                    <div className="traffic-rate">
+                      <span>实时上行</span>
+                      <strong style={{ color: UPLOAD_COLOR }}>
+                        <ArrowUpOutlined />
+                        {SizeFormatter.sizeFormat(status.netIO.up)}/s
+                      </strong>
+                    </div>
+                    <div className="traffic-rate">
+                      <span>实时下行</span>
+                      <strong style={{ color: DOWNLOAD_COLOR }}>
+                        <ArrowDownOutlined />
+                        {SizeFormatter.sizeFormat(status.netIO.down)}/s
+                      </strong>
+                    </div>
                   </div>
-                  <div className="overview-grid">
-                    <div><span>面板运行</span><strong>{TimeFormatter.formatSecond(status.appStats.uptime || status.appUptime)}</strong></div>
-                    <div><span>面板内存</span><strong>{SizeFormatter.sizeFormat(status.appStats.mem)}</strong></div>
-                    <div><span>线程数</span><strong>{status.appStats.threads || '-'}</strong></div>
-                    <div><span>TCP 连接</span><strong>{status.tcpCount}</strong></div>
-                    <div><span>UDP 连接</span><strong>{status.udpCount}</strong></div>
-                    <div><span>系统负载</span><strong>{status.loads.slice(0, 3).join(' / ')}</strong></div>
+                  <div className="traffic-split" aria-label={`已发送 ${sentShare}%`}>
+                    <i style={{ width: `${trafficTotal ? sentShare : 0}%`, background: UPLOAD_COLOR }} />
+                    <i style={{ width: `${trafficTotal ? 100 - sentShare : 0}%`, background: DOWNLOAD_COLOR }} />
                   </div>
-                </section>
+                  <div className="preview-metrics-row">
+                    <Metric label="累计发送" dot={UPLOAD_COLOR} value={SizeFormatter.sizeFormat(status.netTraffic.sent)} />
+                    <Metric label="累计接收" dot={DOWNLOAD_COLOR} value={SizeFormatter.sizeFormat(status.netTraffic.recv)} />
+                    <Metric label="合计" value={SizeFormatter.sizeFormat(trafficTotal)} />
+                  </div>
+                </Card>
+
+                <Card
+                  className="preview-card span-narrow"
+                  title={<span className="preview-card-title"><DashboardOutlined />面板进程</span>}
+                >
+                  <dl className="preview-fields is-stats">
+                    <Field label="面板运行">{TimeFormatter.formatSecond(status.appStats.uptime || status.appUptime)}</Field>
+                    <Field label="面板内存">{SizeFormatter.sizeFormat(status.appStats.mem)}</Field>
+                    <Field label="线程数">{status.appStats.threads || '-'}</Field>
+                  </dl>
+                </Card>
               </div>
             </div>
           </Layout.Content>
