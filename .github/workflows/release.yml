@@ -13,8 +13,13 @@ on:
       - "**.html"
       - "**.sh"
       - "**.go"
+      - "**.ts"
+      - "**.tsx"
       - "go.mod"
       - "go.sum"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/release.yml"
       - "x-ui.service.debian"
       - "x-ui.service.arch"
       - "x-ui.service.rhel"
@@ -25,8 +30,13 @@ on:
       - "**.html"
       - "**.sh"
       - "**.go"
+      - "**.ts"
+      - "**.tsx"
       - "go.mod"
       - "go.sum"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - ".github/workflows/release.yml"
       - "x-ui.service.debian"
       - "x-ui.service.arch"
       - "x-ui.service.rhel"
@@ -64,7 +74,7 @@ jobs:
   build:
     needs: frontend-build
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         platform:
@@ -116,11 +126,11 @@ jobs:
           esac
           echo "Resolving Bootlin musl toolchain for arch=$BOOTLIN_ARCH (platform=${{ matrix.platform }})"
           TARBALL_BASE="https://toolchains.bootlin.com/downloads/releases/toolchains/$BOOTLIN_ARCH/tarballs/"
-          TARBALL_URL=$(curl -fsSL "$TARBALL_BASE" | grep -oE "${BOOTLIN_ARCH}--musl--stable-[^\"]+\\.tar\\.xz" | sort -r | head -n1)
+          TARBALL_URL=$(curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$TARBALL_BASE" | grep -oE "${BOOTLIN_ARCH}--musl--stable-[^\"]+\\.tar\\.xz" | sort -r | head -n1)
           [ -z "$TARBALL_URL" ] && { echo "Failed to locate Bootlin musl toolchain for arch=$BOOTLIN_ARCH" >&2; exit 1; }
           echo "Downloading: $TARBALL_URL"
           cd /tmp
-          curl -fL -sS -o "$(basename "$TARBALL_URL")" "$TARBALL_BASE/$TARBALL_URL"
+          curl -fL -sS --retry 5 --retry-delay 5 --retry-all-errors -o "$(basename "$TARBALL_URL")" "$TARBALL_BASE/$TARBALL_URL"
           tar -xf "$(basename "$TARBALL_URL")"
           TOOLCHAIN_DIR=$(find . -maxdepth 1 -type d -name "${BOOTLIN_ARCH}--musl--stable-*" | head -n1)
           export PATH="$(realpath "$TOOLCHAIN_DIR")/bin:$PATH"
@@ -141,44 +151,47 @@ jobs:
           mkdir x-ui/bin
           cd x-ui/bin
 
-          # Download dependencies
-          Xray_URL="https://github.com/XTLS/Xray-core/releases/download/v26.5.9/"
+          # Download dependencies; retry so a transient network error does not fail one architecture
+          fetch() {
+            wget -q --tries=5 --waitretry=5 --retry-connrefused --retry-on-http-error=429,500,502,503,504 --timeout=60 "$@"
+          }
+          Xray_URL="https://github.com/XTLS/Xray-core/releases/download/v26.7.28/"
           if [ "${{ matrix.platform }}" == "amd64" ]; then
-            wget -q ${Xray_URL}Xray-linux-64.zip
+            fetch ${Xray_URL}Xray-linux-64.zip
             unzip Xray-linux-64.zip
             rm -f Xray-linux-64.zip
           elif [ "${{ matrix.platform }}" == "arm64" ]; then
-            wget -q ${Xray_URL}Xray-linux-arm64-v8a.zip
+            fetch ${Xray_URL}Xray-linux-arm64-v8a.zip
             unzip Xray-linux-arm64-v8a.zip
             rm -f Xray-linux-arm64-v8a.zip
           elif [ "${{ matrix.platform }}" == "armv7" ]; then
-            wget -q ${Xray_URL}Xray-linux-arm32-v7a.zip
+            fetch ${Xray_URL}Xray-linux-arm32-v7a.zip
             unzip Xray-linux-arm32-v7a.zip
             rm -f Xray-linux-arm32-v7a.zip
           elif [ "${{ matrix.platform }}" == "armv6" ]; then
-            wget -q ${Xray_URL}Xray-linux-arm32-v6.zip
+            fetch ${Xray_URL}Xray-linux-arm32-v6.zip
             unzip Xray-linux-arm32-v6.zip
             rm -f Xray-linux-arm32-v6.zip
           elif [ "${{ matrix.platform }}" == "386" ]; then
-            wget -q ${Xray_URL}Xray-linux-32.zip
+            fetch ${Xray_URL}Xray-linux-32.zip
             unzip Xray-linux-32.zip
             rm -f Xray-linux-32.zip
           elif [ "${{ matrix.platform }}" == "armv5" ]; then
-            wget -q ${Xray_URL}Xray-linux-arm32-v5.zip
+            fetch ${Xray_URL}Xray-linux-arm32-v5.zip
             unzip Xray-linux-arm32-v5.zip
             rm -f Xray-linux-arm32-v5.zip
           elif [ "${{ matrix.platform }}" == "s390x" ]; then
-            wget -q ${Xray_URL}Xray-linux-s390x.zip
+            fetch ${Xray_URL}Xray-linux-s390x.zip
             unzip Xray-linux-s390x.zip
             rm -f Xray-linux-s390x.zip
           fi
           rm -f geoip.dat geosite.dat
-          wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
-          wget -q https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
-          wget -q -O geoip_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat
-          wget -q -O geosite_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat
-          wget -q -O geoip_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat
-          wget -q -O geosite_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat
+          fetch https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat
+          fetch https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat
+          fetch -O geoip_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geoip.dat
+          fetch -O geosite_IR.dat https://github.com/chocolate4u/Iran-v2ray-rules/releases/latest/download/geosite.dat
+          fetch -O geoip_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geoip.dat
+          fetch -O geosite_RU.dat https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/geosite.dat
           mv xray xray-linux-${{ matrix.platform }}
           cd ../..
 
@@ -191,18 +204,7 @@ jobs:
           name: x-ui-linux-${{ matrix.platform }}
           path: ./x-ui-linux-${{ matrix.platform }}.tar.gz
 
-      - name: Upload files to GH release
-        uses: svenstaro/upload-release-action@v2
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
-          file: x-ui-linux-${{ matrix.platform }}.tar.gz
-          asset_name: x-ui-linux-${{ matrix.platform }}.tar.gz
-          overwrite: true
-          prerelease: false
-
-  release-notes:
+  publish:
     needs: build
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
@@ -212,17 +214,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Publish Chinese release notes
+      - name: Download packages
+        uses: actions/download-artifact@v7
+        with:
+          pattern: x-ui-linux-*
+          path: dist
+          merge-multiple: true
+
+      # The release is created only after every architecture built, together
+      # with its Chinese notes, so a partial build never becomes "latest".
+      - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
         run: |
           NOTES_FILE="config/release-notes/latest.md"
           if [ ! -s "$NOTES_FILE" ]; then
             echo "Missing Chinese release notes: $NOTES_FILE" >&2
             exit 1
           fi
-          if ! grep -Fq "${{ github.ref_name }}" "$NOTES_FILE"; then
-            echo "Chinese release notes must mention current tag: ${{ github.ref_name }}" >&2
+          if ! grep -Fq "$TAG" "$NOTES_FILE"; then
+            echo "Chinese release notes must mention current tag: $TAG" >&2
             exit 1
           fi
-          gh release edit "${{ github.ref_name }}" --notes-file "$NOTES_FILE"
+          count=$(find dist -maxdepth 1 -name 'x-ui-linux-*.tar.gz' | wc -l)
+          if [ "$count" -ne 7 ]; then
+            echo "Expected 7 packages, found $count" >&2
+            ls -l dist >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/x-ui-linux-*.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --notes-file "$NOTES_FILE" --latest --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/x-ui-linux-*.tar.gz --title "$TAG" --notes-file "$NOTES_FILE" --verify-tag --latest --repo "$GITHUB_REPOSITORY"
+          fi

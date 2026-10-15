@@ -10,6 +10,7 @@ on:
       - "**.mjs"
       - "**.cjs"
       - "**.ts"
+      - "**.tsx"
       - "**.html"
       - "**.css"
       - "**.sh"
@@ -28,6 +29,7 @@ on:
       - "**.mjs"
       - "**.cjs"
       - "**.ts"
+      - "**.tsx"
       - "**.html"
       - "**.css"
       - "**.sh"
@@ -50,10 +52,12 @@ jobs:
           cache: true
       - name: Stub web/dist for go:embed
         run: mkdir -p web/dist && touch web/dist/.gitkeep
+      - name: List packages
+        run: go list ./... | grep -v '/frontend/node_modules/' > /tmp/go-packages.txt
+      - name: Vet
+        run: go vet $(cat /tmp/go-packages.txt)
       - name: Test
-        run: |
-          go list ./... | grep -v '/frontend/node_modules/' > /tmp/go-packages.txt
-          go test $(cat /tmp/go-packages.txt)
+        run: go test -race $(cat /tmp/go-packages.txt)
       - name: Test panel updater
         run: |
           bash -n update.sh
