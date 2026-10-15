@@ -160,9 +160,14 @@
   filter: blur(6px);
 }
 
-.index-page .index-stats-card,
-.index-page .index-ip-card {
+.index-page .index-info-card {
   height: 100%;
+}
+
+.index-page .index-server-meta {
+  margin-bottom: 4px;
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
 }
 
 .index-page .index-stats-grid {

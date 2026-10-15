@@ -1,0 +1,77 @@
+.preview-fields {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.preview-field {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.preview-field:last-child {
+  border-bottom: 0;
+}
+
+.preview-field dt {
+  color: var(--ant-color-text-secondary);
+}
+
+.preview-field dd {
+  margin: 0;
+  color: var(--ant-color-text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.preview-field dd .ant-tag {
+  margin-block: 0;
+}
+
+.preview-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 0;
+  color: var(--ant-color-text-tertiary);
+  text-align: center;
+}
+
+.plan-meter {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary);
+}
+
+.plan-meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plan-meter-head span,
+.plan-meter-foot {
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+}
+
+.plan-meter-head strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-meter .ant-progress {
+  margin: 0;
+}
+
+.preview-alert {
+  margin-top: 12px;
+}

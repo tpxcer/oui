@@ -34,6 +34,8 @@ import { useTheme } from '@/hooks/useTheme';
 import { useStatusQuery } from '@/api/queries/useStatusQuery';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import AppSidebar from '@/components/AppSidebar';
+import { InfoField, ServerPlanDetails } from '@/components/ServerInfo';
+import { geoAddress } from '@/components/server-info';
 import LazyMount from '@/components/LazyMount';
 import { setMessageInstance } from '@/utils/messageBus';
 import type { PanelUpdateInfo } from '@/lib/panelUpdate';
@@ -304,6 +306,10 @@ export default function IndexPage() {
     FileManager.downloadTextFile(configText, 'config.json');
   }
 
+  const serverMeta = [status.serverInfo.provider, status.serverInfo.os, status.serverInfo.vmType]
+    .filter(Boolean)
+    .join(' · ');
+
   const pageClass = `index-page ${isDark ? 'is-dark' : ''} ${isUltra ? 'is-ultra' : ''}`.trim();
 
   return (
@@ -337,6 +343,51 @@ export default function IndexPage() {
                 <Row gutter={[isMobile ? 8 : 16, 12]}>
                   <Col span={24}>
                     <StatusCard status={status} isMobile={isMobile} />
+                  </Col>
+
+                  <Col xs={24} xl={12}>
+                    <Card
+                      title={status.serverInfo.hostname || '服务器'}
+                      hoverable
+                      className="index-info-card"
+                      extra={
+                        <Tooltip
+                          title={t('pages.index.toggleIpVisibility')}
+                          placement={isMobile ? 'topRight' : 'top'}
+                        >
+                          {showIp ? (
+                            <EyeOutlined
+                              className="ip-toggle-icon"
+                              onClick={() => setShowIp(false)}
+                            />
+                          ) : (
+                            <EyeInvisibleOutlined
+                              className="ip-toggle-icon"
+                              onClick={() => setShowIp(true)}
+                            />
+                          )}
+                        </Tooltip>
+                      }
+                    >
+                      <div className={showIp ? 'ip-visible' : 'ip-hidden'}>
+                        {serverMeta && <div className="index-server-meta">{serverMeta}</div>}
+                        <dl className="preview-fields">
+                          <InfoField label="IPv4"><span className="ip-value">{status.publicIP.ipv4}</span></InfoField>
+                          <InfoField label="IPv6"><span className="ip-value">{status.publicIP.ipv6}</span></InfoField>
+                          <InfoField label="归属地">{geoAddress(status.serverInfo.geo) || '-'}</InfoField>
+                          {status.serverInfo.geo.detail && <InfoField label="运营商">{status.serverInfo.geo.detail}</InfoField>}
+                          <InfoField label={t('pages.index.systemLoad')}>{status.loads.slice(0, 3).join(' / ')}</InfoField>
+                        </dl>
+                      </div>
+                    </Card>
+                  </Col>
+
+                  <Col xs={24} xl={12}>
+                    <Card title="服务器套餐" hoverable className="index-info-card">
+                      <div className={showIp ? 'ip-visible' : 'ip-hidden'}>
+                        <ServerPlanDetails info={status.serverInfo} />
+                      </div>
+                    </Card>
                   </Col>
 
                   <Col xs={24} lg={12}>
@@ -413,8 +464,8 @@ export default function IndexPage() {
                     />
                   </Col>
 
-                  <Col xs={24} xl={16}>
-                    <Card hoverable className="index-stats-card">
+                  <Col span={24}>
+                    <Card hoverable>
                       <div className="index-stats-grid">
                         <section>
                           <h4>{t('pages.index.operationHours')}</h4>
@@ -440,36 +491,6 @@ export default function IndexPage() {
                     </Card>
                   </Col>
 
-                  <Col xs={24} xl={8}>
-                    <Card
-                      title={t('pages.index.ipAddresses')}
-                      hoverable
-                      className="index-ip-card"
-                      extra={
-                        <Tooltip
-                          title={t('pages.index.toggleIpVisibility')}
-                          placement={isMobile ? 'topRight' : 'top'}
-                        >
-                          {showIp ? (
-                            <EyeOutlined
-                              className="ip-toggle-icon"
-                              onClick={() => setShowIp(false)}
-                            />
-                          ) : (
-                            <EyeInvisibleOutlined
-                              className="ip-toggle-icon"
-                              onClick={() => setShowIp(true)}
-                            />
-                          )}
-                        </Tooltip>
-                      }
-                    >
-                      <div className={showIp ? 'ip-visible' : 'ip-hidden'}>
-                        <div className="index-stat"><span>IPv4</span><strong className="ip-value">{status.publicIP.ipv4}</strong></div>
-                        <div className="index-stat"><span>IPv6</span><strong className="ip-value">{status.publicIP.ipv6}</strong></div>
-                      </div>
-                    </Card>
-                  </Col>
                 </Row>
               )}
             </Spin>
