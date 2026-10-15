@@ -404,7 +404,9 @@
         "trafficGetError": "取得流量資料時發生錯誤",
         "getNewX25519CertError": "取得X25519憑證時發生錯誤。",
         "getNewmldsa65Error": "取得mldsa65憑證時發生錯誤。",
-        "getNewVlessEncError": "取得VlessEnc憑證時發生錯誤。"
+        "getNewVlessEncError": "取得VlessEnc憑證時發生錯誤。",
+        "bulkDeleted": "已刪除 {count} 個入站",
+        "bulkDeletedMixed": "已刪除 {ok} 個，失敗 {failed} 個"
       },
       "stream": {
         "general": {
@@ -422,7 +424,21 @@
           "requestHeader": "請求頭",
           "responseHeader": "響應頭"
         }
-      }
+      },
+      "assignClientsGroup": "為客戶端分配分組…",
+      "attachClients": "關聯客戶端到…",
+      "attachClientsDesc": "將這 {count} 個客戶端（相同 UUID／密碼，流量共享）關聯到所選入站，目前入站中仍會保留。",
+      "attachClientsNoTargets": "沒有其他可關聯的相容入站。",
+      "attachClientsResult": "已關聯 {attached} 個，略過 {skipped} 個。",
+      "attachClientsResultMixed": "已關聯 {attached} 個，略過 {skipped} 個，失敗 {errors} 個。",
+      "attachClientsTargets": "目標入站",
+      "attachClientsTitle": "從「{remark}」關聯客戶端",
+      "bulkDeleteConfirmContent": "將刪除所選入站及其全部客戶端，此操作無法復原。",
+      "bulkDeleteConfirmTitle": "刪除 {count} 個入站？",
+      "deleteSelected": "刪除 ({count})",
+      "quickCreate": "一鍵建立",
+      "setDefaultCertEmpty": "面板尚未設定憑證，請先在面板設定中設定。",
+      "tgOnlineNotify": "TG 上下線提醒"
     },
     "clients": {
       "add": "新增客戶端",
@@ -526,7 +542,41 @@
         "bulkAdjusted": "已調整 {count} 個客戶端",
         "bulkAdjustedMixed": "已調整 {ok} 個，跳過 {skipped} 個",
         "delDepleted": "已刪除 {count} 個已耗盡的客戶端"
-      }
+      },
+      "assignGroupAssignedToast": "已將 {count} 個客戶端分配到 {group}",
+      "assignGroupClearedToast": "已清除 {count} 個客戶端的分組",
+      "assignGroupPlaceholder": "分組名稱（留空則清除）",
+      "assignGroupSelected": "分組 ({count})",
+      "assignGroupTitle": "為 {count} 個客戶端分配分組",
+      "assignGroupTooltip": "選擇已有分組或輸入新名稱；留空將清除所選客戶端的分組。",
+      "clearAllFilters": "清除全部",
+      "filterTitle": "篩選客戶端",
+      "group": "分組",
+      "groupDesc": "用於歸類相關客戶端的標籤（如團隊、客戶、地區），可在工具列中篩選。",
+      "groupPlaceholder": "例如 customer-a",
+      "has": "有",
+      "hasNot": "沒有",
+      "recentOnline": "最近上線時間",
+      "searchPlaceholder": "搜尋信箱、備註、訂閱 ID、UUID、密碼、Auth…",
+      "sortEmailAZ": "信箱 A→Z",
+      "sortEmailZA": "信箱 Z→A",
+      "sortExpiringSoonest": "最快到期",
+      "sortHighestRemaining": "剩餘流量最多",
+      "sortMostTraffic": "已用流量最多",
+      "sortNewest": "最新建立",
+      "sortOldest": "最早建立",
+      "sortRecentlyOnline": "最近在線",
+      "sortRecentlyUpdated": "最近更新",
+      "subJsonLinkColumn": "JSON 訂閱網址",
+      "subLinkColumn": "訂閱網址",
+      "subLinksCopiedAll": "已複製 {count} 個連結",
+      "subLinksCopyAll": "全部複製",
+      "subLinksDisabled": "訂閱服務未啟用。",
+      "subLinksDisabledHint": "請在「面板設定 → 訂閱設定」中啟用訂閱後再產生連結。",
+      "subLinksEmpty": "所選客戶端都沒有訂閱 ID。",
+      "subLinksSelected": "訂閱連結 ({count})",
+      "subLinksTitle": "訂閱連結 ({count})",
+      "vmessSecurity": "VMess 加密方式"
     },
     "nodes": {
       "title": "節點",
@@ -751,7 +801,9 @@
         "userPassMustBeNotEmpty": "新使用者名稱和新密碼不能為空",
         "getOutboundTrafficError": "取得出站流量錯誤",
         "resetOutboundTrafficError": "重設出站流量錯誤"
-      }
+      },
+      "panelProxy": "面板網路代理",
+      "panelProxyDesc": "面板自身的對外請求（Geo 更新、Xray／面板版本檢查、Telegram）會經此代理發出，可繞過伺服器對 GitHub／Telegram 的存取限制。支援 socks5:// 或 http(s)://，例如本機 Xray 的 SOCKS 入站；留空表示直連。"
     },
     "xray": {
       "title": "Xray 配置",
@@ -830,7 +882,28 @@
         "info": "資訊",
         "add": "新增規則",
         "edit": "編輯規則",
-        "useComma": "逗號分隔的項目"
+        "useComma": "逗號分隔的項目",
+        "any": "任意",
+        "attrName": "名稱",
+        "attrValue": "值",
+        "attributes": "屬性",
+        "balancerTag": "負載均衡標籤",
+        "balancerTagDesc": "透過已設定的負載均衡轉發流量",
+        "domain": "網域",
+        "drag": "拖曳排序",
+        "inboundTags": "入站標籤",
+        "ip": "IP",
+        "network": "網路",
+        "none": "無",
+        "outboundTag": "出站標籤",
+        "port": "連接埠",
+        "protocol": "協定",
+        "sourceIPs": "來源 IP",
+        "sourcePort": "來源連接埠",
+        "tag": "標籤",
+        "user": "使用者",
+        "userPlaceholder": "客戶端信箱",
+        "vlessRoute": "VLESS 路由"
       },
       "outbound": {
         "addOutbound": "新增出站",
@@ -940,7 +1013,9 @@
         "edit": "編輯假 DNS",
         "ipPool": "IP 池子網",
         "poolSize": "池大小"
-      }
+      },
+      "balancerSelectorRequired": "請至少選擇一個出站",
+      "balancerTagRequired": "標籤為必填項"
     }
   },
   "tgbot": {
@@ -1118,5 +1193,10 @@
       "chooseClient": "為入站 {{ .Inbound }} 選擇一個客戶",
       "chooseInbound": "選擇一個入站"
     }
-  }
+  },
+  "all": "全部",
+  "done": "完成",
+  "from": "從",
+  "to": "到",
+  "more": "更多"
 }

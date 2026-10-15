@@ -227,7 +227,7 @@ export default function XrayPage() {
       title: 'Restart xray?',
       content: 'Reloads the xray service with the saved configuration.',
       okText: 'Restart',
-      cancelText: 'Cancel',
+      cancelText: t('cancel'),
       onOk: () => restartXray(),
     });
   }
@@ -256,7 +256,7 @@ export default function XrayPage() {
 
         <Layout className="content-shell">
           <Layout.Content id="content-layout" className="content-area">
-            <Spin spinning={spinning || !fetched} delay={200} description="Loading…" size="large">
+            <Spin spinning={spinning || !fetched} delay={200} description={t('loading')} size="large">
               {!fetched ? (
                 <div className="loading-spacer" />
               ) : fetchError ? (

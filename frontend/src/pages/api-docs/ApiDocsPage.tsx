@@ -134,7 +134,7 @@ export default function ApiDocsPage() {
       if (msg?.success) {
         setTraceGeo(msg.obj as NodeGeoLocation);
       } else {
-        messageApi.error(msg?.msg || 'Lookup failed');
+        messageApi.error(msg?.msg || '查询失败');
       }
     } finally {
       setTraceLoading(false);

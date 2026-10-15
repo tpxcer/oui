@@ -333,8 +333,8 @@ export default function InboundsPage() {
 
   const importInbound = useCallback(() => {
     openPrompt({
-      title: 'Import inbound',
-      okText: 'Import',
+      title: t('pages.inbounds.importInbound'),
+      okText: t('confirm'),
       type: 'textarea',
       value: '',
       confirm: async (value) => {
@@ -346,7 +346,7 @@ export default function InboundsPage() {
         return false;
       },
     });
-  }, [openPrompt, refresh]);
+  }, [openPrompt, refresh, t]);
 
   const onAddInbound = useCallback(() => {
     setFormMode('add');
@@ -537,19 +537,18 @@ export default function InboundsPage() {
       case 'subs': exportAllSubs(); break;
       case 'resetInbounds':
         modal.confirm({
-          title: 'Reset all inbound traffic?',
-          okText: 'Reset',
-          cancelText: 'Cancel',
+          title: t('pages.inbounds.resetAllTrafficTitle'),
+          content: t('pages.inbounds.resetAllTrafficContent'),
+          okText: t('reset'),
+          cancelText: t('cancel'),
           onOk: async () => {
             const msg = await HttpUtil.post('/panel/api/inbounds/resetAllTraffics');
             if (msg?.success) await refresh();
           },
         });
         break;
-      default:
-        messageApi.info(`General action "${key}" — coming in a later 5f subphase`);
     }
-  }, [modal, importInbound, exportAllLinks, exportAllSubs, refresh, messageApi]);
+  }, [modal, importInbound, exportAllLinks, exportAllSubs, refresh, t]);
 
   const onRowAction = useCallback(async ({ key, dbInbound }: { key: RowAction; dbInbound: DBInbound }) => {
     // Actions that touch per-client secrets (uuid, password, flow, ...) need
@@ -603,10 +602,8 @@ export default function InboundsPage() {
       case 'clone':
         confirmClone(target);
         break;
-      default:
-        messageApi.info(`Action "${key}" — coming in a later 5f subphase`);
     }
-  }, [hydrateInbound, openEdit, checkFallback, findClientIndex, exportInboundLinks, exportInboundSubs, exportInboundClipboard, confirmDelete, confirmResetTraffic, confirmDelAllClients, confirmClone, messageApi]);
+  }, [hydrateInbound, openEdit, checkFallback, findClientIndex, exportInboundLinks, exportInboundSubs, exportInboundClipboard, confirmDelete, confirmResetTraffic, confirmDelAllClients, confirmClone]);
 
   return (
     <ConfigProvider theme={antdThemeConfig}>
@@ -617,7 +614,7 @@ export default function InboundsPage() {
 
         <Layout className="content-shell">
           <Layout.Content id="content-layout" className="content-area">
-            <Spin spinning={!fetched} delay={200} description="Loading…" size="large">
+            <Spin spinning={!fetched} delay={200} description={t('loading')} size="large">
               {!fetched ? (
                 <div className="loading-spacer" />
               ) : (

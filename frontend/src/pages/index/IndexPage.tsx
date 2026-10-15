@@ -181,7 +181,7 @@ export default function IndexPage() {
     } finally {
       setCheckingUpdate(false);
     }
-  }, [messageApi]);
+  }, [messageApi, modal]);
 
   useEffect(() => {
     void checkPanelUpdate({ silent: true });
@@ -305,7 +305,7 @@ export default function IndexPage() {
 
   async function copyConfig() {
     const ok = await ClipboardManager.copyText(configText || '');
-    if (ok) messageApi.success('Copied');
+    if (ok) messageApi.success(t('copied'));
   }
 
   function downloadConfig() {
@@ -641,7 +641,7 @@ export default function IndexPage() {
                 size={isMobile ? 'small' : 'middle'}
                 icon={<CloudDownloadOutlined />}
               >
-                {isMobile ? 'Download' : 'config.json'}
+                {isMobile ? t('download') : 'config.json'}
               </Button>,
               <Button
                 key="copy"
@@ -650,7 +650,7 @@ export default function IndexPage() {
                 size={isMobile ? 'small' : 'middle'}
                 icon={<CopyOutlined />}
               >
-                Copy
+                {t('copy')}
               </Button>,
             ]}
           >

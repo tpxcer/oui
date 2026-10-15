@@ -429,7 +429,16 @@
           "requestHeader": "请求头",
           "responseHeader": "响应头"
         }
-      }
+      },
+      "assignClientsGroup": "为客户端分配分组…",
+      "attachClients": "关联客户端到…",
+      "attachClientsDesc": "将这 {count} 个客户端（相同 UUID/密码，流量共享）关联到所选入站，当前入站中仍会保留。",
+      "attachClientsNoTargets": "没有其他可关联的兼容入站。",
+      "attachClientsResult": "已关联 {attached} 个，跳过 {skipped} 个。",
+      "attachClientsResultMixed": "已关联 {attached} 个，跳过 {skipped} 个，失败 {errors} 个。",
+      "attachClientsTargets": "目标入站",
+      "attachClientsTitle": "从“{remark}”关联客户端",
+      "setDefaultCertEmpty": "面板尚未配置证书，请先在面板设置中配置。"
     },
     "clients": {
       "add": "添加客户端",
@@ -534,7 +543,40 @@
         "bulkAdjusted": "已调整 {count} 个客户端",
         "bulkAdjustedMixed": "已调整 {ok} 个，跳过 {skipped} 个",
         "delDepleted": "已删除 {count} 个已耗尽的客户端"
-      }
+      },
+      "assignGroupAssignedToast": "已将 {count} 个客户端分配到 {group}",
+      "assignGroupClearedToast": "已清除 {count} 个客户端的分组",
+      "assignGroupPlaceholder": "分组名称（留空则清除）",
+      "assignGroupSelected": "分组 ({count})",
+      "assignGroupTitle": "为 {count} 个客户端分配分组",
+      "assignGroupTooltip": "选择已有分组或输入新名称；留空将清除所选客户端的分组。",
+      "clearAllFilters": "清除全部",
+      "filterTitle": "筛选客户端",
+      "group": "分组",
+      "groupDesc": "用于归类相关客户端的标签（如团队、客户、地区），可在工具栏中筛选。",
+      "groupPlaceholder": "例如 customer-a",
+      "has": "有",
+      "hasNot": "没有",
+      "searchPlaceholder": "搜索邮箱、备注、订阅 ID、UUID、密码、Auth…",
+      "sortEmailAZ": "邮箱 A→Z",
+      "sortEmailZA": "邮箱 Z→A",
+      "sortExpiringSoonest": "最快到期",
+      "sortHighestRemaining": "剩余流量最多",
+      "sortMostTraffic": "已用流量最多",
+      "sortNewest": "最新创建",
+      "sortOldest": "最早创建",
+      "sortRecentlyOnline": "最近在线",
+      "sortRecentlyUpdated": "最近更新",
+      "subJsonLinkColumn": "JSON 订阅地址",
+      "subLinkColumn": "订阅地址",
+      "subLinksCopiedAll": "已复制 {count} 个链接",
+      "subLinksCopyAll": "全部复制",
+      "subLinksDisabled": "订阅服务未启用。",
+      "subLinksDisabledHint": "请在“面板设置 → 订阅设置”中启用订阅后再生成链接。",
+      "subLinksEmpty": "所选客户端都没有订阅 ID。",
+      "subLinksSelected": "订阅链接 ({count})",
+      "subLinksTitle": "订阅链接 ({count})",
+      "vmessSecurity": "VMess 加密方式"
     },
     "nodes": {
       "title": "节点",
@@ -759,7 +801,9 @@
         "userPassMustBeNotEmpty": "新用户名和新密码不能为空",
         "getOutboundTrafficError": "获取出站流量错误",
         "resetOutboundTrafficError": "重置出站流量错误"
-      }
+      },
+      "panelProxy": "面板网络代理",
+      "panelProxyDesc": "面板自身的对外请求（Geo 更新、Xray/面板版本检查、Telegram）会经此代理发出，可绕过服务器对 GitHub/Telegram 的访问限制。支持 socks5:// 或 http(s)://，例如本机 Xray 的 SOCKS 入站；留空表示直连。"
     },
     "xray": {
       "title": "Xray 配置",
@@ -969,7 +1013,9 @@
         "edit": "编辑假 DNS",
         "ipPool": "IP 池子网",
         "poolSize": "池大小"
-      }
+      },
+      "balancerSelectorRequired": "请至少选择一个出站",
+      "balancerTagRequired": "标签为必填项"
     }
   },
   "tgbot": {
@@ -1147,5 +1193,10 @@
       "chooseClient": "为入站 {{ .Inbound }} 选择一个客户",
       "chooseInbound": "选择一个入站"
     }
-  }
+  },
+  "all": "全部",
+  "done": "完成",
+  "from": "从",
+  "to": "到",
+  "more": "更多"
 }
