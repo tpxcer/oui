@@ -127,10 +127,22 @@ update() {
         fi
         return 0
     fi
-    echo -e "${green}正在获取更新脚本，下载进度会显示在下方...${plain}"
+    local latest_tag
+    latest_tag=$(curl -fsSL https://api.github.com/repos/tpxcer/oui/releases/latest 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [[ -z "${latest_tag}" ]]; then
+        latest_tag=$(curl -4fsSL https://api.github.com/repos/tpxcer/oui/releases/latest 2> /dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    fi
+    if [[ -z "${latest_tag}" ]]; then
+        LOGE "获取 OUI 最新版本失败，可能是 GitHub API 限制，请稍后重试。"
+        if [[ $# == 0 ]]; then
+            before_show_menu
+        fi
+        return 1
+    fi
+    echo -e "${green}正在获取 ${latest_tag} 的更新脚本，下载进度会显示在下方...${plain}"
     local tmp_update_script
     tmp_update_script="$(mktemp)"
-    if ! curl -fL --progress-bar -o "${tmp_update_script}" https://raw.githubusercontent.com/tpxcer/oui/main/update.sh; then
+    if ! curl -fL --progress-bar -o "${tmp_update_script}" "https://raw.githubusercontent.com/tpxcer/oui/${latest_tag}/update.sh"; then
         LOGE "下载更新脚本失败，请检查服务器是否可以连接 GitHub。"
         rm -f "${tmp_update_script}"
         if [[ $# == 0 ]]; then
@@ -143,7 +155,7 @@ update() {
     local unit_name="oui-update-$(date +%s)"
     local update_log="${log_folder}/${unit_name}.log"
     local update_cmd
-    printf -v update_cmd "bash %q > %q 2>&1; rc=\$?; rm -f %q; exit \$rc" "${tmp_update_script}" "${update_log}" "${tmp_update_script}"
+    printf -v update_cmd "bash %q %q > %q 2>&1; rc=\$?; rm -f %q; exit \$rc" "${tmp_update_script}" "${latest_tag}" "${update_log}" "${tmp_update_script}"
 
     if command -v systemd-run > /dev/null 2>&1 && command -v systemctl > /dev/null 2>&1; then
         if systemd-run --unit="${unit_name}" --collect /bin/bash -lc "${update_cmd}" > /dev/null 2>&1; then

@@ -61,7 +61,9 @@ jobs:
       - name: Test panel updater
         run: |
           bash -n update.sh
+          bash -n x-ui.sh
           bash scripts/test-update-xray-preservation.sh
+          bash scripts/test-update-release-digest.sh
 
   govulncheck:
     runs-on: ubuntu-latest

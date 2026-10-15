@@ -104,3 +104,18 @@ func TestPanelUpdateNoticeReached(t *testing.T) {
 		}
 	}
 }
+
+func TestPanelUpdaterURLUsesReleaseTag(t *testing.T) {
+	got, err := panelUpdaterURL("2026.10.15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://raw.githubusercontent.com/tpxcer/oui/2026.10.15/update.sh"; got != want {
+		t.Fatalf("panelUpdaterURL = %q, want %q", got, want)
+	}
+	for _, tag := range []string{"", "main/../x", "2026.10.15/update.sh?", "../main", "a b"} {
+		if _, err := panelUpdaterURL(tag); err == nil {
+			t.Fatalf("panelUpdaterURL(%q) should be rejected", tag)
+		}
+	}
+}

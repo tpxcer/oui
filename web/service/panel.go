@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -40,7 +41,6 @@ type PendingPanelUpdateNotice struct {
 }
 
 const (
-	panelUpdaterURL      = "https://raw.githubusercontent.com/tpxcer/oui/main/update.sh"
 	maxPanelUpdaterBytes = 2 << 20
 	panelUpdateNotice    = "panel-update-pending.json"
 )
@@ -103,7 +103,7 @@ func (s *PanelService) StartUpdate() error {
 		return fmt.Errorf("运行面板更新器需要 bash: %w", err)
 	}
 
-	scriptPath, err := downloadPanelUpdater()
+	scriptPath, err := downloadPanelUpdater(latest)
 	if err != nil {
 		return err
 	}
@@ -248,9 +248,24 @@ func panelUpdateNoticeReached(targetVersion string, currentVersion string) bool 
 	return !isNewerVersion(targetVersion, currentVersion)
 }
 
-func downloadPanelUpdater() (string, error) {
+var panelReleaseTagPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._-]*$`)
+
+// panelUpdaterURL returns the update.sh published with the target release, so
+// unreleased commits on main never reach running panels.
+func panelUpdaterURL(tag string) (string, error) {
+	if !panelReleaseTagPattern.MatchString(tag) {
+		return "", fmt.Errorf("无效的面板版本标签: %q", tag)
+	}
+	return "https://raw.githubusercontent.com/tpxcer/oui/" + tag + "/update.sh", nil
+}
+
+func downloadPanelUpdater(tag string) (string, error) {
+	updaterURL, err := panelUpdaterURL(tag)
+	if err != nil {
+		return "", err
+	}
 	client := (&SettingService{}).NewProxiedHTTPClient(15 * time.Second)
-	resp, err := client.Get(panelUpdaterURL)
+	resp, err := client.Get(updaterURL)
 	if err != nil {
 		return "", fmt.Errorf("下载面板更新器失败: %w", err)
 	}

@@ -191,6 +191,50 @@ restore_preserved_xray() {
     return 0
 }
 
+# parse_release_asset_digest reads GitHub release JSON on stdin and prints the
+# SHA-256 hex digest published for the named asset (empty when absent).
+parse_release_asset_digest() {
+    local asset="$1"
+    awk -v want="\"name\": \"${asset}\"" '
+        index($0, want) { found = 1; next }
+        found && /"digest":/ {
+            if (match($0, /sha256:[0-9a-f]+/)) print substr($0, RSTART + 7, RLENGTH - 7)
+            exit
+        }
+        found && /"browser_download_url":/ { exit }
+    '
+}
+
+file_sha256() {
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v shasum > /dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# verify_release_package compares the downloaded package with the digest GitHub
+# publishes for the release asset. A mismatch aborts before the service stops;
+# a missing digest (API limit or an older release) only prints a warning.
+verify_release_package() {
+    local tag="$1" asset="$2" file="$3" api expected actual
+    api="https://api.github.com/repos/tpxcer/oui/releases/tags/${tag}"
+    expected=$(${curl_bin} -fsSL "$api" 2> /dev/null | parse_release_asset_digest "$asset" || true)
+    if [[ -z "$expected" ]]; then
+        expected=$(${curl_bin} -4fsSL "$api" 2> /dev/null | parse_release_asset_digest "$asset" || true)
+    fi
+    actual=$(file_sha256 "$file")
+    if [[ -z "$expected" || -z "$actual" ]]; then
+        echo -e "${yellow}未能获取安装包 SHA-256 摘要，跳过完整性校验。${plain}"
+        return 0
+    fi
+    if [[ "$expected" != "$actual" ]]; then
+        rm -f "$file"
+        _fail "错误：OUI 安装包 SHA-256 校验失败，已取消更新。期望 ${expected}，实际 ${actual}。"
+    fi
+    echo -e "${green}安装包 SHA-256 校验通过。${plain}"
+}
+
 verify_installed_version() {
     local expected="$1"
     local actual
@@ -1026,6 +1070,7 @@ update_x-ui() {
             _fail "错误：下载 OUI 失败，请确认服务器可以访问 GitHub。"
         fi
     fi
+    verify_release_package "${tag_version}" "x-ui-linux-$(arch).tar.gz" "${xui_folder}-linux-$(arch).tar.gz"
 
     if [[ -e ${xui_folder}/ ]]; then
         preserve_existing_xray
@@ -1081,10 +1126,10 @@ update_x-ui() {
     chmod +x x-ui "$(xray_binary_path)" > /dev/null 2>&1
 
     echo -e "${green}正在下载并安装 OUI 管理脚本...${plain}"
-    ${curl_bin} -fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh
+    ${curl_bin} -fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.sh
     if [[ $? -ne 0 ]]; then
         echo -e "${yellow}正在尝试使用 IPv4 下载 OUI 管理脚本...${plain}"
-        ${curl_bin} -4fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.sh
+        ${curl_bin} -4fL --progress-bar -o /usr/bin/x-ui https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.sh
         if [[ $? -ne 0 ]]; then
             _fail "错误：下载 OUI 管理脚本失败，请确认服务器可以访问 GitHub。"
         fi
@@ -1104,9 +1149,9 @@ update_x-ui() {
 
     if [[ $release == "alpine" ]]; then
         echo -e "${green}正在下载并安装启动脚本 x-ui.rc...${plain}"
-        ${curl_bin} -fL --progress-bar -o /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.rc
+        ${curl_bin} -fL --progress-bar -o /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.rc
         if [[ $? -ne 0 ]]; then
-            ${curl_bin} -4fL --progress-bar -o /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.rc
+            ${curl_bin} -4fL --progress-bar -o /etc/init.d/x-ui https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.rc
             if [[ $? -ne 0 ]]; then
                 _fail "错误：下载启动脚本 x-ui.rc 失败，请确认服务器可以访问 GitHub。"
             fi
@@ -1161,13 +1206,13 @@ update_x-ui() {
                 echo -e "${yellow}压缩包中未找到服务文件，正在从 GitHub 下载...${plain}"
                 case "${release}" in
                     ubuntu | debian | armbian)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.debian > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.service.debian > /dev/null 2>&1
                         ;;
                     arch | manjaro | parch)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.arch > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.service.arch > /dev/null 2>&1
                         ;;
                     *)
-                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/main/x-ui.service.rhel > /dev/null 2>&1
+                        ${curl_bin} -4fLRo ${xui_service}/x-ui.service https://raw.githubusercontent.com/tpxcer/oui/${tag_version}/x-ui.service.rhel > /dev/null 2>&1
                         ;;
                 esac
 
