@@ -24,7 +24,6 @@ type QuickInboundResult struct {
 type QuickInboundService struct {
 	inboundService InboundService
 	settingService SettingService
-	serverService  ServerService
 	xrayService    XrayService
 	userService    UserService
 }
@@ -57,7 +56,6 @@ func (s *QuickInboundService) Create(key string, userID int) (*QuickInboundResul
 	helper := &Tgbot{
 		inboundService: s.inboundService,
 		settingService: s.settingService,
-		serverService:  s.serverService,
 		xrayService:    s.xrayService,
 	}
 	helper.SetHostname()

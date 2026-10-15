@@ -1733,7 +1733,6 @@ func (t *Tgbot) createQuickConfig(chatId int64, key string) {
 	result, err := (&QuickInboundService{
 		inboundService: t.inboundService,
 		settingService: t.settingService,
-		serverService:  t.serverService,
 		xrayService:    t.xrayService,
 	}).Create(key, 0)
 	if err != nil {

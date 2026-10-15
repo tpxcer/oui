@@ -269,17 +269,17 @@ func (p *process) IsRunning() bool {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return false
 	}
+	// done closes once cmd.Wait returns; reading cmd.ProcessState here would
+	// race with Wait writing it.
 	if p.done != nil {
 		select {
 		case <-p.done:
 			return false
 		default:
+			return true
 		}
 	}
-	if p.cmd.ProcessState == nil {
-		return true
-	}
-	return false
+	return p.cmd.ProcessState == nil
 }
 
 // GetErr returns the last error encountered by the Xray process.
