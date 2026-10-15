@@ -246,11 +246,6 @@ export default defineConfig({
           if (id.includes('/node_modules/@tanstack/')) return 'vendor-tanstack';
           if (id.includes('/node_modules/react-router')) return 'vendor-router';
           if (
-            id.includes('/node_modules/swagger-ui-react/')
-            || id.includes('/node_modules/swagger-ui/')
-            || id.includes('/node_modules/swagger-client/')
-          ) return 'vendor-swagger';
-          if (
             id.includes('/node_modules/recharts/')
             || id.includes('/node_modules/victory-vendor/')
             || id.includes('/node_modules/d3-')

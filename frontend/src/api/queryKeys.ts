@@ -21,7 +21,6 @@ export const keys = {
     list: (params: unknown) => ['clients', 'list', params] as const,
     onlines: () => ['clients', 'onlines'] as const,
     lastOnline: () => ['clients', 'lastOnline'] as const,
-    groups: () => ['clients', 'groups'] as const,
   },
   xray: {
     root: () => ['xray'] as const,

@@ -99,13 +99,6 @@ export const DelDepletedResultSchema = z.object({
 
 export const OnlinesSchema = nullableStringArray;
 
-export const GroupSummarySchema = z.object({
-  name: z.string(),
-  clientCount: z.number(),
-});
-
-export const GroupSummaryListSchema = z.array(GroupSummarySchema).nullable().transform((v) => v ?? []);
-
 export const ClientFormSchema = z.object({
   email: z.string().trim().min(1, 'pages.clients.email'),
   subId: z.string(),
@@ -170,4 +163,3 @@ export type BulkCreateResult = z.infer<typeof BulkCreateResultSchema>;
 export type ClientBulkAddFormValues = z.infer<typeof ClientBulkAddFormSchema>;
 export type ClientBulkAdjustFormValues = z.infer<typeof ClientBulkAdjustFormSchema>;
 export type ClientFormValues = z.infer<typeof ClientFormSchema>;
-export type GroupSummary = z.infer<typeof GroupSummarySchema>;
