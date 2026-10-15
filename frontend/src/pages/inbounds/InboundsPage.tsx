@@ -359,10 +359,10 @@ export default function InboundsPage() {
     if (!msg?.success) return;
     const result = msg.obj;
     await refresh();
+    // Quick-create remarks already end with the port, e.g. "洛杉矶-Reality-52171".
     const remark = result?.inbound?.remark || result?.presetLabel || '一键节点';
-    const port = result?.inbound?.port ? `:${result.inbound.port}` : '';
     const firewall = result?.firewall ? `，防火墙：${result.firewall}` : '';
-    messageApi.success(`${remark}${port} 已创建${firewall}`);
+    messageApi.success(`${remark} 已创建${firewall}`);
   }, [refresh, messageApi]);
 
   const openEdit = useCallback((dbInbound: DBInbound) => {

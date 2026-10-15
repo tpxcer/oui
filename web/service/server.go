@@ -308,17 +308,19 @@ type LogEntry struct {
 }
 
 type NodeGeoLocation struct {
-	IP        string  `json:"ip"`
-	Location  string  `json:"location"`
-	Country   string  `json:"country"`
-	Province  string  `json:"province"`
-	City      string  `json:"city"`
-	District  string  `json:"district"`
-	Detail    string  `json:"detail"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Source    string  `json:"source"`
-	Error     string  `json:"error"`
+	IP       string `json:"ip"`
+	Location string `json:"location"`
+	Country  string `json:"country"`
+	// CountryCode is the ISO 3166-1 alpha-2 code reported by the lookup source.
+	CountryCode string  `json:"countryCode"`
+	Province    string  `json:"province"`
+	City        string  `json:"city"`
+	District    string  `json:"district"`
+	Detail      string  `json:"detail"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	Source      string  `json:"source"`
+	Error       string  `json:"error"`
 }
 
 type cachedIPGeo struct {
@@ -668,6 +670,7 @@ func fetchIP9NodeGeo(ctx context.Context, ip string) (NodeGeoLocation, error) {
 	}
 
 	result.Country = chineseCountryName(resp.Data.CountryCode, resp.Data.Country)
+	result.CountryCode = strings.ToUpper(strings.TrimSpace(resp.Data.CountryCode))
 	result.Province = strings.TrimSpace(resp.Data.Prov)
 	result.City = strings.TrimSpace(resp.Data.City)
 	result.District = strings.TrimSpace(resp.Data.Area)
@@ -733,6 +736,7 @@ func decodeIPWhoNodeGeo(body io.Reader, ip string) (NodeGeoLocation, error) {
 	}
 
 	result.Country = chineseCountryName(resp.CountryCode, resp.Country)
+	result.CountryCode = strings.ToUpper(strings.TrimSpace(resp.CountryCode))
 	result.Province = strings.TrimSpace(resp.Region)
 	result.City = strings.TrimSpace(resp.City)
 	result.Detail = strings.TrimSpace(resp.Connection.ISP)

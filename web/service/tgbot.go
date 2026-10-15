@@ -1216,26 +1216,26 @@ var tgQuickPresets = map[string]tgQuickPreset{
 	"vlessReality": {
 		Key:         "vlessReality",
 		Label:       "VLESS Reality Vision",
-		Remark:      "VL-RV",
+		Remark:      "Reality",
 		Protocol:    model.VLESS,
-		EmailPrefix: "vless",
+		EmailPrefix: "reality",
 		Transport:   "tcp",
 	},
 	"vlessXhttpTls": {
 		Key:         "vlessXhttpTls",
 		Label:       "VLESS XHTTP TLS",
-		Remark:      "VL-XHTTP-TLS",
+		Remark:      "XHTTP-TLS",
 		Protocol:    model.VLESS,
-		EmailPrefix: "xhttp",
+		EmailPrefix: "xhttp-tls",
 		NeedTLSCert: true,
 		Transport:   "tcp",
 	},
 	"vlessXhttpReality": {
 		Key:         "vlessXhttpReality",
 		Label:       "VLESS XHTTP Reality",
-		Remark:      "VL-XHTTP-R",
+		Remark:      "XHTTP-Reality",
 		Protocol:    model.VLESS,
-		EmailPrefix: "xhttp-r",
+		EmailPrefix: "xhttp-reality",
 		Transport:   "tcp",
 	},
 }
@@ -1698,7 +1698,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 		Up:             0,
 		Down:           0,
 		Total:          0,
-		Remark:         preset.Remark,
+		Remark:         quickInboundRemark(t.quickRegionGeo(), preset.Remark, port),
 		Enable:         true,
 		ExpiryTime:     0,
 		TgOnlineNotify: false,
@@ -1710,6 +1710,72 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 		Sniffing:       sniffing,
 		Tag:            fmt.Sprintf("inbound-%d", port),
 	}, email, nil
+}
+
+// quickRegionGeo looks up the attribution of this server's public IPv4 for
+// quick-create remarks; the result is empty when the lookup fails.
+func (t *Tgbot) quickRegionGeo() NodeGeoLocation {
+	ip := ""
+	if status := t.serverService.LastStatus(); status != nil {
+		ip = status.PublicIP.IPv4
+	}
+	if net.ParseIP(ip) == nil {
+		ip = getPublicIP("https://api4.ipify.org")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return t.serverService.LookupIPAttribution(ctx, ip)
+}
+
+func quickRegionName(geo NodeGeoLocation) string {
+	for _, part := range []string{geo.City, geo.Province, geo.Country} {
+		if name := strings.TrimSuffix(strings.TrimSpace(part), "市"); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// quickRegionCode returns the ISO region code used for the flag. Chinese
+// sources report Taiwan, Hong Kong and Macao under CN, so they are mapped to
+// their own ISO codes to match the other lookup source.
+func quickRegionCode(geo NodeGeoLocation) string {
+	code := strings.ToUpper(strings.TrimSpace(geo.CountryCode))
+	if code == "CN" {
+		province := strings.TrimSpace(geo.Province)
+		switch {
+		case strings.HasPrefix(province, "台湾"):
+			return "TW"
+		case strings.HasPrefix(province, "香港"):
+			return "HK"
+		case strings.HasPrefix(province, "澳门"):
+			return "MO"
+		}
+	}
+	return code
+}
+
+// countryFlag converts an ISO 3166-1 alpha-2 code into its flag emoji.
+func countryFlag(code string) string {
+	if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' {
+		return ""
+	}
+	return string([]rune{rune(code[0]-'A') + 0x1F1E6, rune(code[1]-'A') + 0x1F1E6})
+}
+
+// quickInboundRemark builds names such as "🇺🇸 洛杉矶-Reality-52171"; the flag
+// and region are omitted when unknown.
+func quickInboundRemark(geo NodeGeoLocation, typeName string, port int) string {
+	parts := make([]string, 0, 3)
+	if region := quickRegionName(geo); region != "" {
+		parts = append(parts, region)
+	}
+	parts = append(parts, typeName, strconv.Itoa(port))
+	name := strings.Join(parts, "-")
+	if flag := countryFlag(quickRegionCode(geo)); flag != "" {
+		return flag + " " + name
+	}
+	return name
 }
 
 func (t *Tgbot) quickConfigKeyboard() *telego.InlineKeyboardMarkup {

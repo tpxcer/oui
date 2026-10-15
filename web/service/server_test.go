@@ -64,7 +64,7 @@ func TestDecodeIPWhoNodeGeo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if geo.Source != "ipwho" || geo.Country != "荷兰" || geo.Province != "Groningen" || geo.City != "Groningen" {
+	if geo.Source != "ipwho" || geo.Country != "荷兰" || geo.CountryCode != "NL" || geo.Province != "Groningen" || geo.City != "Groningen" {
 		t.Fatalf("unexpected ipwho geo: %#v", geo)
 	}
 	if geo.Detail != "Example ISP" || geo.Location != "荷兰GroningenExample ISP" {
