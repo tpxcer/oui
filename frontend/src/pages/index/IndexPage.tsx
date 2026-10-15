@@ -12,7 +12,6 @@ import {
   Row,
   Space,
   Spin,
-  Statistic,
   Tag,
   Tooltip,
 } from 'antd';
@@ -21,18 +20,11 @@ import {
   ControlOutlined,
   CloudServerOutlined,
   CloudDownloadOutlined,
-  CloudUploadOutlined,
-  ArrowUpOutlined,
   ArrowDownOutlined,
   AreaChartOutlined,
-  GlobalOutlined,
-  SwapOutlined,
+  LineChartOutlined,
   EyeOutlined,
   EyeInvisibleOutlined,
-  ThunderboltOutlined,
-  DesktopOutlined,
-  DatabaseOutlined,
-  ForkOutlined,
   CopyOutlined,
   SyncOutlined,
 } from '@ant-design/icons';
@@ -362,27 +354,6 @@ export default function IndexPage() {
 
                   <Col xs={24} lg={12}>
                     <Card
-                      title={t('menu.link')}
-                      hoverable
-                      actions={[
-                        <Space className="action" key="logs" onClick={() => setLogsOpen(true)}>
-                          <BarsOutlined />
-                          {!isMobile && <span>{t('pages.index.logs')}</span>}
-                        </Space>,
-                        <Space className="action" key="config" onClick={openConfig}>
-                          <ControlOutlined />
-                          {!isMobile && <span>{t('pages.index.config')}</span>}
-                        </Space>,
-                        <Space className="action" key="backup" onClick={() => setBackupOpen(true)}>
-                          <CloudServerOutlined />
-                          {!isMobile && <span>{t('pages.index.backupTitle')}</span>}
-                        </Space>,
-                      ]}
-                    />
-                  </Col>
-
-                  <Col xs={24} lg={12}>
-                    <Card
                       title={
                         <Space>
                           <span>OUI</span>
@@ -413,121 +384,67 @@ export default function IndexPage() {
                     />
                   </Col>
 
-                  <Col xs={24} lg={12}>
+                  <Col span={24}>
                     <Card
-                      title={t('pages.index.charts')}
+                      title={t('menu.link')}
                       hoverable
                       actions={[
-                        <Space
-                          className="action"
-                          key="sys-history"
-                          onClick={() => setSysHistoryOpen(true)}
-                        >
+                        <Space className="action" key="logs" onClick={() => setLogsOpen(true)}>
+                          <BarsOutlined />
+                          {!isMobile && <span>{t('pages.index.logs')}</span>}
+                        </Space>,
+                        <Space className="action" key="config" onClick={openConfig}>
+                          <ControlOutlined />
+                          {!isMobile && <span>{t('pages.index.config')}</span>}
+                        </Space>,
+                        <Space className="action" key="backup" onClick={() => setBackupOpen(true)}>
+                          <CloudServerOutlined />
+                          {!isMobile && <span>{t('pages.index.backupTitle')}</span>}
+                        </Space>,
+                        <Space className="action" key="sys-history" onClick={() => setSysHistoryOpen(true)}>
                           <AreaChartOutlined />
                           {!isMobile && <span>{t('pages.index.systemHistoryTitle')}</span>}
                         </Space>,
-                        <Space
-                          className="action"
-                          key="xray-metrics"
-                          onClick={() => setXrayMetricsOpen(true)}
-                        >
-                          <AreaChartOutlined />
+                        <Space className="action" key="xray-metrics" onClick={() => setXrayMetricsOpen(true)}>
+                          <LineChartOutlined />
                           {!isMobile && <span>{t('pages.index.xrayMetricsTitle')}</span>}
                         </Space>,
                       ]}
                     />
                   </Col>
 
-                  <Col xs={24} lg={12}>
-                    <Card title={t('pages.index.operationHours')} hoverable>
-                      <Row gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={12}>
-                          <Statistic
-                            title="Xray"
-                            value={TimeFormatter.formatSecond(status.appStats.uptime)}
-                            prefix={<ThunderboltOutlined />}
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title="OS"
-                            value={TimeFormatter.formatSecond(status.uptime)}
-                            prefix={<DesktopOutlined />}
-                          />
-                        </Col>
-                      </Row>
+                  <Col xs={24} xl={16}>
+                    <Card hoverable className="index-stats-card">
+                      <div className="index-stats-grid">
+                        <section>
+                          <h4>{t('pages.index.operationHours')}</h4>
+                          <div className="index-stat"><span>Xray</span><strong>{TimeFormatter.formatSecond(status.appStats.uptime)}</strong></div>
+                          <div className="index-stat"><span>OS</span><strong>{TimeFormatter.formatSecond(status.uptime)}</strong></div>
+                        </section>
+                        <section>
+                          <h4>{t('usage')}</h4>
+                          <div className="index-stat"><span>{t('pages.index.memory')}</span><strong>{SizeFormatter.sizeFormat(status.appStats.mem)}</strong></div>
+                          <div className="index-stat"><span>{t('pages.index.threads')}</span><strong>{status.appStats.threads}</strong></div>
+                        </section>
+                        <section>
+                          <h4>{t('pages.index.totalData')}</h4>
+                          <div className="index-stat"><span>{t('pages.index.sent')}</span><strong>{SizeFormatter.sizeFormat(status.netTraffic.sent)}</strong></div>
+                          <div className="index-stat"><span>{t('pages.index.received')}</span><strong>{SizeFormatter.sizeFormat(status.netTraffic.recv)}</strong></div>
+                        </section>
+                        <section>
+                          <h4>{t('pages.index.connectionCount')}</h4>
+                          <div className="index-stat"><span>TCP</span><strong>{status.tcpCount}</strong></div>
+                          <div className="index-stat"><span>UDP</span><strong>{status.udpCount}</strong></div>
+                        </section>
+                      </div>
                     </Card>
                   </Col>
 
-                  <Col xs={24} lg={12}>
-                    <Card title={t('usage')} hoverable>
-                      <Row gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.memory')}
-                            value={SizeFormatter.sizeFormat(status.appStats.mem)}
-                            prefix={<DatabaseOutlined />}
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.threads')}
-                            value={status.appStats.threads}
-                            prefix={<ForkOutlined />}
-                          />
-                        </Col>
-                      </Row>
-                    </Card>
-                  </Col>
-
-                  <Col xs={24} lg={12}>
-                    <Card title={t('pages.index.overallSpeed')} hoverable>
-                      <Row gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.upload')}
-                            value={SizeFormatter.sizeFormat(status.netIO.up)}
-                            prefix={<ArrowUpOutlined />}
-                            suffix="/s"
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.download')}
-                            value={SizeFormatter.sizeFormat(status.netIO.down)}
-                            prefix={<ArrowDownOutlined />}
-                            suffix="/s"
-                          />
-                        </Col>
-                      </Row>
-                    </Card>
-                  </Col>
-
-                  <Col xs={24} lg={12}>
-                    <Card title={t('pages.index.totalData')} hoverable>
-                      <Row gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.sent')}
-                            value={SizeFormatter.sizeFormat(status.netTraffic.sent)}
-                            prefix={<CloudUploadOutlined />}
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title={t('pages.index.received')}
-                            value={SizeFormatter.sizeFormat(status.netTraffic.recv)}
-                            prefix={<CloudDownloadOutlined />}
-                          />
-                        </Col>
-                      </Row>
-                    </Card>
-                  </Col>
-
-                  <Col xs={24} lg={12}>
+                  <Col xs={24} xl={8}>
                     <Card
                       title={t('pages.index.ipAddresses')}
                       hoverable
+                      className="index-ip-card"
                       extra={
                         <Tooltip
                           title={t('pages.index.toggleIpVisibility')}
@@ -547,43 +464,10 @@ export default function IndexPage() {
                         </Tooltip>
                       }
                     >
-                      <Row className={showIp ? 'ip-visible' : 'ip-hidden'} gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={isMobile ? 24 : 12}>
-                          <Statistic
-                            title="IPv4"
-                            value={status.publicIP.ipv4}
-                            prefix={<GlobalOutlined />}
-                          />
-                        </Col>
-                        <Col span={isMobile ? 24 : 12}>
-                          <Statistic
-                            title="IPv6"
-                            value={status.publicIP.ipv6}
-                            prefix={<GlobalOutlined />}
-                          />
-                        </Col>
-                      </Row>
-                    </Card>
-                  </Col>
-
-                  <Col xs={24} lg={12}>
-                    <Card title={t('pages.index.connectionCount')} hoverable>
-                      <Row gutter={isMobile ? [8, 8] : 0}>
-                        <Col span={12}>
-                          <Statistic
-                            title="TCP"
-                            value={status.tcpCount}
-                            prefix={<SwapOutlined />}
-                          />
-                        </Col>
-                        <Col span={12}>
-                          <Statistic
-                            title="UDP"
-                            value={status.udpCount}
-                            prefix={<SwapOutlined />}
-                          />
-                        </Col>
-                      </Row>
+                      <div className={showIp ? 'ip-visible' : 'ip-hidden'}>
+                        <div className="index-stat"><span>IPv4</span><strong className="ip-value">{status.publicIP.ipv4}</strong></div>
+                        <div className="index-stat"><span>IPv6</span><strong className="ip-value">{status.publicIP.ipv6}</strong></div>
+                      </div>
                     </Card>
                   </Col>
                 </Row>
