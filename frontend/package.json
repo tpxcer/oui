@@ -34,7 +34,7 @@
     "persian-calendar-suite": "^1.5.5",
     "qs": "^6.15.2",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react-dom": "^19.3.0",
     "react-i18next": "^17.0.8",
     "react-router-dom": "^7.18.4",
     "recharts": "^3.8.1",
@@ -43,7 +43,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
