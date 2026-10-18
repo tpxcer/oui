@@ -1556,10 +1556,10 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 	}
 	sni := t.defaultQuickSNI()
 	sniffing, err := marshalString(map[string]any{
-		"enabled":      false,
-		"destOverride": []string{"http", "tls", "quic", "fakedns"},
+		"enabled":      true,
+		"destOverride": []string{"http", "tls", "quic"},
 		"metadataOnly": false,
-		"routeOnly":    false,
+		"routeOnly":    true,
 	})
 	if err != nil {
 		return nil, "", err
