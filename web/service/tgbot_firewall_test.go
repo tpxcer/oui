@@ -1,6 +1,7 @@
 package service
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestAddPortToNftDportRuleInsertsBeforeDrop(t *testing.T) {
 }
 
 func TestQuickHysteriaClientGeneratesUUIDAndAuth(t *testing.T) {
-	client := quickHysteriaClient("hy2", "auth-token", true)
+	client := quickHysteriaClient("auth-token", true)
 
 	if client.ID == "" {
 		t.Fatal("expected Hysteria2 quick client UUID to be generated")
@@ -79,18 +80,18 @@ func TestQuickHysteriaClientGeneratesUUIDAndAuth(t *testing.T) {
 	if client.Auth != "auth-token" {
 		t.Fatalf("auth = %q, want auth-token", client.Auth)
 	}
-	if !strings.HasPrefix(client.Email, "hy2-") {
-		t.Fatalf("email = %q, want hy2-*", client.Email)
+	if !regexp.MustCompile(`^[a-z0-9]{6}$`).MatchString(client.Email) {
+		t.Fatalf("email = %q, want a six-character lowercase alphanumeric name", client.Email)
 	}
 }
 
 func TestQuickClientSkipsSubIDWhenSubscriptionDisabled(t *testing.T) {
-	client := quickClient("vless", uuid.NewString(), "", "", false)
+	client := quickClient(uuid.NewString(), "", "", false)
 	if client.SubID != "" {
 		t.Fatalf("subId = %q, want empty when subscription is disabled", client.SubID)
 	}
 
-	enabled := quickClient("vless", uuid.NewString(), "", "", true)
+	enabled := quickClient(uuid.NewString(), "", "", true)
 	if enabled.SubID == "" {
 		t.Fatal("expected subId when subscription is enabled")
 	}

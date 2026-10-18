@@ -1198,7 +1198,6 @@ type tgQuickPreset struct {
 	Label       string
 	Remark      string
 	Protocol    model.Protocol
-	EmailPrefix string
 	NeedTLSCert bool
 	Transport   string
 }
@@ -1209,34 +1208,30 @@ var tgQuickPresets = map[string]tgQuickPreset{
 		Label:       "Hysteria2",
 		Remark:      "HY2",
 		Protocol:    model.Hysteria,
-		EmailPrefix: "hy2",
 		NeedTLSCert: true,
 		Transport:   "udp",
 	},
 	"vlessReality": {
-		Key:         "vlessReality",
-		Label:       "VLESS Reality Vision",
-		Remark:      "Reality",
-		Protocol:    model.VLESS,
-		EmailPrefix: "reality",
-		Transport:   "tcp",
+		Key:       "vlessReality",
+		Label:     "VLESS Reality Vision",
+		Remark:    "Reality",
+		Protocol:  model.VLESS,
+		Transport: "tcp",
 	},
 	"vlessXhttpTls": {
 		Key:         "vlessXhttpTls",
 		Label:       "VLESS XHTTP TLS",
 		Remark:      "XHTTP-TLS",
 		Protocol:    model.VLESS,
-		EmailPrefix: "xhttp-tls",
 		NeedTLSCert: true,
 		Transport:   "tcp",
 	},
 	"vlessXhttpReality": {
-		Key:         "vlessXhttpReality",
-		Label:       "VLESS XHTTP Reality",
-		Remark:      "XHTTP-Reality",
-		Protocol:    model.VLESS,
-		EmailPrefix: "xhttp-reality",
-		Transport:   "tcp",
+		Key:       "vlessXhttpReality",
+		Label:     "VLESS XHTTP Reality",
+		Remark:    "XHTTP-Reality",
+		Protocol:  model.VLESS,
+		Transport: "tcp",
 	},
 }
 
@@ -1405,12 +1400,12 @@ func marshalString(v any) (string, error) {
 	return string(b), nil
 }
 
-func quickClient(emailPrefix string, id string, auth string, flow string, subscriptionEnable bool) model.Client {
+func quickClient(id string, auth string, flow string, subscriptionEnable bool) model.Client {
 	client := model.Client{
 		ID:         id,
 		Flow:       flow,
 		Auth:       auth,
-		Email:      fmt.Sprintf("%s-%s", emailPrefix, randomStringFromCrypto(6)),
+		Email:      randomStringFromCrypto(6),
 		LimitIP:    0,
 		TotalGB:    0,
 		ExpiryTime: 0,
@@ -1424,8 +1419,8 @@ func quickClient(emailPrefix string, id string, auth string, flow string, subscr
 	return client
 }
 
-func quickHysteriaClient(emailPrefix string, auth string, subscriptionEnable bool) model.Client {
-	return quickClient(emailPrefix, uuid.NewString(), auth, "", subscriptionEnable)
+func quickHysteriaClient(auth string, subscriptionEnable bool) model.Client {
+	return quickClient(uuid.NewString(), auth, "", subscriptionEnable)
 }
 
 func randomStringFromCrypto(length int) string {
@@ -1581,7 +1576,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 		}
 		tlsSettings["alpn"] = []string{"h3"}
 		auth := t.randomLowerAndNum(16)
-		client := quickHysteriaClient(preset.EmailPrefix, auth, subscriptionEnable)
+		client := quickHysteriaClient(auth, subscriptionEnable)
 		email = client.Email
 		settings = map[string]any{
 			"version": 2,
@@ -1602,7 +1597,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 			},
 		}
 	case "vlessReality":
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "xtls-rprx-vision", subscriptionEnable)
+		client := quickClient(uuid.NewString(), "", "xtls-rprx-vision", subscriptionEnable)
 		email = client.Email
 		realitySettings, err := t.quickRealitySettings()
 		if err != nil {
@@ -1624,7 +1619,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 		if err != nil {
 			return nil, "", err
 		}
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "", subscriptionEnable)
+		client := quickClient(uuid.NewString(), "", "", subscriptionEnable)
 		email = client.Email
 		decryption, encryption := t.quickVlessEncryption()
 		settings = map[string]any{
@@ -1651,7 +1646,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 			},
 		}
 	case "vlessXhttpReality":
-		client := quickClient(preset.EmailPrefix, uuid.NewString(), "", "", subscriptionEnable)
+		client := quickClient(uuid.NewString(), "", "", subscriptionEnable)
 		email = client.Email
 		realitySettings, err := t.quickRealitySettings()
 		if err != nil {
@@ -1698,7 +1693,7 @@ func (t *Tgbot) buildQuickInbound(key string, subscriptionEnable bool) (*model.I
 		Up:             0,
 		Down:           0,
 		Total:          0,
-		Remark:         quickInboundRemark(t.quickRegionGeo(), preset.Remark, port),
+		Remark:         quickInboundRemark(t.quickRegionGeo(), preset.Remark, email),
 		Enable:         true,
 		ExpiryTime:     0,
 		TgOnlineNotify: false,
@@ -1727,13 +1722,16 @@ func (t *Tgbot) quickRegionGeo() NodeGeoLocation {
 	return t.serverService.LookupIPAttribution(ctx, ip)
 }
 
-func quickRegionName(geo NodeGeoLocation) string {
-	for _, part := range []string{geo.City, geo.Province, geo.Country} {
-		if name := strings.TrimSuffix(strings.TrimSpace(part), "市"); name != "" {
-			return name
-		}
+func quickCountryName(geo NodeGeoLocation) string {
+	switch quickRegionCode(geo) {
+	case "TW":
+		return "台湾"
+	case "HK":
+		return "香港"
+	case "MO":
+		return "澳门"
 	}
-	return ""
+	return strings.TrimSpace(geo.Country)
 }
 
 // quickRegionCode returns the ISO region code used for the flag. Chinese
@@ -1763,14 +1761,14 @@ func countryFlag(code string) string {
 	return string([]rune{rune(code[0]-'A') + 0x1F1E6, rune(code[1]-'A') + 0x1F1E6})
 }
 
-// quickInboundRemark builds names such as "🇺🇸 洛杉矶-Reality-52171"; the flag
-// and region are omitted when unknown.
-func quickInboundRemark(geo NodeGeoLocation, typeName string, port int) string {
+// quickInboundRemark builds names such as "🇺🇸 美国-Reality-dyv675"; the flag
+// and country are omitted when unknown.
+func quickInboundRemark(geo NodeGeoLocation, typeName string, email string) string {
 	parts := make([]string, 0, 3)
-	if region := quickRegionName(geo); region != "" {
-		parts = append(parts, region)
+	if country := quickCountryName(geo); country != "" {
+		parts = append(parts, country)
 	}
-	parts = append(parts, typeName, strconv.Itoa(port))
+	parts = append(parts, typeName, email)
 	name := strings.Join(parts, "-")
 	if flag := countryFlag(quickRegionCode(geo)); flag != "" {
 		return flag + " " + name
