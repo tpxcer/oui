@@ -1,6 +1,11 @@
 package xray
 
 import (
+	"context"
+	"github.com/xtls/xray-core/app/proxyman/command"
+	"github.com/xtls/xray-core/proxy/shadowsocks"
+	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
+	"google.golang.org/grpc"
 	"strings"
 	"testing"
 )
@@ -78,5 +83,54 @@ func TestGetOptionalUserString_WrongTypeErrors(t *testing.T) {
 	user := map[string]any{"flow": []string{"a", "b"}}
 	if _, err := getOptionalUserString(user, "flow"); err == nil {
 		t.Fatal("expected error for non-string optional value")
+	}
+}
+
+// Capture the protobuf sent to the existing external core, rather than requiring a live server.
+type captureUserHandler struct {
+	command.HandlerServiceClient
+	request *command.AlterInboundRequest
+}
+
+func (h *captureUserHandler) AlterInbound(_ context.Context, req *command.AlterInboundRequest, _ ...grpc.CallOption) (*command.AlterInboundResponse, error) {
+	h.request = req
+	return &command.AlterInboundResponse{}, nil
+}
+func TestAddShadowsocksUserAccountCompatibility(t *testing.T) {
+	for _, cipher := range []string{"aes-256-gcm", "chacha20-poly1305", "xchacha20-poly1305", "2022-blake3-aes-128-gcm"} {
+		t.Run(cipher, func(t *testing.T) {
+			capture := &captureUserHandler{}
+			var handler command.HandlerServiceClient = capture
+			api := &XrayAPI{HandlerServiceClient: &handler}
+			if err := api.AddUser("shadowsocks", "test-inbound", map[string]any{"email": "test-only-user", "password": "test-only-password", "cipher": cipher}); err != nil {
+				t.Fatal(err)
+			}
+			if capture.request == nil || capture.request.Tag != "test-inbound" {
+				t.Fatal("missing inbound operation")
+			}
+			raw, err := capture.request.Operation.GetInstance()
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation, ok := raw.(*command.AddUserOperation)
+			if !ok || operation.User.Email != "test-only-user" {
+				t.Fatal("invalid add-user operation")
+			}
+			account, err := operation.User.Account.GetInstance()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(cipher, "2022-") {
+				value, ok := account.(*shadowsocks_2022.ServerConfig)
+				if !ok || value.Key != "test-only-password" {
+					t.Fatal("2022 account changed")
+				}
+			} else {
+				value, ok := account.(*shadowsocks.Account)
+				if !ok || value.Password != "test-only-password" || value.CipherType == shadowsocks.CipherType_UNKNOWN {
+					t.Fatal("AEAD account changed")
+				}
+			}
+		})
 	}
 }

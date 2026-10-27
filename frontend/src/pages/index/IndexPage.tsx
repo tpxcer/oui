@@ -49,6 +49,7 @@ import {
 } from '@/lib/panelUpdate';
 import StatusCard from './StatusCard';
 import XrayStatusCard from './XrayStatusCard';
+import MigrationNotice from './MigrationNotice';
 const JsonEditor = lazy(() => import('@/components/JsonEditor'));
 const LogModal = lazy(() => import('./LogModal'));
 const BackupModal = lazy(() => import('./BackupModal'));
@@ -341,6 +342,9 @@ export default function IndexPage() {
                 <div className="loading-spacer" />
               ) : (
                 <Row gutter={[isMobile ? 8 : 16, 12]}>
+                  <Col span={24}>
+                    <MigrationNotice />
+                  </Col>
                   <Col span={24}>
                     <StatusCard status={status} isMobile={isMobile} />
                   </Col>
